@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}{{ account.name }} — Avito Autoload{% endblock %}
+{% block content %}
+<h1>{{ account.name }}</h1>
+<div class="actions">
+    <a href="/accounts/{{ account.id }}/edit" class="btn btn-secondary">Редактировать</a>
+    <a href="/accounts" class="btn btn-secondary">Назад</a>
+</div>
+<div class="card">
+    <table>
+        <tr><th width="200">ID</th><td>{{ account.id }}</td></tr>
+        <tr><th>Client ID</th><td>{{ account.client_id or "—" }}</td></tr>
+        <tr><th>Телефон</th><td>{{ account.phone or "—" }}</td></tr>
+        <tr><th>Адрес</th><td>{{ account.address or "—" }}</td></tr>
+        <tr><th>Autoload</th><td>{{ "Да" if account.autoload_enabled else "Нет" }}</td></tr>
+        <tr><th>Email отчетов</th><td>{{ account.report_email or "—" }}</td></tr>
+        <tr><th>Расписание</th><td>{{ account.schedule or "—" }}</td></tr>
+        <tr><th>Фид</th><td><a href="/feeds/{{ account.id }}.xml" target="_blank">/feeds/{{ account.id }}.xml</a></td></tr>
+        <tr><th>Создан</th><td>{{ account.created_at.strftime("%d.%m.%Y %H:%M") }}</td></tr>
+    </table>
+</div>
+
+<h2 style="margin-top:20px;margin-bottom:12px;">Avito Autoload</h2>
+<div class="card">
+    <div class="actions">
+        <button id="btn-update-profile" class="btn btn-primary"
+                onclick="updateProfile({{ account.id }})">
+            Обновить профиль автозагрузки
+        </button>
+        <form method="post" action="/accounts/{{ account.id }}/autoload/upload">
+            <button class="btn btn-success" type="submit">Запустить upload</button>
+        </form>
+        <form method="post" action="/feeds/{{ account.id }}/generate">
+            <button class="btn btn-secondary" type="submit">Сгенерировать фид</button>
+        </form>
+        <form method="post" action="/reports/fetch/{{ account.id }}">
+            <button class="btn btn-secondary" type="submit">Загрузить отчеты</button>
+        </form>
+    </div>
+    <div id="profile-status" style="margin-top:12px;display:none;"></div>
+</div>
+
+<div id="toast" style="display:none;position:fixed;bottom:24px;right:24px;padding:14px 20px;border-radius:8px;font-size:14px;max-width:500px;z-index:1000;box-shadow:0 4px 12px rgba(0,0,0,0.15);"></div>
+
+<script>
+function showToast(message, isError) {
+    const t = document.getElementById('toast');
+    t.textContent = message;
+    t.style.display = 'block';
+    t.style.background = isError ? '#fee2e2' : '#dcfce7';
+    t.style.color = isError ? '#991b1b' : '#166534';
+    setTimeout(() => { t.style.display = 'none'; }, 8000);
+}
+
+function showStatus(html) {
+    const el = document.getElementById('profile-status');
+    el.innerHTML = html;
+    el.style.display = 'block';
+}
+
+async function updateProfile(accountId) {
+    const feedUrl = '{{ base_url }}/feeds/{{ account.id }}.xml';
+    if (!confirm('Обновить URL фида в Avito на:\n' + feedUrl + ' ?')) return;
+
+    const btn = document.getElementById('btn-update-profile');
+    btn.disabled = true;
+    btn.textContent = 'Обновление...';
+    showStatus('<span style="color:#854d0e;">Отправляю запрос в Avito API...</span>');
+
+    try {
+        const resp = await fetch('/accounts/' + accountId + '/autoload/update-profile', { method: 'POST' });
+        const data = await resp.json();
+
+        if (data.ok) {
+            showToast('Профиль обновлён! URL фида: ' + (data.feed_url || feedUrl), false);
+            showStatus('<div class="flash flash-success">Профиль обновлён. URL: <b>' + (data.feed_url || feedUrl) + '</b></div>');
+            btn.textContent = 'Обновить профиль автозагрузки';
+            btn.disabled = false;
+        } else {
+            showToast(data.error || 'Ошибка обновления', true);
+            showStatus('<div class="flash flash-error">' + (data.error || 'Ошибка') + '</div>');
+            btn.textContent = 'Обновить профиль автозагрузки';
+            btn.disabled = false;
+        }
+    } catch (e) {
+        showToast('Ошибка сети: ' + e.message, true);
+        showStatus('<div class="flash flash-error">Ошибка сети: ' + e.message + '</div>');
+        btn.textContent = 'Обновить профиль автозагрузки';
+        btn.disabled = false;
+    }
+}
+</script>
+{% endblock %}

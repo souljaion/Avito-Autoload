@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Отчеты — Avito Autoload{% endblock %}
+{% block content %}
+<h1>Отчеты Autoload</h1>
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Аккаунт</th>
+                <th>Avito ID</th>
+                <th>Статус</th>
+                <th>Всего</th>
+                <th>Применено</th>
+                <th>Отклонено</th>
+                <th>Дата</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in reports %}
+            <tr>
+                <td>{{ r.id }}</td>
+                <td>{{ r.account.name if r.account else r.account_id }}</td>
+                <td>{{ r.avito_report_id or "—" }}</td>
+                <td>
+                    {% if r.status == "done" or r.status == "completed" %}
+                        <span class="badge badge-green">{{ r.status }}</span>
+                    {% elif r.status == "processing" %}
+                        <span class="badge badge-yellow">{{ r.status }}</span>
+                    {% else %}
+                        <span class="badge badge-gray">{{ r.status }}</span>
+                    {% endif %}
+                </td>
+                <td>{{ r.total_ads }}</td>
+                <td>{{ r.applied_ads }}</td>
+                <td>{{ r.declined_ads }}</td>
+                <td>{{ r.created_at.strftime("%d.%m.%Y %H:%M") }}</td>
+                <td><a href="/reports/{{ r.id }}" class="btn btn-secondary btn-sm">Детали</a></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="9">Нет отчетов. Загрузите отчеты со страницы аккаунта.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

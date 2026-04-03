@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(sudo journalctl:*)",
+      "Bash(systemctl status:*)",
+      "Bash(ls:*)",
+      "Bash(sudo systemctl:*)",
+      "Bash(systemctl restart:*)",
+      "Bash(source venv/bin/activate)",
+      "Bash(alembic revision:*)",
+      "Bash(alembic upgrade:*)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:gist.github.com)",
+      "Bash(curl -s https://gist.githubusercontent.com/dialapus/7949225cfd406cd8250762de524c151b/raw)",
+      "Bash(python -c \"from app.main import app; print\\(''OK''\\)\")",
+      "Bash(python -c \":*)",
+      "Bash(alembic current:*)",
+      "Bash(alembic heads:*)",
+      "Bash(python -c \"from app.main import app; print\\(''import OK''\\)\")",
+      "Bash(curl:*)",
+      "Bash(pip install:*)"
+    ]
+  }
+}

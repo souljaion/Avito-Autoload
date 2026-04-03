@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}Listing #{{ listing.id }} — {{ product.title }}{% endblock %}
+{% block content %}
+<style>
+.img-grid { display:flex; gap:12px; flex-wrap:wrap; }
+.img-card { position:relative; width:150px; text-align:center; }
+.img-card img { width:150px; height:150px; object-fit:cover; border-radius:6px; background:var(--bg-elevated); }
+.img-card .img-remove { position:absolute; top:4px; right:4px; width:24px; height:24px; border-radius:50%;
+    background:rgba(0,0,0,0.7); color:#fca5a5; border:none; cursor:pointer; font-size:14px; line-height:24px; }
+.img-card .img-remove:hover { background:rgba(127,29,29,0.9); }
+.drop-zone { border:2px dashed var(--border); border-radius:8px; padding:24px; text-align:center;
+    color:var(--text-secondary); cursor:pointer; transition:all 0.2s; margin-top:12px; background:rgba(10,14,23,0.5); }
+.drop-zone:hover, .drop-zone.drag-over { border-color:rgba(59,130,246,0.4); background:rgba(59,130,246,0.05); color:var(--accent-blue); }
+.drop-zone input[type=file] { display:none; }
+.section-label { color:var(--text-secondary); font-size:12px; text-transform:uppercase; letter-spacing:0.5px; margin:20px 0 12px; }
+</style>
+
+<h1 style="font-size:18px;">{{ product.title }}</h1>
+<div class="actions">
+    <a href="/products" class="btn btn-secondary">Назад</a>
+    <span style="color:var(--text-muted);font-size:12px;">Listing #{{ listing.id }} / {{ listing.account.name if listing.account else '' }}</span>
+</div>
+
+<div class="card">
+    <form method="post" action="/listings/{{ listing.id }}/edit">
+        <div class="section-label">Товар</div>
+        <div class="grid-2">
+            <div class="field"><label>Название</label><input name="title" value="{{ product.title }}" required></div>
+            <div class="field"><label>Цена</label><input name="price" type="number" value="{{ product.price or '' }}"></div>
+            <div class="field"><label>Бренд</label><input name="brand" value="{{ product.brand or '' }}"></div>
+            <div class="field"><label>Цвет</label><input name="color" value="{{ product.color or '' }}"></div>
+        </div>
+        <div class="field"><label>Описание</label><textarea name="description">{{ product.description or '' }}</textarea></div>
+
+        <div class="section-label">Листинг</div>
+        <div class="grid-2">
+            <div class="field"><label>Аккаунт</label>
+                <select name="account_id">
+                    {% for acc in accounts %}
+                    <option value="{{ acc.id }}" {{ "selected" if listing.account_id == acc.id else "" }}>{{ acc.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="field"><label>Статус</label>
+                <select name="status">
+                    {% for s in ["draft", "scheduled", "published"] %}
+                    <option value="{{ s }}" {{ "selected" if listing.status == s else "" }}>{{ s }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="field"><label>Дата публикации</label>
+                <input type="datetime-local" name="scheduled_at"
+                    value="{{ listing.scheduled_at.strftime('%Y-%m-%dT%H:%M') if listing.scheduled_at else '' }}">
+            </div>
+        </div>
+
+        {% if listing.published_at %}
+        <div class="flash flash-success" style="margin:12px 0;">Опубликовано: {{ listing.published_at.strftime("%d.%m.%Y %H:%M") }}</div>
+        {% endif %}
+
+        <div class="actions" style="margin-top:16px;">
+            <button type="submit" class="btn btn-primary">Сохранить</button>
+        </div>
+    </form>
+</div>
+
+<div class="section-label">Фото</div>
+<div class="card">
+    <div class="img-grid" id="images-grid">
+        {% for img in listing.images|sort(attribute='order') %}
+        <div class="img-card" id="img-{{ img.id }}">
+            <img src="{{ img.file_path }}">
+            <button class="img-remove" onclick="deleteImg({{ img.id }})">&times;</button>
+        </div>
+        {% endfor %}
+    </div>
+    <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
+        <div style="font-size:24px;margin-bottom:6px;">+</div>
+        <div style="font-size:13px;">Перетащите фото или нажмите</div>
+        <input type="file" id="file-input" multiple accept="image/*">
+    </div>
+</div>
+
+<div id="toast" style="display:none;position:fixed;bottom:24px;right:24px;padding:14px 20px;border-radius:8px;font-size:14px;max-width:500px;z-index:1000;box-shadow:0 4px 12px rgba(0,0,0,0.3);"></div>
+
+<script>
+const LISTING_ID = {{ listing.id }};
+const grid = document.getElementById('images-grid');
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+
+function showToast(msg, isError) {
+    const t = document.getElementById('toast');
+    t.textContent = msg; t.style.display = 'block';
+    t.style.background = isError ? 'rgba(127,29,29,0.9)' : 'rgba(5,48,24,0.9)';
+    t.style.color = isError ? '#fca5a5' : '#34d399';
+    setTimeout(() => t.style.display = 'none', 5000);
+}
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('drag-over'); handleFiles(e.dataTransfer.files); });
+fileInput.addEventListener('change', () => { handleFiles(fileInput.files); fileInput.value = ''; });
+
+function handleFiles(fileList) { Array.from(fileList).filter(f => f.type.startsWith('image/')).forEach(uploadFile); }
+
+async function uploadFile(file) {
+    const fd = new FormData(); fd.append('files', file);
+    try {
+        const resp = await fetch('/listings/' + LISTING_ID + '/images', { method: 'POST', headers: { 'Accept': 'application/json' }, body: fd });
+        const data = await resp.json();
+        if (data.ok && data.images) {
+            for (const img of data.images) {
+                const card = document.createElement('div'); card.className = 'img-card'; card.id = 'img-' + img.id;
+                card.innerHTML = `<img src="${img.url}"><button class="img-remove" onclick="deleteImg(${img.id})">&times;</button>`;
+                grid.appendChild(card);
+            }
+        }
+    } catch (e) { showToast('Ошибка загрузки', true); }
+}
+
+async function deleteImg(imgId) {
+    if (!confirm('Удалить?')) return;
+    await fetch('/listings/' + LISTING_ID + '/images/' + imgId + '/delete', { method: 'POST', headers: { 'Accept': 'application/json' } });
+    document.getElementById('img-' + imgId)?.remove();
+}
+</script>
+{% endblock %}

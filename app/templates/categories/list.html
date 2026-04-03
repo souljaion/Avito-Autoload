@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Категории Avito — Avito Autoload{% endblock %}
+{% block content %}
+<h1>Категории Avito</h1>
+
+<div class="card">
+    <p style="margin-bottom:12px;">
+        Синхронизировано категорий: <strong>{{ total }}</strong>
+    </p>
+    <form method="post" action="/categories/sync-tree" style="display:flex;gap:8px;align-items:end;">
+        <div class="field" style="margin-bottom:0;flex:1;max-width:300px;">
+            <label>Аккаунт для синхронизации</label>
+            <select name="account_id" required>
+                <option value="">— Выберите —</option>
+                {% for acc in accounts %}
+                <option value="{{ acc.id }}">{{ acc.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <button type="submit" class="btn btn-primary">Загрузить дерево категорий</button>
+    </form>
+</div>
+
+{% if tree %}
+<div class="card">
+    <h2 style="margin-bottom:12px;">Дерево категорий</h2>
+    {% for root in tree %}
+    <details style="margin-bottom:8px;">
+        <summary style="cursor:pointer;font-weight:600;padding:6px 0;">
+            {{ root.cat.name }}
+            {% if root.cat.avito_id %}<span style="color:#999;font-weight:normal;">(id: {{ root.cat.avito_id }})</span>{% endif %}
+            {% if root.cat.slug %}<span style="color:#999;font-weight:normal;">[{{ root.cat.slug }}]</span>{% endif %}
+        </summary>
+        <div style="padding-left:20px;">
+            {% for child in root.children %}
+            <details style="margin:4px 0;">
+                <summary style="cursor:pointer;padding:4px 0;">
+                    {{ child.cat.name }}
+                    {% if child.cat.avito_id %}<span style="color:#999;">(id: {{ child.cat.avito_id }})</span>{% endif %}
+                    {% if child.cat.slug %}<span style="color:#999;">[{{ child.cat.slug }}]</span>{% endif %}
+                    {% if child.cat.fields_data %}<span class="badge badge-green">fields</span>{% endif %}
+                </summary>
+                <div style="padding-left:20px;">
+                    {% if child.children %}
+                    <div style="margin:4px 0;">
+                        {% for gc in child.children %}
+                        <div style="display:flex;align-items:center;gap:8px;padding:3px 0;">
+                            <span>{{ gc.cat.name }}
+                                {% if gc.cat.avito_id %}<span style="color:#999;">(id: {{ gc.cat.avito_id }})</span>{% endif %}
+                                {% if gc.cat.slug %}<span style="color:#999;">[{{ gc.cat.slug }}]</span>{% endif %}
+                                {% if gc.cat.fields_data and gc.cat.fields_data.get("_unavailable") %}
+                                    <span class="badge badge-gray">нет полей</span>
+                                {% elif gc.cat.fields_data %}
+                                    <span class="badge badge-green">fields</span>
+                                {% endif %}
+                            </span>
+                            {% if gc.cat.fields_data %}
+                            {# already loaded or marked unavailable — no button #}
+                            {% elif gc.cat.slug or gc.cat.avito_id %}
+                            <form method="post" action="/categories/sync-fields" style="display:inline-flex;gap:4px;align-items:center;">
+                                <input type="hidden" name="slug" value="{{ gc.cat.slug or gc.cat.name }}">
+                                <select name="account_id" required style="width:auto;padding:2px 6px;font-size:12px;">
+                                    {% for acc in accounts %}
+                                    <option value="{{ acc.id }}">{{ acc.name }}</option>
+                                    {% endfor %}
+                                </select>
+                                <button type="submit" class="btn btn-secondary btn-sm">Загрузить поля</button>
+                            </form>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% elif child.cat.fields_data and child.cat.fields_data.get("_unavailable") %}
+                    <span class="badge badge-gray">нет полей</span>
+                    {% elif child.cat.fields_data %}
+                    <span class="badge badge-green">fields</span>
+                    {% elif child.cat.slug or child.cat.avito_id %}
+                    <form method="post" action="/categories/sync-fields" style="margin-top:6px;display:flex;gap:6px;align-items:center;">
+                        <input type="hidden" name="slug" value="{{ child.cat.slug or child.cat.name }}">
+                        <select name="account_id" required style="width:auto;">
+                            {% for acc in accounts %}
+                            <option value="{{ acc.id }}">{{ acc.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <button type="submit" class="btn btn-secondary btn-sm">Загрузить поля</button>
+                    </form>
+                    {% endif %}
+                </div>
+            </details>
+            {% endfor %}
+        </div>
+    </details>
+    {% endfor %}
+</div>
+{% else %}
+<div class="card">
+    <p style="color:#666;">Категории ещё не загружены. Выберите аккаунт и нажмите «Загрузить дерево категорий».</p>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,289 @@
+{% extends "base.html" %}
+{% block title %}{{ product.title }} — Avito Autoload{% endblock %}
+{% block content %}
+<h1>{{ product.title }}</h1>
+<div class="actions">
+    <a href="/products/{{ product.id }}/edit" class="btn btn-secondary">Редактировать</a>
+    <a href="/products" class="btn btn-secondary">Назад</a>
+</div>
+<div class="card">
+    <table>
+        <tr><th width="200">ID</th><td>{{ product.id }}</td></tr>
+        <tr><th>SKU</th><td>{{ product.sku or "—" }}</td></tr>
+        <tr><th>Бренд</th><td>{{ product.brand or "—" }}</td></tr>
+        <tr><th>Модель</th><td>{{ product.model or "—" }}</td></tr>
+        <tr><th>Категория</th><td>{{ product.category or "—" }}</td></tr>
+        <tr><th>Тип товара</th><td>{{ product.goods_type or "—" }}</td></tr>
+        <tr><th>Вид (Apparel)</th><td>{{ product.subcategory or "—" }}</td></tr>
+        <tr><th>Подтип (GoodsSubType)</th><td>{{ product.goods_subtype or "—" }}</td></tr>
+        <tr><th>Размер</th><td>{{ product.size or "—" }}</td></tr>
+        <tr><th>Цвет</th><td>{{ product.color or "—" }}</td></tr>
+        <tr><th>Материал</th><td>{{ product.material or "—" }}</td></tr>
+        <tr><th>Состояние</th><td>{{ product.condition or "—" }}</td></tr>
+        <tr><th>Цена</th><td>{{ product.price or "—" }}</td></tr>
+        <tr><th>Тип объявления</th><td>{{ product.extra.ad_type if product.extra else "—" }}</td></tr>
+        <tr><th>Наличие</th><td>{{ product.extra.availability if product.extra else "—" }}</td></tr>
+        <tr><th>Доставка</th><td>{{ product.extra.delivery if product.extra else "—" }}</td></tr>
+        <tr><th>Субсидия</th><td>{{ product.extra.delivery_subsidy if product.extra else "—" }}</td></tr>
+        <tr><th>Несколько товаров</th><td>{{ product.extra.multi_item if product.extra else "—" }}</td></tr>
+        <tr><th>Примерка</th><td>{{ product.extra.try_on if product.extra else "—" }}</td></tr>
+        <tr><th>Статус</th><td>{{ product.status }}</td></tr>
+        <tr><th>Аккаунт</th><td>{{ product.account.name if product.account else "—" }}</td></tr>
+        <tr><th>Описание</th><td>{{ product.description or "—" }}</td></tr>
+    </table>
+</div>
+
+<h2 style="margin-top:20px;margin-bottom:12px;">Изображения</h2>
+
+<style>
+.img-grid { display:flex; gap:12px; flex-wrap:wrap; }
+.img-card { position:relative; text-align:center; width:150px; }
+.img-card img { width:150px; height:150px; object-fit:cover; border-radius:6px; background:#f0f0f0; }
+.img-card .img-actions { margin-top:6px; display:flex; gap:4px; justify-content:center; }
+.img-card .img-remove { position:absolute; top:4px; right:4px; width:24px; height:24px; border-radius:50%;
+    background:rgba(0,0,0,0.6); color:#fff; border:none; cursor:pointer; font-size:14px; line-height:24px; }
+.img-card .img-remove:hover { background:rgba(220,38,38,0.9); }
+.img-card .progress-bar { height:3px; background:#e5e7eb; border-radius:2px; margin-top:4px; overflow:hidden; }
+.img-card .progress-fill { height:100%; background:#3b82f6; width:0%; transition:width 0.2s; }
+.img-card.uploading { opacity:0.7; }
+.img-card.error img { border:2px solid #ef4444; }
+.img-card .error-text { font-size:11px; color:#991b1b; margin-top:2px; }
+
+.drop-zone { border:2px dashed #d1d5db; border-radius:8px; padding:32px; text-align:center;
+    color:#9ca3af; cursor:pointer; transition:all 0.2s; margin-top:12px; }
+.drop-zone:hover, .drop-zone.drag-over { border-color:#3b82f6; background:#eff6ff; color:#3b82f6; }
+.drop-zone input[type=file] { display:none; }
+</style>
+
+<!-- Existing images from DB -->
+<div class="card">
+    <div class="img-grid" id="images-grid">
+        {% for img in product.images %}
+        <div class="img-card" id="img-{{ img.id }}">
+            <img src="{{ img.url }}">
+            {% if img.is_main %}<div class="badge badge-green" style="margin-top:4px;">main</div>{% endif %}
+            <div class="img-actions">
+                {% if not img.is_main %}
+                <button class="btn btn-secondary btn-sm" onclick="setMain({{ img.id }})">Main</button>
+                {% endif %}
+                <button class="btn btn-danger btn-sm" onclick="deleteImg({{ img.id }})">X</button>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    {% if not product.images %}
+    <div id="no-images-msg" class="flash flash-error" style="margin-bottom:0;">
+        Нет изображений. Товар не будет корректно отображаться в Avito.
+    </div>
+    {% endif %}
+
+    <!-- Drop zone -->
+    <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
+        <div style="font-size:28px;margin-bottom:8px;">+</div>
+        <div>Перетащите фото сюда или нажмите для выбора</div>
+        <div style="font-size:12px;margin-top:4px;">JPG, PNG, WebP. Макс. 20 МБ на файл.</div>
+        <input type="file" id="file-input" multiple accept="image/*">
+    </div>
+</div>
+
+<div id="toast" style="display:none;position:fixed;bottom:24px;right:24px;padding:14px 20px;border-radius:8px;font-size:14px;max-width:500px;z-index:1000;box-shadow:0 4px 12px rgba(0,0,0,0.15);"></div>
+
+<script>
+const PRODUCT_ID = {{ product.id }};
+const grid = document.getElementById('images-grid');
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+let pendingFiles = new Map(); // uid -> { file, element }
+
+function showToast(msg, isError) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.style.display = 'block';
+    t.style.background = isError ? '#fee2e2' : '#dcfce7';
+    t.style.color = isError ? '#991b1b' : '#166534';
+    setTimeout(() => t.style.display = 'none', 5000);
+}
+
+function hideNoImagesMsg() {
+    const el = document.getElementById('no-images-msg');
+    if (el) el.remove();
+}
+
+// ── Drag & drop ──
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    handleFiles(e.dataTransfer.files);
+});
+fileInput.addEventListener('change', () => { handleFiles(fileInput.files); fileInput.value = ''; });
+
+function handleFiles(fileList) {
+    const files = Array.from(fileList).filter(f => f.type.startsWith('image/'));
+    if (!files.length) return;
+    hideNoImagesMsg();
+
+    for (const file of files) {
+        const uid = 'pending-' + Math.random().toString(36).slice(2, 10);
+        addPreview(uid, file);
+    }
+}
+
+function addPreview(uid, file) {
+    const card = document.createElement('div');
+    card.className = 'img-card';
+    card.id = uid;
+
+    const img = document.createElement('img');
+    img.alt = file.name;
+
+    // Read file for preview
+    const reader = new FileReader();
+    reader.onload = e => { img.src = e.target.result; };
+    reader.readAsDataURL(file);
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'img-remove';
+    removeBtn.textContent = '\u00d7';
+    removeBtn.onclick = () => {
+        pendingFiles.delete(uid);
+        card.remove();
+    };
+
+    const progressBar = document.createElement('div');
+    progressBar.className = 'progress-bar';
+    const progressFill = document.createElement('div');
+    progressFill.className = 'progress-fill';
+    progressBar.appendChild(progressFill);
+
+    const statusText = document.createElement('div');
+    statusText.style.cssText = 'font-size:11px;color:#999;margin-top:2px;';
+    statusText.textContent = 'В очереди...';
+
+    card.appendChild(img);
+    card.appendChild(removeBtn);
+    card.appendChild(progressBar);
+    card.appendChild(statusText);
+    grid.appendChild(card);
+
+    pendingFiles.set(uid, { file, card, progressFill, statusText, removeBtn });
+
+    // Start upload
+    uploadFile(uid);
+}
+
+async function uploadFile(uid) {
+    const entry = pendingFiles.get(uid);
+    if (!entry) return;
+
+    const { file, card, progressFill, statusText, removeBtn } = entry;
+    card.classList.add('uploading');
+    statusText.textContent = 'Загрузка...';
+    removeBtn.style.display = 'none';
+
+    const formData = new FormData();
+    formData.append('files', file);
+
+    try {
+        const xhr = new XMLHttpRequest();
+        const result = await new Promise((resolve, reject) => {
+            xhr.upload.onprogress = e => {
+                if (e.lengthComputable) {
+                    const pct = Math.round(e.loaded / e.total * 100);
+                    progressFill.style.width = pct + '%';
+                    statusText.textContent = pct + '%';
+                }
+            };
+            xhr.onload = () => {
+                if (xhr.status >= 200 && xhr.status < 400) {
+                    try { resolve(JSON.parse(xhr.responseText)); }
+                    catch { resolve({ ok: true }); }
+                } else {
+                    reject(new Error('HTTP ' + xhr.status));
+                }
+            };
+            xhr.onerror = () => reject(new Error('Сетевая ошибка'));
+            xhr.open('POST', '/products/' + PRODUCT_ID + '/images');
+            xhr.setRequestHeader('Accept', 'application/json');
+            xhr.send(formData);
+        });
+
+        // Success — replace preview with server image
+        card.classList.remove('uploading');
+        progressFill.style.width = '100%';
+        progressFill.style.background = '#22c55e';
+
+        if (result.ok && result.images && result.images.length > 0) {
+            const imgData = result.images[0];
+            card.querySelector('img').src = imgData.url;
+            card.id = 'img-' + imgData.id;
+
+            // Replace progress with action buttons
+            card.querySelector('.progress-bar').remove();
+            statusText.remove();
+
+            const actions = document.createElement('div');
+            actions.className = 'img-actions';
+            if (imgData.is_main) {
+                const badge = document.createElement('div');
+                badge.className = 'badge badge-green';
+                badge.style.marginTop = '4px';
+                badge.textContent = 'main';
+                card.insertBefore(badge, card.querySelector('.img-actions') || null);
+            }
+            actions.innerHTML = `
+                <button class="btn btn-secondary btn-sm" onclick="setMain(${imgData.id})">Main</button>
+                <button class="btn btn-danger btn-sm" onclick="deleteImg(${imgData.id})">X</button>
+            `;
+            removeBtn.remove();
+            card.appendChild(actions);
+        } else {
+            statusText.textContent = 'OK';
+            statusText.style.color = '#16a34a';
+            removeBtn.remove();
+        }
+        pendingFiles.delete(uid);
+
+    } catch (e) {
+        card.classList.remove('uploading');
+        card.classList.add('error');
+        progressFill.style.width = '100%';
+        progressFill.style.background = '#ef4444';
+        statusText.textContent = e.message;
+        statusText.className = 'error-text';
+        removeBtn.style.display = 'block';
+        removeBtn.onclick = () => { card.remove(); pendingFiles.delete(uid); };
+        showToast('Ошибка загрузки: ' + file.name, true);
+    }
+}
+
+// ── Existing image actions (AJAX) ──
+async function deleteImg(imgId) {
+    if (!confirm('Удалить изображение?')) return;
+    try {
+        await fetch('/products/' + PRODUCT_ID + '/images/' + imgId + '/delete', {
+            method: 'POST', headers: { 'Accept': 'application/json' }
+        });
+        const el = document.getElementById('img-' + imgId);
+        if (el) el.remove();
+        showToast('Изображение удалено', false);
+    } catch (e) {
+        showToast('Ошибка: ' + e.message, true);
+    }
+}
+
+async function setMain(imgId) {
+    try {
+        await fetch('/products/' + PRODUCT_ID + '/images/' + imgId + '/main', {
+            method: 'POST', headers: { 'Accept': 'application/json' }
+        });
+        // Reload to update badges
+        location.reload();
+    } catch (e) {
+        showToast('Ошибка: ' + e.message, true);
+    }
+}
+</script>
+{% endblock %}

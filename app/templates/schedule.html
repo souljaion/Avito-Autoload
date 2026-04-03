@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Расписание — Avito Autoload{% endblock %}
+{% block content %}
+<h1>Расписание публикаций</h1>
+
+<div id="table-card">
+    <div style="color:var(--text-muted);padding:32px;text-align:center;">Загрузка...</div>
+</div>
+
+<div id="toast" style="display:none;position:fixed;bottom:24px;right:24px;padding:14px 20px;border-radius:8px;font-size:14px;max-width:500px;z-index:1000;box-shadow:0 4px 12px rgba(0,0,0,0.3);"></div>
+
+<script>
+function showToast(msg, isError) { const t = document.getElementById('toast'); t.textContent = msg; t.style.display = 'block'; t.style.background = isError ? 'rgba(127,29,29,0.9)' : 'rgba(5,48,24,0.9)'; t.style.color = isError ? '#fca5a5' : '#34d399'; setTimeout(() => t.style.display = 'none', 5000); }
+function badge(s) { return `<span class="badge ${s==='scheduled'?'badge-yellow':s==='published'?'badge-green':'badge-gray'}">${s}</span>`; }
+
+function renderTable(items) {
+    const card = document.getElementById('table-card');
+    if (!items.length) { card.innerHTML = '<div style="color:var(--text-muted);padding:32px;text-align:center;">Нет запланированных публикаций</div>'; return; }
+    let html = '<table><thead><tr><th></th><th>Название</th><th>Аккаунт</th><th>Запланировано</th><th>Опубликовано</th><th>Статус</th><th></th></tr></thead><tbody>';
+    for (const i of items) {
+        const img = i.image ? `<img src="${i.image}" style="width:50px;height:50px;object-fit:cover;border-radius:6px;">` : `<div style="width:50px;height:50px;border-radius:6px;background:var(--bg-elevated);display:flex;align-items:center;justify-content:center;color:var(--text-muted);">?</div>`;
+        html += `<tr id="sched-row-${i.id}"><td>${img}</td><td><a href="/listings/${i.id}/edit">${i.title}</a></td><td><span class="badge badge-blue" style="font-size:10px;">${i.account||'—'}</span></td><td style="font-size:12px;color:var(--text-secondary);">${i.scheduled_at||'—'}</td><td style="font-size:12px;color:var(--text-secondary);">${i.published_at||'—'}</td><td>${badge(i.status)}</td>
+            <td>${i.status==='scheduled'?`<button class="btn btn-danger btn-sm" onclick="cancel(${i.id},event)">Отменить</button>`:''}</td></tr>`;
+    }
+    html += '</tbody></table>'; card.innerHTML = html;
+}
+
+async function cancel(id, event) {
+    event.stopPropagation();
+    if (!confirm('Отменить публикацию #' + id + '?')) return;
+    try { const resp = await fetch('/api/schedule/' + id + '/cancel', { method: 'POST' }); const data = await resp.json();
+        if (data.ok) { showToast('Отменено', false); document.getElementById('sched-row-' + id)?.remove(); }
+        else { showToast(data.error, true); }
+    } catch (e) { showToast('Ошибка', true); }
+}
+
+async function loadData() {
+    try { const resp = await fetch('/api/schedule'); const data = await resp.json(); renderTable(data.items || []); }
+    catch (e) { document.getElementById('table-card').innerHTML = '<div class="flash flash-error">Ошибка</div>'; }
+}
+
+document.addEventListener('DOMContentLoaded', loadData);
+setInterval(loadData, 30000);
+</script>
+{% endblock %}

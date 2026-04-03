@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Аккаунты — Avito Autoload{% endblock %}
+{% block content %}
+<h1>Аккаунты</h1>
+<div class="actions">
+    <a href="/accounts/new" class="btn btn-primary">Добавить аккаунт</a>
+</div>
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Название</th>
+                <th>Телефон</th>
+                <th>Autoload</th>
+                <th>Создан</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for acc in accounts %}
+            <tr>
+                <td>{{ acc.id }}</td>
+                <td><a href="/accounts/{{ acc.id }}">{{ acc.name }}</a></td>
+                <td>{{ acc.phone or "—" }}</td>
+                <td>
+                    {% if acc.autoload_enabled %}
+                        <span class="badge badge-green">Вкл</span>
+                    {% else %}
+                        <span class="badge badge-gray">Выкл</span>
+                    {% endif %}
+                </td>
+                <td>{{ acc.created_at.strftime("%d.%m.%Y") }}</td>
+                <td><a href="/accounts/{{ acc.id }}/edit" class="btn btn-secondary btn-sm">Ред.</a></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6">Нет аккаунтов</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

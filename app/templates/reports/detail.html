@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Отчет #{{ report.id }} — Avito Autoload{% endblock %}
+{% block content %}
+<h1>Отчет #{{ report.id }}</h1>
+<div class="actions">
+    <a href="/reports" class="btn btn-secondary">Назад</a>
+</div>
+
+<div class="card">
+    <table>
+        <tr><th width="200">Avito ID</th><td>{{ report.avito_report_id or "—" }}</td></tr>
+        <tr><th>Аккаунт</th><td>{{ report.account.name if report.account else report.account_id }}</td></tr>
+        <tr><th>Статус</th><td>{{ report.status }}</td></tr>
+        <tr><th>Всего объявлений</th><td>{{ report.total_ads }}</td></tr>
+        <tr><th>Применено</th><td>{{ report.applied_ads }}</td></tr>
+        <tr><th>Отклонено</th><td>{{ report.declined_ads }}</td></tr>
+        <tr><th>Дата</th><td>{{ report.created_at.strftime("%d.%m.%Y %H:%M") }}</td></tr>
+    </table>
+</div>
+
+<h2 style="margin-top:20px;margin-bottom:12px;">Объявления</h2>
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>Ad ID</th>
+                <th>Avito ID</th>
+                <th>Статус</th>
+                <th>Ссылка</th>
+                <th>Ошибки</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in report.items %}
+            <tr>
+                <td>{{ item.ad_id or "—" }}</td>
+                <td>{{ item.avito_id or "—" }}</td>
+                <td>
+                    {% if item.status == "applied" %}
+                        <span class="badge badge-green">{{ item.status }}</span>
+                    {% elif item.status == "declined" or item.status == "error" %}
+                        <span class="badge badge-red">{{ item.status }}</span>
+                    {% else %}
+                        <span class="badge badge-gray">{{ item.status }}</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if item.url %}<a href="{{ item.url }}" target="_blank">Открыть</a>{% else %}—{% endif %}
+                </td>
+                <td>{{ item.error_text or "—" }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5">Нет данных по объявлениям</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

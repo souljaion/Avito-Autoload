@@ -1,0 +1,265 @@
+{% extends "base.html" %}
+{% block title %}Массовое редактирование — Avito Autoload{% endblock %}
+{% block content %}
+<style>
+.bulk-toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:16px; padding:16px; background:var(--bg-surface); border:1px solid var(--border); border-radius:8px; }
+.bulk-toolbar .sep { border-left:1px solid var(--border); height:28px; }
+.cat-panel { background:var(--bg-surface); border:1px solid var(--border); border-radius:8px; padding:16px; margin-bottom:16px; }
+.cat-panel h3 { margin-bottom:12px; font-size:14px; }
+.thumb { width:50px; height:50px; object-fit:cover; border-radius:6px; background:var(--bg-elevated); }
+.no-thumb { width:50px; height:50px; border-radius:6px; background:var(--bg-elevated); display:flex; align-items:center; justify-content:center; color:var(--text-muted); font-size:16px; }
+.sel-count { font-size:13px; color:var(--text-secondary); min-width:100px; }
+td input[type="checkbox"] { width:16px; height:16px; cursor:pointer; }
+.desc-preview { max-width:250px; font-size:11px; color:var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.missing { color:#fbbf24; font-size:11px; }
+.filled { color:#34d399; font-size:11px; }
+#toast { display:none; position:fixed; bottom:24px; right:24px; padding:14px 20px; border-radius:8px; font-size:14px; max-width:500px; z-index:1001; box-shadow:0 4px 12px rgba(0,0,0,0.3); }
+.spinner { display:inline-block; width:14px; height:14px; border:2px solid #333; border-top-color:#60a5fa; border-radius:50%; animation:spin 0.6s linear infinite; vertical-align:middle; margin-right:6px; }
+@keyframes spin { to { transform:rotate(360deg); } }
+</style>
+
+<h1>Массовое редактирование драфтов <span class="badge badge-gray">{{ products|length }}</span></h1>
+
+<!-- Category assignment panel -->
+<div class="cat-panel">
+    <h3>Назначить категории выбранным</h3>
+    <div class="grid-2">
+        <div class="field">
+            <label>Категория (Category)</label>
+            <select id="bulk-category" onchange="updateBulkGoodsTypes()">
+                <option value="">— Выберите —</option>
+                {% for cat in categories %}
+                <option value="{{ cat }}">{{ cat }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="field">
+            <label>Тип товара (GoodsType)</label>
+            <select id="bulk-goods-type" onchange="updateBulkApparels()">
+                <option value="">— Выберите —</option>
+            </select>
+        </div>
+        <div class="field">
+            <label>Вид одежды/обуви (Apparel)</label>
+            <select id="bulk-subcategory" onchange="updateBulkGoodsSubtypes()">
+                <option value="">— Выберите —</option>
+            </select>
+        </div>
+        <div class="field">
+            <label>Подтип (GoodsSubType)</label>
+            <select id="bulk-goods-subtype">
+                <option value="">— Выберите —</option>
+            </select>
+        </div>
+    </div>
+</div>
+
+<!-- Action toolbar -->
+<div class="bulk-toolbar">
+    <button class="btn btn-secondary btn-sm" onclick="toggleAll()">Выбрать все</button>
+    <span class="sel-count" id="sel-count">Выбрано: 0</span>
+    <div class="sep"></div>
+    <button class="btn btn-primary btn-sm" onclick="applyCategories()">Применить категории</button>
+    <button class="btn btn-primary btn-sm" style="background:#1e3a5f;color:#60a5fa;" onclick="generateDescriptions()">Генерировать описания</button>
+    <button class="btn btn-success btn-sm" onclick="activateSelected()">Активировать выбранные</button>
+</div>
+
+<!-- Products table -->
+<div class="card" style="padding:0;">
+<table>
+    <thead>
+        <tr>
+            <th><input type="checkbox" id="check-all" onchange="toggleAll()"></th>
+            <th></th>
+            <th>Название</th>
+            <th>Бренд</th>
+            <th>Цена</th>
+            <th>Размер</th>
+            <th>Категория</th>
+            <th>Описание</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for p in products %}
+        <tr id="row-{{ p.id }}" data-id="{{ p.id }}">
+            <td><input type="checkbox" class="row-check" value="{{ p.id }}" onchange="updateCount()"></td>
+            <td>
+                {% if p.images and p.images|length > 0 %}
+                <img src="/media/products/{{ p.id }}/{{ p.images[0].filename }}" class="thumb">
+                {% elif p.image_url %}
+                <img src="{{ p.image_url }}" class="thumb">
+                {% else %}
+                <div class="no-thumb">?</div>
+                {% endif %}
+            </td>
+            <td><a href="/products/{{ p.id }}">{{ p.title }}</a></td>
+            <td style="color:var(--text-secondary);font-size:13px;">{{ p.brand or '—' }}</td>
+            <td>{{ p.price|default('—', true) }}</td>
+            <td style="font-size:13px;">{{ p.size or '—' }}</td>
+            <td>
+                {% if p.goods_type and p.subcategory %}
+                <span class="filled">{{ p.goods_type }} / {{ p.subcategory }}</span>
+                {% else %}
+                <span class="missing">не задана</span>
+                {% endif %}
+            </td>
+            <td>
+                {% if p.description %}
+                <span class="desc-preview filled" title="{{ p.description }}">{{ p.description[:60] }}...</span>
+                {% else %}
+                <span class="missing">нет</span>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const goodsTypes = {{ goods_types | tojson }};
+const apparels = {{ apparels | tojson }};
+const goodsSubtypes = {{ goods_subtypes | tojson }};
+
+function fillSelect(sel, items, savedVal) {
+    sel.innerHTML = '<option value="">— Выберите —</option>';
+    (items || []).forEach(function(val) {
+        const opt = document.createElement("option");
+        opt.value = val; opt.textContent = val;
+        if (val === savedVal) opt.selected = true;
+        sel.appendChild(opt);
+    });
+}
+
+function updateBulkGoodsTypes() {
+    const cat = document.getElementById("bulk-category").value;
+    fillSelect(document.getElementById("bulk-goods-type"), goodsTypes[cat], "");
+    updateBulkApparels();
+}
+function updateBulkApparels() {
+    const gt = document.getElementById("bulk-goods-type").value;
+    fillSelect(document.getElementById("bulk-subcategory"), apparels[gt], "");
+    updateBulkGoodsSubtypes();
+}
+function updateBulkGoodsSubtypes() {
+    const ap = document.getElementById("bulk-subcategory").value;
+    fillSelect(document.getElementById("bulk-goods-subtype"), goodsSubtypes[ap], "");
+}
+
+function getSelected() {
+    return Array.from(document.querySelectorAll('.row-check:checked')).map(cb => parseInt(cb.value));
+}
+
+function updateCount() {
+    const n = getSelected().length;
+    document.getElementById('sel-count').textContent = 'Выбрано: ' + n;
+    document.getElementById('check-all').checked = n === document.querySelectorAll('.row-check').length && n > 0;
+}
+
+function toggleAll() {
+    const boxes = document.querySelectorAll('.row-check');
+    const allChecked = getSelected().length === boxes.length;
+    boxes.forEach(cb => cb.checked = !allChecked);
+    document.getElementById('check-all').checked = !allChecked;
+    updateCount();
+}
+
+function showToast(msg, isError) {
+    const t = document.getElementById('toast');
+    t.textContent = msg; t.style.display = 'block';
+    t.style.background = isError ? 'rgba(127,29,29,0.9)' : 'rgba(5,48,24,0.9)';
+    t.style.color = isError ? '#fca5a5' : '#34d399';
+    setTimeout(() => t.style.display = 'none', 5000);
+}
+
+async function applyCategories() {
+    const ids = getSelected();
+    if (!ids.length) { showToast('Выберите товары', true); return; }
+
+    const category = document.getElementById('bulk-category').value;
+    const goods_type = document.getElementById('bulk-goods-type').value;
+    const subcategory = document.getElementById('bulk-subcategory').value;
+    const goods_subtype = document.getElementById('bulk-goods-subtype').value;
+
+    if (!goods_type || !subcategory) {
+        showToast('Выберите хотя бы GoodsType и Apparel', true);
+        return;
+    }
+
+    try {
+        const resp = await fetch('/products/bulk-categories', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ product_ids: ids, category, goods_type, subcategory, goods_subtype }),
+        });
+        const data = await resp.json();
+        if (data.ok) {
+            showToast('Категории обновлены: ' + data.updated + ' товаров', false);
+            // Update UI
+            ids.forEach(id => {
+                const cell = document.querySelector('#row-' + id + ' td:nth-child(7)');
+                if (cell) cell.innerHTML = '<span class="filled">' + goods_type + ' / ' + subcategory + '</span>';
+            });
+        } else {
+            showToast(data.error || 'Ошибка', true);
+        }
+    } catch (e) { showToast('Ошибка сети', true); }
+}
+
+async function generateDescriptions() {
+    const ids = getSelected();
+    if (!ids.length) { showToast('Выберите товары', true); return; }
+
+    const btn = event.target;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>Генерация...';
+
+    try {
+        const resp = await fetch('/products/bulk-descriptions', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ product_ids: ids }),
+        });
+        const data = await resp.json();
+        if (data.ok) {
+            showToast('Описания сгенерированы: ' + data.updated + ' товаров', false);
+            for (const item of (data.items || [])) {
+                const cell = document.querySelector('#row-' + item.id + ' td:nth-child(8)');
+                if (cell) cell.innerHTML = '<span class="desc-preview filled" title="' + item.description.replace(/"/g, '&quot;') + '">' + item.description.substring(0, 60) + '...</span>';
+            }
+        } else {
+            showToast(data.error || 'Ошибка', true);
+        }
+    } catch (e) { showToast('Ошибка сети', true); }
+    finally {
+        btn.disabled = false;
+        btn.innerHTML = 'Генерировать описания';
+    }
+}
+
+async function activateSelected() {
+    const ids = getSelected();
+    if (!ids.length) { showToast('Выберите товары', true); return; }
+
+    try {
+        const resp = await fetch('/products/bulk-activate', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ product_ids: ids }),
+        });
+        const data = await resp.json();
+        if (data.ok) {
+            showToast('Активировано: ' + data.activated + ', пропущено: ' + data.skipped + ' (не заполнены поля)', false);
+            for (const id of (data.activated_ids || [])) {
+                const row = document.getElementById('row-' + id);
+                if (row) row.style.opacity = '0.4';
+            }
+        } else {
+            showToast(data.error || 'Ошибка', true);
+        }
+    } catch (e) { showToast('Ошибка сети', true); }
+}
+</script>
+{% endblock %}

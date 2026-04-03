@@ -1,0 +1,228 @@
+{% extends "base.html" %}
+{% block title %}Товары — Avito Autoload{% endblock %}
+{% block content %}
+<style>
+.toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:16px; }
+.filter-btn { padding:6px 14px; border:1px solid var(--border); border-radius:6px; background:var(--bg-surface); color:var(--text-secondary); cursor:pointer; font-size:12px; transition:all 0.15s; }
+.filter-btn:hover { color:var(--text-primary); border-color:#374151; }
+.filter-btn.active { border-color:rgba(59,130,246,0.35); background:rgba(59,130,246,0.07); color:#60a5fa; }
+.thumb { width:50px; height:50px; object-fit:cover; border-radius:6px; background:var(--bg-elevated); }
+.no-thumb { width:50px; height:50px; border-radius:6px; background:var(--bg-elevated); display:flex; align-items:center; justify-content:center; color:var(--text-muted); font-size:16px; }
+.row-actions { display:flex; gap:4px; align-items:center; }
+.divider { border-left:1px solid var(--border); height:24px; margin:0 4px; }
+</style>
+
+<h1>Товары</h1>
+<div class="toolbar">
+    <a href="/products/new" class="btn btn-primary">+ Новый товар</a>
+    <button class="btn btn-primary" onclick="showImportDialog()" style="background:#1e3a5f;color:#60a5fa;">Импорт с Авито</button>
+    <div class="divider"></div>
+    <button class="filter-btn active" onclick="setFilter('active', this)">Все</button>
+    <button class="filter-btn" onclick="setFilter('scheduled', this)">Запланированные</button>
+    <button class="filter-btn" onclick="setFilter('draft', this)">Черновики</button>
+    <div class="divider"></div>
+    <select id="account-filter" onchange="loadData()" style="padding:6px 10px;background:var(--bg-surface);border:1px solid var(--border);color:var(--text-secondary);border-radius:6px;font-size:12px;">
+        <option value="">Все аккаунты</option>
+        {% for acc in accounts %}
+        <option value="{{ acc.id }}">{{ acc.name }}</option>
+        {% endfor %}
+    </select>
+</div>
+
+<div class="card" style="padding:0;border:none;background:transparent;" id="table-card">
+    <div style="color:var(--text-secondary);padding:32px;text-align:center;">Загрузка...</div>
+</div>
+
+<!-- Add listing modal -->
+<div id="modal-overlay" onclick="closeModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:999;"></div>
+<div id="add-modal" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--bg-surface);border:1px solid var(--border);border-radius:12px;padding:24px;min-width:400px;max-width:500px;z-index:1000;box-shadow:0 8px 30px rgba(0,0,0,0.4);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <h3 id="modal-title"></h3>
+        <button onclick="closeModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-secondary);">&times;</button>
+    </div>
+    <div id="modal-body"></div>
+</div>
+
+<!-- Import modal -->
+<div id="import-modal" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--bg-surface);border:1px solid var(--border);border-radius:12px;padding:24px;min-width:450px;max-width:600px;max-height:80vh;overflow-y:auto;z-index:1000;box-shadow:0 8px 30px rgba(0,0,0,0.4);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <h3 id="import-title">Импорт с Авито</h3>
+        <button onclick="closeImportModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-secondary);">&times;</button>
+    </div>
+    <div id="import-body"></div>
+</div>
+
+<div id="toast" style="display:none;position:fixed;bottom:24px;right:24px;padding:14px 20px;border-radius:8px;font-size:14px;max-width:500px;z-index:1001;box-shadow:0 4px 12px rgba(0,0,0,0.3);"></div>
+
+<script>
+const ACCOUNTS = {{ accounts | map(attribute='id') | list | tojson }};
+const ACCOUNT_NAMES = {{ accounts | map(attribute='name') | list | tojson }};
+let currentFilter = 'active';
+
+function showToast(msg, isError) {
+    const t = document.getElementById('toast');
+    t.textContent = msg; t.style.display = 'block';
+    t.style.background = isError ? 'rgba(127,29,29,0.9)' : 'rgba(5,48,24,0.9)';
+    t.style.color = isError ? '#fca5a5' : '#34d399';
+    setTimeout(() => t.style.display = 'none', 5000);
+}
+
+function badge(status) {
+    const map = { draft: 'badge-gray', scheduled: 'badge-yellow', published: 'badge-green' };
+    return `<span class="badge ${map[status] || 'badge-gray'}">${status}</span>`;
+}
+
+function closeModal() { document.getElementById('modal-overlay').style.display = 'none'; document.getElementById('add-modal').style.display = 'none'; }
+function closeImportModal() { document.getElementById('modal-overlay').style.display = 'none'; document.getElementById('import-modal').style.display = 'none'; }
+
+function setFilter(f, btn) {
+    currentFilter = f;
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    loadData();
+}
+
+async function loadData() {
+    const accId = document.getElementById('account-filter').value;
+    // "active" filter = show draft + scheduled (not published)
+    let url = '/api/listings?';
+    if (currentFilter === 'active') {
+        url += 'status=draft&';  // we'll merge below
+    } else {
+        url += 'status=' + currentFilter + '&';
+    }
+    if (accId) url += 'account_id=' + accId;
+
+    try {
+        let items = [];
+        if (currentFilter === 'active') {
+            // Fetch draft + scheduled
+            const [r1, r2] = await Promise.all([
+                fetch('/api/listings?status=draft' + (accId ? '&account_id=' + accId : '')),
+                fetch('/api/listings?status=scheduled' + (accId ? '&account_id=' + accId : '')),
+            ]);
+            const d1 = await r1.json();
+            const d2 = await r2.json();
+            items = [...(d1.items || []), ...(d2.items || [])];
+        } else {
+            const resp = await fetch(url);
+            const data = await resp.json();
+            items = data.items || [];
+        }
+        renderTable(items);
+    } catch (e) {
+        document.getElementById('table-card').innerHTML = '<div class="flash flash-error">Ошибка загрузки</div>';
+    }
+}
+
+function renderTable(items) {
+    const card = document.getElementById('table-card');
+    if (!items.length) {
+        card.innerHTML = '<div style="color:var(--text-secondary);padding:32px;text-align:center;">Нет листингов</div>';
+        return;
+    }
+
+    const groups = {};
+    for (const item of items) {
+        if (!groups[item.product_id]) groups[item.product_id] = [];
+        groups[item.product_id].push(item);
+    }
+
+    let html = '<table><thead><tr><th></th><th>Название</th><th>Аккаунт</th><th>Цена</th><th>Статус</th><th>Публикация</th><th></th></tr></thead><tbody>';
+    for (const [pid, group] of Object.entries(groups)) {
+        for (let i = 0; i < group.length; i++) {
+            const ls = group[i];
+            const img = ls.image
+                ? `<img src="${ls.image}" class="thumb">`
+                : ls.avito_id
+                    ? `<div class="no-thumb" style="background:var(--accent-blue-dim);color:#60a5fa;font-weight:700;font-size:18px;">A</div>`
+                    : `<div class="no-thumb">?</div>`;
+            const pubDate = ls.status === 'scheduled' ? (ls.scheduled_at || '') : ls.status === 'published' ? (ls.published_at || '') : '';
+
+            html += `<tr id="listing-row-${ls.id}">
+                <td>${img}</td>
+                <td>${i === 0 ? ls.title : '<span style="color:var(--text-muted);font-size:12px;">same product</span>'}</td>
+                <td><span class="badge badge-blue" style="font-size:10px;">${ls.account}</span></td>
+                <td style="color:var(--text-secondary);">${ls.price !== null ? ls.price.toLocaleString('ru-RU') : ''}</td>
+                <td>${badge(ls.status)}</td>
+                <td style="font-size:12px;color:var(--text-secondary);">${pubDate}</td>
+                <td><div class="row-actions">
+                    <a href="/listings/${ls.id}/edit" class="btn btn-secondary btn-sm">Ред.</a>
+                    <button class="btn btn-secondary btn-sm" onclick="showAddAccount(${ls.product_id}, '${ls.title.replace(/'/g, "\\'")}'); event.stopPropagation();">+ акк</button>
+                    <button class="btn btn-danger btn-sm" onclick="deleteListing(${ls.id}); event.stopPropagation();">&#128465;</button>
+                </div></td>
+            </tr>`;
+        }
+    }
+    html += '</tbody></table>';
+    card.innerHTML = html;
+}
+
+function showAddAccount(productId, title) {
+    document.getElementById('modal-overlay').style.display = 'block';
+    document.getElementById('add-modal').style.display = 'block';
+    document.getElementById('modal-title').textContent = '+ аккаунт: ' + title;
+    let opts = ACCOUNTS.map((id, i) => `<option value="${id}">${ACCOUNT_NAMES[i]}</option>`).join('');
+    document.getElementById('modal-body').innerHTML = `
+        <div class="field"><label>Аккаунт</label><select id="new-acc-id">${opts}</select></div>
+        <div class="field"><label>Дата публикации</label><input type="datetime-local" id="new-sched-at"></div>
+        <button class="btn btn-primary" onclick="createListing(${productId})" style="margin-top:12px;">Создать</button>`;
+}
+
+async function createListing(productId) {
+    const accountId = document.getElementById('new-acc-id').value;
+    const scheduledAt = document.getElementById('new-sched-at').value;
+    try {
+        const resp = await fetch('/products/' + productId + '/listings', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ account_id: parseInt(accountId), scheduled_at: scheduledAt || null }),
+        });
+        const data = await resp.json();
+        if (data.ok) { showToast('Listing создан', false); closeModal(); loadData(); }
+        else { showToast(data.error, true); }
+    } catch (e) { showToast('Ошибка сети', true); }
+}
+
+async function deleteListing(id) {
+    if (!confirm('Удалить листинг #' + id + '?')) return;
+    try {
+        const resp = await fetch('/listings/' + id, { method: 'DELETE' });
+        const data = await resp.json();
+        if (data.ok) { showToast('Удалён', false); document.getElementById('listing-row-' + id)?.remove(); }
+        else { showToast(data.error, true); }
+    } catch (e) { showToast('Ошибка сети', true); }
+}
+
+function showImportDialog() {
+    if (!ACCOUNTS.length) { showToast('Нет аккаунтов', true); return; }
+    if (ACCOUNTS.length === 1) { startImport(ACCOUNTS[0], ACCOUNT_NAMES[0]); return; }
+    document.getElementById('modal-overlay').style.display = 'block';
+    document.getElementById('import-modal').style.display = 'block';
+    document.getElementById('import-body').innerHTML = ACCOUNTS.map((id, i) =>
+        `<button class="btn btn-primary" style="margin:4px;" onclick="startImport(${id}, '${ACCOUNT_NAMES[i]}')">${ACCOUNT_NAMES[i]}</button>`
+    ).join('');
+}
+
+async function startImport(accountId, accountName) {
+    if (!confirm('Импортировать объявления ' + accountName + '?')) return;
+    document.getElementById('modal-overlay').style.display = 'block';
+    document.getElementById('import-modal').style.display = 'block';
+    document.getElementById('import-body').innerHTML = '<p style="color:var(--text-secondary);">Загрузка...</p>';
+    try {
+        const resp = await fetch('/products/import-from-avito', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ account_id: accountId }),
+        });
+        const data = await resp.json();
+        if (data.ok) {
+            document.getElementById('import-body').innerHTML = `<p>Импортировано: <b>${data.imported}</b>, пропущено: <b>${data.skipped}</b></p>
+                <button class="btn btn-primary" onclick="closeImportModal(); loadData();" style="margin-top:12px;">OK</button>`;
+        } else {
+            document.getElementById('import-body').innerHTML = `<div class="flash flash-error">${data.error}</div>`;
+        }
+    } catch (e) { document.getElementById('import-body').innerHTML = '<div class="flash flash-error">Ошибка сети</div>'; }
+}
+
+document.addEventListener('DOMContentLoaded', loadData);
+</script>
+{% endblock %}

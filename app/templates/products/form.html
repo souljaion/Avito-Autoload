@@ -1,0 +1,462 @@
+{% extends "base.html" %}
+{% block title %}{{ "Редактировать" if product else "Новый" }} товар — Avito Autoload{% endblock %}
+{% block content %}
+<h1>{{ "Редактировать" if product else "Новый" }} товар
+    {% if catalog_source == "avito" %}
+    <span class="badge badge-green" style="font-size:12px;vertical-align:middle;">Avito</span>
+    {% else %}
+    <span class="badge badge-gray" style="font-size:12px;vertical-align:middle;">fallback</span>
+    {% endif %}
+</h1>
+<div class="card">
+    <form method="post">
+        <div class="grid-2">
+            <div class="field">
+                <label>Название *</label>
+                <input name="title" value="{{ product.title if product else '' }}" required>
+            </div>
+            <div class="field">
+                <label>SKU</label>
+                <input name="sku" value="{{ product.sku if product and product.sku else '' }}">
+            </div>
+            <div class="field">
+                <label>Бренд</label>
+                <input name="brand" value="{{ product.brand if product and product.brand else '' }}">
+            </div>
+            <div class="field">
+                <label>Модель</label>
+                <input name="model" value="{{ product.model if product and product.model else '' }}">
+            </div>
+        </div>
+
+        <h3 style="margin:20px 0 12px;font-size:16px;color:#555;">Категория Avito</h3>
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="applyPreset('Мужская обувь','Кроссовки и кеды','')">&#x1f45f; Кроссовки (муж)</button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="applyPreset('Женская обувь','Кроссовки и кеды','')">&#x1f45f; Кроссовки (жен)</button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="applyPreset('Мужская одежда','Кофты и футболки','Футболка')">&#x1f455; Футболка (муж)</button>
+        </div>
+        <div class="grid-2">
+            <div class="field">
+                <label>Категория (Category)</label>
+                <select name="category" id="category" onchange="updateGoodsTypes()">
+                    <option value="">— Выберите —</option>
+                    {% for cat in categories %}
+                    <option value="{{ cat }}" {{ "selected" if product and product.category == cat else "" }}>{{ cat }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="field">
+                <label>Тип товара (GoodsType)</label>
+                <select name="goods_type" id="goods_type" onchange="updateApparels()">
+                    <option value="">— Выберите —</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>Вид одежды/обуви (Apparel)</label>
+                <select name="subcategory" id="subcategory" onchange="updateGoodsSubtypes()">
+                    <option value="">— Выберите —</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>Подтип (GoodsSubType)</label>
+                <select name="goods_subtype" id="goods_subtype">
+                    <option value="">— Выберите —</option>
+                </select>
+            </div>
+        </div>
+
+        <h3 style="margin:20px 0 12px;font-size:16px;color:#555;">Характеристики</h3>
+        <div class="grid-2">
+            <div class="field">
+                <label>Размер</label>
+                <input name="size" value="{{ product.size if product and product.size else '' }}">
+            </div>
+            <div class="field">
+                <label>Цвет</label>
+                <input name="color" value="{{ product.color if product and product.color else '' }}">
+            </div>
+            <div class="field">
+                <label>Материал</label>
+                <input name="material" value="{{ product.material if product and product.material else '' }}" placeholder="Хлопок, полиэстер...">
+            </div>
+            <div class="field">
+                <label>Состояние</label>
+                <select name="condition">
+                    {% for c in conditions %}
+                    <option value="{{ c }}" {{ "selected" if product and product.condition == c else ("selected" if not product else "") }}>{{ c }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="field">
+                <label>Цена *</label>
+                <input name="price" type="number" value="{{ product.price if product and product.price else '' }}" required>
+            </div>
+        </div>
+
+        <div class="field">
+            <label>Описание *</label>
+            <textarea name="description" required placeholder="Описание обязательно для Avito">{{ product.description if product and product.description else '' }}</textarea>
+        </div>
+
+        <h3 style="margin:20px 0 12px;font-size:16px;color:#555;">Параметры Avito</h3>
+        <div class="grid-2">
+            <div class="field">
+                <label>Тип объявления</label>
+                <select name="ad_type">
+                    {% for v in ad_types %}
+                    <option value="{{ v }}" {{ "selected" if product and product.extra and product.extra.get("ad_type") == v else ("selected" if v == default_ad_type and (not product or not product.extra) else "") }}>{{ v }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="field">
+                <label>Наличие</label>
+                <select name="availability">
+                    {% for v in availabilities %}
+                    <option value="{{ v }}" {{ "selected" if product and product.extra and product.extra.get("availability") == v else ("selected" if v == default_availability and (not product or not product.extra) else "") }}>{{ v }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="field">
+                <label>Доставка</label>
+                <select name="delivery">
+                    {% for v in delivery_options %}
+                    <option value="{{ v }}" {{ "selected" if product and product.extra and product.extra.get("delivery") == v else ("selected" if v == default_delivery and (not product or not product.extra) else "") }}>{{ v }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="field">
+                <label>Субсидия на доставку</label>
+                <select name="delivery_subsidy">
+                    {% for v in delivery_subsidies %}
+                    <option value="{{ v }}" {{ "selected" if product and product.extra and product.extra.get("delivery_subsidy") == v else ("selected" if v == default_delivery_subsidy and (not product or not product.extra) else "") }}>{{ v }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="field">
+                <label>Несколько товаров</label>
+                <select name="multi_item">
+                    {% for v in multi_item_options %}
+                    <option value="{{ v }}" {{ "selected" if product and product.extra and product.extra.get("multi_item") == v else ("selected" if v == default_multi_item and (not product or not product.extra) else "") }}>{{ v }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="field">
+                <label>Примерка</label>
+                <select name="try_on">
+                    {% for v in try_on_options %}
+                    <option value="{{ v }}" {{ "selected" if product and product.extra and product.extra.get("try_on") == v else ("selected" if v == default_try_on and (not product or not product.extra) else "") }}>{{ v }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        <h3 style="margin:20px 0 12px;font-size:16px;color:#555;">Привязка к модели</h3>
+        <div class="grid-2">
+            <div class="field">
+                <label>Привязать к модели</label>
+                <select name="model_id" id="model-id-select">
+                    <option value="">— Без модели —</option>
+                    {% for m in models %}
+                    <option value="{{ m.id }}" {{ "selected" if (product and product.model_id == m.id) or (not product and preselect_model_id and preselect_model_id == m.id) else "" }}>{{ m.name }}</option>
+                    {% endfor %}
+                    <option value="__new__">+ Создать новую модель</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Modal: создание новой модели -->
+        <div id="new-model-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center;">
+            <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:8px;padding:24px;width:400px;max-width:90%;">
+                <h3 style="margin:0 0 16px;font-size:16px;">Новая модель</h3>
+                <div class="field">
+                    <label>Название модели *</label>
+                    <input id="new-model-name" placeholder="Введите название">
+                </div>
+                <div style="display:flex;gap:8px;margin-top:16px;">
+                    <button type="button" class="btn btn-primary" onclick="createModel()">Создать</button>
+                    <button type="button" class="btn btn-secondary" onclick="closeModelModal()">Отмена</button>
+                </div>
+                <div id="new-model-error" style="color:#fca5a5;font-size:13px;margin-top:8px;display:none;"></div>
+            </div>
+        </div>
+
+        <h3 style="margin:20px 0 12px;font-size:16px;color:#555;">Фотографии из пака</h3>
+        <div id="pack-section">
+            <div class="grid-2">
+                <div class="field">
+                    <label>Выбрать пак</label>
+                    <select id="pack-select" onchange="onPackSelected()">
+                        <option value="">— Нет —</option>
+                    </select>
+                </div>
+            </div>
+            <div id="pack-preview" style="display:none; margin-bottom:12px;">
+                <div id="pack-thumbs" style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px;"></div>
+                <div style="display:flex; gap:8px;">
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="choosePackMode(false)">Добавить как есть</button>
+                    <button type="button" class="btn btn-primary btn-sm" onclick="choosePackMode(true)">Уникализировать и добавить</button>
+                </div>
+            </div>
+            <div id="pack-chosen" style="display:none; color:var(--text-secondary); font-size:13px; margin-bottom:8px;"></div>
+            <input type="hidden" name="pack_id" id="pack-id-input" value="">
+            <input type="hidden" name="pack_uniquify" id="pack-uniquify-input" value="">
+        </div>
+
+        <h3 style="margin:20px 0 12px;font-size:16px;color:#555;">Публикация</h3>
+        <div class="grid-2">
+            <div class="field">
+                <label>Статус</label>
+                <select name="status" id="status-select">
+                    {% for s in statuses %}
+                    {% if s not in ('scheduled', 'published') %}
+                    <option value="{{ s }}" {{ "selected" if product and product.status == s else "" }}>{{ s }}</option>
+                    {% endif %}
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="field">
+                <label>Аккаунт</label>
+                <select name="account_id">
+                    <option value="">— Не привязан —</option>
+                    {% for acc in accounts %}
+                    <option value="{{ acc.id }}" {{ "selected" if product and product.account_id == acc.id else "" }}>{{ acc.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        {% if product %}
+        <h3 style="margin:20px 0 12px;font-size:16px;color:#555;">Запланировать публикацию</h3>
+        {% if product.status == 'scheduled' and product.scheduled_at %}
+        <div class="flash flash-success" style="margin-bottom:12px;background:#fef9c3;color:#854d0e;">
+            Запланировано: {{ product.scheduled_at.strftime("%d.%m.%Y в %H:%M") }}
+            {% for acc in accounts %}{% if acc.id == product.scheduled_account_id %} на аккаунт {{ acc.name }}{% endif %}{% endfor %}
+        </div>
+        {% endif %}
+        {% if product.status == 'published' and product.published_at %}
+        <div class="flash flash-success" style="margin-bottom:12px;">
+            Опубликовано: {{ product.published_at.strftime("%d.%m.%Y в %H:%M") }}
+        </div>
+        {% endif %}
+        <div class="field">
+            <label>
+                <input type="checkbox" name="schedule_enabled" value="1" id="schedule-check"
+                    {{ "checked" if product and product.status == 'scheduled' else "" }}
+                    onchange="toggleSchedule()">
+                Запланировать автоматическую публикацию
+            </label>
+        </div>
+        <div id="schedule-fields" style="display:none;">
+            <div class="grid-2">
+                <div class="field">
+                    <label>Дата и время</label>
+                    <input type="datetime-local" name="scheduled_at" id="scheduled-at"
+                        value="{{ product.scheduled_at.strftime('%Y-%m-%dT%H:%M') if product and product.scheduled_at else '' }}">
+                </div>
+                <div class="field">
+                    <label>Аккаунт для публикации</label>
+                    <select name="scheduled_account_id" id="scheduled-account">
+                        <option value="">— Как основной —</option>
+                        {% for acc in accounts %}
+                        <option value="{{ acc.id }}" {{ "selected" if product and product.scheduled_account_id == acc.id else "" }}>{{ acc.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="actions">
+            <button type="submit" class="btn btn-primary">Сохранить</button>
+            <a href="/products" class="btn btn-secondary">Отмена</a>
+        </div>
+    </form>
+</div>
+
+<script>
+const goodsTypes = {{ goods_types | tojson }};
+const apparels = {{ apparels | tojson }};
+const goodsSubtypes = {{ goods_subtypes | tojson }};
+const saved = {
+    goodsType: {{ (product.goods_type if product and product.goods_type else "") | tojson }},
+    apparel: {{ (product.subcategory if product and product.subcategory else "") | tojson }},
+    goodsSubtype: {{ (product.goods_subtype if product and product.goods_subtype else "") | tojson }},
+};
+
+function fillSelect(sel, items, savedVal) {
+    sel.innerHTML = '<option value="">— Выберите —</option>';
+    (items || []).forEach(function(val) {
+        const opt = document.createElement("option");
+        opt.value = val;
+        opt.textContent = val;
+        if (val === savedVal) opt.selected = true;
+        sel.appendChild(opt);
+    });
+}
+
+function updateGoodsTypes() {
+    const cat = document.getElementById("category").value;
+    fillSelect(document.getElementById("goods_type"), goodsTypes[cat], saved.goodsType);
+    updateApparels();
+}
+
+function updateApparels() {
+    const gt = document.getElementById("goods_type").value;
+    fillSelect(document.getElementById("subcategory"), apparels[gt], saved.apparel);
+    updateGoodsSubtypes();
+}
+
+function updateGoodsSubtypes() {
+    const ap = document.getElementById("subcategory").value;
+    fillSelect(document.getElementById("goods_subtype"), goodsSubtypes[ap], saved.goodsSubtype);
+}
+
+function applyPreset(goodsType, apparel, goodsSubtype) {
+    // Set category to the only available one
+    const catSel = document.getElementById("category");
+    catSel.value = "Одежда, обувь, аксессуары";
+
+    // Rebuild goods_type dropdown, then set value
+    saved.goodsType = goodsType;
+    saved.apparel = apparel;
+    saved.goodsSubtype = goodsSubtype;
+    updateGoodsTypes();
+}
+
+function toggleSchedule() {
+    const check = document.getElementById('schedule-check');
+    const fields = document.getElementById('schedule-fields');
+    if (check && fields) {
+        fields.style.display = check.checked ? 'block' : 'none';
+    }
+}
+
+// --- Model creation modal ---
+const modelSelect = document.getElementById('model-id-select');
+const modelModal = document.getElementById('new-model-modal');
+
+modelSelect.addEventListener('change', function() {
+    if (this.value === '__new__') {
+        modelModal.style.display = 'flex';
+        document.getElementById('new-model-name').value = '';
+        document.getElementById('new-model-error').style.display = 'none';
+        document.getElementById('new-model-name').focus();
+    }
+});
+
+function closeModelModal() {
+    modelModal.style.display = 'none';
+    modelSelect.value = '';
+}
+
+async function createModel() {
+    const name = document.getElementById('new-model-name').value.trim();
+    const errEl = document.getElementById('new-model-error');
+    if (!name) {
+        errEl.textContent = 'Введите название модели';
+        errEl.style.display = 'block';
+        return;
+    }
+    errEl.style.display = 'none';
+    const form = new FormData();
+    form.append('name', name);
+    try {
+        const resp = await fetch('/models', {
+            method: 'POST',
+            headers: {'Accept': 'application/json'},
+            body: form,
+        });
+        const data = await resp.json();
+        if (data.ok) {
+            const opt = document.createElement('option');
+            opt.value = data.id;
+            opt.textContent = data.name;
+            // Insert before the "__new__" option
+            const newOpt = modelSelect.querySelector('option[value="__new__"]');
+            modelSelect.insertBefore(opt, newOpt);
+            modelSelect.value = data.id;
+            modelModal.style.display = 'none';
+        } else {
+            errEl.textContent = data.error || 'Ошибка создания';
+            errEl.style.display = 'block';
+        }
+    } catch (e) {
+        errEl.textContent = 'Ошибка сети';
+        errEl.style.display = 'block';
+    }
+}
+
+// --- Photo pack selection ---
+let loadedPacks = [];
+
+function loadPacksForModel(modelId) {
+    const sel = document.getElementById('pack-select');
+    sel.innerHTML = '<option value="">— Нет —</option>';
+    document.getElementById('pack-preview').style.display = 'none';
+    document.getElementById('pack-chosen').style.display = 'none';
+    document.getElementById('pack-id-input').value = '';
+    document.getElementById('pack-uniquify-input').value = '';
+    if (!modelId || modelId === '__new__') { loadedPacks = []; return; }
+    fetch('/photo-packs?model_id=' + modelId)
+        .then(r => r.json())
+        .then(data => {
+            if (!data.ok) return;
+            loadedPacks = data.packs;
+            data.packs.forEach(p => {
+                const o = document.createElement('option');
+                o.value = p.id;
+                o.textContent = p.name + ' (' + p.image_count + ' фото)';
+                sel.appendChild(o);
+            });
+        });
+}
+
+function onPackSelected() {
+    const packId = document.getElementById('pack-select').value;
+    const preview = document.getElementById('pack-preview');
+    const thumbs = document.getElementById('pack-thumbs');
+    document.getElementById('pack-chosen').style.display = 'none';
+    document.getElementById('pack-id-input').value = '';
+    document.getElementById('pack-uniquify-input').value = '';
+    if (!packId) { preview.style.display = 'none'; return; }
+    const pack = loadedPacks.find(p => p.id == packId);
+    if (!pack) { preview.style.display = 'none'; return; }
+    thumbs.innerHTML = '';
+    pack.images.forEach(img => {
+        const el = document.createElement('img');
+        el.src = img.thumb_url;
+        el.style = 'width:60px;height:60px;object-fit:cover;border-radius:4px;border:1px solid var(--border);';
+        thumbs.appendChild(el);
+    });
+    preview.style.display = 'block';
+}
+
+function choosePackMode(uniquify) {
+    const packId = document.getElementById('pack-select').value;
+    if (!packId) return;
+    document.getElementById('pack-id-input').value = packId;
+    document.getElementById('pack-uniquify-input').value = uniquify ? '1' : '0';
+    document.getElementById('pack-preview').style.display = 'none';
+    const chosen = document.getElementById('pack-chosen');
+    const pack = loadedPacks.find(p => p.id == packId);
+    chosen.textContent = 'Пак "' + (pack ? pack.name : packId) + '" будет ' + (uniquify ? 'уникализирован и ' : '') + 'добавлен при сохранении';
+    chosen.style.display = 'block';
+}
+
+// Reload packs when model changes
+modelSelect.addEventListener('change', function() {
+    if (this.value === '__new__') return; // handled by modal
+    loadPacksForModel(this.value);
+});
+
+document.addEventListener("DOMContentLoaded", function() {
+    updateGoodsTypes();
+    toggleSchedule();
+    // Load packs for preselected model
+    const currentModelId = modelSelect.value;
+    if (currentModelId && currentModelId !== '__new__') {
+        loadPacksForModel(currentModelId);
+    }
+});
+</script>
+{% endblock %}

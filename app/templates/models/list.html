@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Модели — Avito Autoload{% endblock %}
+
+{% block content %}
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+    <h1>Модели</h1>
+    <button class="btn btn-primary" onclick="document.getElementById('createModal').style.display='flex'">Создать модель</button>
+</div>
+
+{% if model_data %}
+<div class="card" style="padding:0; overflow:hidden;">
+<table>
+    <thead>
+        <tr>
+            <th>Название</th>
+            <th>Вариантов</th>
+            <th>Аккаунты</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for item in model_data %}
+        <tr>
+            <td><a href="/models/{{ item.model.id }}">{{ item.model.name }}</a></td>
+            <td>{{ item.variant_count }}</td>
+            <td>
+                {% for acc in item.accounts %}
+                <span class="badge badge-blue">{{ acc }}</span>
+                {% endfor %}
+                {% if not item.accounts %}
+                <span style="color:var(--text-muted);">—</span>
+                {% endif %}
+            </td>
+            <td style="text-align:right;">
+                <button class="btn btn-danger btn-sm" onclick="deleteModel({{ item.model.id }})">Удалить</button>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</div>
+{% else %}
+<div class="card" style="text-align:center; color:var(--text-secondary); padding:40px;">
+    Моделей пока нет. Создайте первую.
+</div>
+{% endif %}
+
+<!-- Create Modal -->
+<div id="createModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:100; align-items:center; justify-content:center;">
+    <div class="card" style="width:400px; max-width:90vw;">
+        <h2>Новая модель</h2>
+        <form method="post" action="/models">
+            <div class="field">
+                <label>Название</label>
+                <input type="text" name="name" required autofocus>
+            </div>
+            <div class="field">
+                <label>Описание</label>
+                <textarea name="description" rows="3"></textarea>
+            </div>
+            <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px;">
+                <button type="button" class="btn btn-secondary" onclick="document.getElementById('createModal').style.display='none'">Отмена</button>
+                <button type="submit" class="btn btn-primary">Создать</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+async function deleteModel(id) {
+    if (!confirm('Удалить модель? Товары не будут удалены, только отвязаны.')) return;
+    const resp = await fetch('/models/' + id, { method: 'DELETE' });
+    const data = await resp.json();
+    if (data.ok) location.reload();
+    else alert(data.error || 'Ошибка');
+}
+</script>
+{% endblock %}

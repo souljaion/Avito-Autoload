@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}{{ "Редактировать" if account else "Новый" }} аккаунт — Avito Autoload{% endblock %}
+{% block content %}
+<h1>{{ "Редактировать" if account else "Новый" }} аккаунт</h1>
+<div class="card">
+    <form method="post">
+        <div class="grid-2">
+            <div class="field">
+                <label>Название *</label>
+                <input name="name" value="{{ account.name if account else '' }}" required>
+            </div>
+            <div class="field">
+                <label>Client ID</label>
+                <input name="client_id" value="{{ account.client_id if account and account.client_id else '' }}">
+            </div>
+            <div class="field">
+                <label>Client Secret</label>
+                <input name="client_secret" type="password" value="{{ account.client_secret if account and account.client_secret else '' }}">
+            </div>
+            <div class="field">
+                <label>Телефон</label>
+                <input name="phone" value="{{ account.phone if account and account.phone else '' }}">
+            </div>
+            <div class="field">
+                <label>Email отчетов</label>
+                <input name="report_email" type="email" value="{{ account.report_email if account and account.report_email else '' }}">
+            </div>
+            <div class="field">
+                <label>Расписание</label>
+                <input name="schedule" placeholder="например: daily" value="{{ account.schedule if account and account.schedule else '' }}">
+            </div>
+        </div>
+        <div class="field">
+            <label>Адрес</label>
+            <input name="address" value="{{ account.address if account and account.address else '' }}">
+        </div>
+        <div class="field">
+            <label>
+                <input type="checkbox" name="autoload_enabled" value="1" {{ "checked" if account and account.autoload_enabled else "" }}>
+                Autoload включен
+            </label>
+        </div>
+        <div class="actions">
+            <button type="submit" class="btn btn-primary">Сохранить</button>
+            <a href="/accounts" class="btn btn-secondary">Отмена</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

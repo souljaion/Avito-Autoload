@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Avito Autoload{% endblock %}
+{% block content %}
+<style>
+.dash-grid { display:grid; grid-template-columns:repeat(4, 1fr); gap:12px; margin-bottom:20px; }
+.stat-card { background:var(--bg-base); border:1px solid var(--border); border-radius:10px; padding:16px; }
+.stat-card .stat-value { font-size:26px; font-weight:700; margin-bottom:2px; }
+.stat-card .stat-label { font-size:12px; color:var(--text-secondary); }
+.stat-card .stat-sub { font-size:11px; color:var(--text-muted); margin-top:4px; }
+.section { margin-bottom:20px; }
+.section-title { font-size:13px; font-weight:600; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; }
+.section-title a { font-size:12px; font-weight:400; text-transform:none; letter-spacing:0; }
+.feed-row { display:flex; align-items:center; gap:12px; padding:12px 0; border-bottom:1px solid #111827; }
+.feed-row:last-child { border-bottom:none; }
+.feed-row .feed-name { font-weight:600; min-width:80px; }
+.feed-row .feed-url { font-size:12px; color:var(--accent-blue); word-break:break-all; }
+.feed-row .feed-meta { font-size:11px; color:var(--text-muted); }
+.loading-spinner { color:var(--text-muted); font-size:13px; padding:16px; text-align:center; }
+@media (max-width: 800px) { .dash-grid { grid-template-columns:1fr 1fr; } }
+</style>
+
+<h1>Dashboard</h1>
+
+<div class="dash-grid" id="counters">
+    <div class="stat-card"><div class="stat-value" id="c-total">—</div><div class="stat-label">Всего товаров</div><div class="stat-sub" id="c-active-sub"></div></div>
+    <div class="stat-card"><div class="stat-value" id="c-draft">—</div><div class="stat-label">В draft</div><div class="stat-sub">Не готовы</div></div>
+    <div class="stat-card"><div class="stat-value" id="c-upload-status">—</div><div class="stat-label">Последний upload</div><div class="stat-sub" id="c-upload-date"></div></div>
+    <div class="stat-card"><div class="stat-value" id="c-report-stats">—</div><div class="stat-label">Последний отчёт</div><div class="stat-sub" id="c-report-sub"></div></div>
+</div>
+
+<div class="section">
+    <div class="section-title">Статус фидов <a href="/feeds">Управление</a></div>
+    <div class="card" id="feeds-block"><div class="loading-spinner">Загрузка...</div></div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+    <div class="section">
+        <div class="section-title">Последние товары <a href="/products">Все</a></div>
+        <div class="card" id="products-block"><div class="loading-spinner">Загрузка...</div></div>
+    </div>
+    <div class="section">
+        <div class="section-title">Отчёты Avito <a href="/reports">Все</a></div>
+        <div class="card" id="reports-block"><div class="loading-spinner">Загрузка...</div></div>
+    </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+    <div class="section">
+        <div class="section-title">Ближайшие публикации <a href="/schedule">Все</a></div>
+        <div class="card" id="scheduled-block"><div class="loading-spinner">Загрузка...</div></div>
+    </div>
+    <div class="section">
+        <div class="section-title">Товары с проблемами</div>
+        <div class="card" id="problems-block"><div class="loading-spinner">Загрузка...</div></div>
+    </div>
+</div>
+
+<div id="toast" style="display:none;position:fixed;bottom:24px;right:24px;padding:14px 20px;border-radius:8px;font-size:14px;max-width:500px;z-index:1000;box-shadow:0 4px 12px rgba(0,0,0,0.3);"></div>
+
+<script>
+function showToast(msg, isError) { const t = document.getElementById('toast'); t.textContent = msg; t.style.display = 'block'; t.style.background = isError ? 'rgba(127,29,29,0.9)' : 'rgba(5,48,24,0.9)'; t.style.color = isError ? '#fca5a5' : '#34d399'; setTimeout(() => t.style.display = 'none', 5000); }
+function badge(status) { const map = { active:'badge-green', uploaded:'badge-green', done:'badge-green', published:'badge-green', draft:'badge-gray', generated:'badge-gray', paused:'badge-yellow', in_progress:'badge-yellow', scheduled:'badge-yellow', sold:'badge-red', error:'badge-red', upload_error:'badge-red' }; return `<span class="badge ${map[status]||'badge-gray'}">${status}</span>`; }
+
+async function loadDashboard() {
+    try {
+        const resp = await fetch('/api/dashboard'); const d = await resp.json();
+        renderCounters(d); renderFeeds(d.accounts); renderProducts(d.latest_products);
+        renderReports(d.reports); renderScheduled(d.scheduled || []); renderProblems(d.problem_products);
+    } catch (e) { showToast('Ошибка: ' + e.message, true); }
+}
+
+function renderCounters(d) {
+    const p = d.products;
+    document.getElementById('c-total').textContent = p.total;
+    document.getElementById('c-active-sub').textContent = `${p.active} active`;
+    document.getElementById('c-draft').textContent = p.draft;
+    const u = d.last_upload;
+    if (u) { document.getElementById('c-upload-status').innerHTML = badge(u.status); document.getElementById('c-upload-date').textContent = u.uploaded_at || u.created_at || ''; }
+    else { document.getElementById('c-upload-status').textContent = 'Нет'; }
+    const r = d.last_report;
+    if (r) { document.getElementById('c-report-stats').innerHTML = `<span style="color:#34d399">${r.applied}</span> / <span style="color:#fca5a5">${r.declined}</span>`; document.getElementById('c-report-sub').innerHTML = `${badge(r.status)} всего: ${r.total}`; }
+    else { document.getElementById('c-report-stats').textContent = 'Нет'; }
+}
+
+function renderFeeds(accounts) {
+    const el = document.getElementById('feeds-block');
+    if (!accounts.length) { el.innerHTML = '<div style="color:var(--text-muted);padding:8px;">Нет аккаунтов</div>'; return; }
+    let html = '';
+    for (const a of accounts) {
+        html += `<div class="feed-row"><div class="feed-name">${a.name}</div><div style="flex:1;"><div class="feed-url"><a href="${a.feed_url}" target="_blank">${a.feed_url}</a></div><div class="feed-meta">Сгенерирован: ${a.last_generated || '—'} (${a.last_generated_count} тов.) | Upload: ${a.last_upload_at || '—'} ${a.last_upload_status ? badge(a.last_upload_status) : ''}</div></div>
+        <div style="display:flex;gap:6px;"><form method="post" action="/feeds/${a.id}/generate" style="display:inline;"><button class="btn btn-secondary btn-sm" type="submit">Сгенерировать</button></form>${a.last_generated_id ? `<button class="btn btn-primary btn-sm" onclick="uploadFromDash(${a.last_generated_id}, this)">Upload</button>` : ''}</div></div>`;
+    }
+    el.innerHTML = html;
+}
+
+function renderProducts(products) {
+    const el = document.getElementById('products-block');
+    if (!products.length) { el.innerHTML = '<div style="color:var(--text-muted);">Нет</div>'; return; }
+    let html = '<table><thead><tr><th>Название</th><th>Статус</th><th>Цена</th></tr></thead><tbody>';
+    for (const p of products) { html += `<tr><td><a href="/products/${p.id}">${p.title}</a></td><td>${badge(p.status)}</td><td style="color:var(--text-secondary);">${p.price ?? '—'}</td></tr>`; }
+    html += '</tbody></table>'; el.innerHTML = html;
+}
+
+function renderReports(reports) {
+    const el = document.getElementById('reports-block');
+    if (!reports.length) { el.innerHTML = '<div style="color:var(--text-muted);">Нет</div>'; return; }
+    let html = '<table><thead><tr><th>Дата</th><th>Принято</th><th>Отклонено</th><th>Статус</th></tr></thead><tbody>';
+    for (const r of reports) { html += `<tr><td style="font-size:12px;">${r.created_at || '—'}</td><td style="color:#34d399;font-weight:600;">${r.applied_ads}</td><td style="color:#fca5a5;font-weight:600;">${r.declined_ads}</td><td>${badge(r.status)}</td></tr>`; }
+    html += '</tbody></table>'; el.innerHTML = html;
+}
+
+function renderScheduled(items) {
+    const el = document.getElementById('scheduled-block');
+    if (!items.length) { el.innerHTML = '<div style="color:var(--text-muted);">Нет запланированных</div>'; return; }
+    let html = '<table><thead><tr><th>Товар</th><th>Аккаунт</th><th>Дата</th></tr></thead><tbody>';
+    for (const s of items) { html += `<tr><td><a href="/products/${s.id}/edit">${s.title}</a></td><td>${s.account||'—'}</td><td style="font-size:12px;">${s.scheduled_at||'—'}</td></tr>`; }
+    html += '</tbody></table>'; el.innerHTML = html;
+}
+
+function renderProblems(problems) {
+    const el = document.getElementById('problems-block');
+    if (!problems.length) { el.innerHTML = '<div style="color:#34d399;">Все товары в порядке</div>'; return; }
+    let html = '';
+    for (const p of problems) {
+        const tags = p.problems.map(t => `<span style="background:rgba(127,29,29,0.2);color:#fca5a5;font-size:10px;padding:1px 6px;border-radius:8px;">${t}</span>`).join(' ');
+        html += `<div style="padding:8px 0;border-bottom:1px solid #111827;display:flex;gap:8px;align-items:center;">${badge(p.status)} <a href="/products/${p.id}/edit" style="flex:1;">#${p.id} ${p.title}</a> ${tags}</div>`;
+    }
+    el.innerHTML = html;
+}
+
+async function uploadFromDash(feedId, btn) {
+    if (!confirm('Загрузить фид #' + feedId + '?')) return;
+    btn.disabled = true; btn.textContent = '...';
+    try {
+        const resp = await fetch('/feeds/' + feedId + '/upload', { method: 'POST' }); const data = await resp.json();
+        if (data.ok) { showToast('Загружено!', false); btn.textContent = 'OK'; setTimeout(loadDashboard, 1000); }
+        else { showToast(data.error, true); btn.textContent = 'Upload'; btn.disabled = false; }
+    } catch (e) { showToast('Ошибка', true); btn.textContent = 'Upload'; btn.disabled = false; }
+}
+
+document.addEventListener('DOMContentLoaded', loadDashboard);
+</script>
+{% endblock %}

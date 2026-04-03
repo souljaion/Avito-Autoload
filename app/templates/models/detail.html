@@ -1,0 +1,554 @@
+{% extends "base.html" %}
+{% block title %}{{ model.name }} — Модели{% endblock %}
+
+{% block content %}
+<style>
+    .tabs { display:flex; gap:0; border-bottom:1px solid var(--border); margin-bottom:16px; }
+    .tab { padding:10px 20px; font-size:14px; color:var(--text-secondary); cursor:pointer; border-bottom:2px solid transparent; transition: color 0.15s, border-color 0.15s; background:none; border-top:none; border-left:none; border-right:none; }
+    .tab:hover { color:var(--text-primary); }
+    .tab.active { color:var(--text-primary); border-bottom-color:var(--accent-blue); }
+    .tab-count { font-size:11px; background:var(--bg-elevated); padding:1px 6px; border-radius:8px; margin-left:4px; }
+    .tab-panel { display:none; }
+    .tab-panel.active { display:block; }
+</style>
+
+<div style="margin-bottom:16px;">
+    <a href="/models" style="font-size:13px; color:var(--text-secondary);">&larr; Все модели</a>
+</div>
+
+<div style="display:flex; align-items:center; gap:12px; margin-bottom:20px;">
+    <h1 id="modelName" contenteditable="true" style="margin-bottom:0; outline:none; border-bottom:1px dashed var(--border); padding-bottom:2px; cursor:text;">{{ model.name }}</h1>
+    <button id="saveNameBtn" class="btn btn-sm btn-primary" style="display:none;" onclick="saveName()">Сохранить</button>
+    <button class="btn btn-danger btn-sm" onclick="deleteModel()" style="margin-left:auto;">Удалить модель</button>
+</div>
+
+{% set active_variants = model.products | selectattr('status', 'in', ['active', 'imported', 'published']) | list %}
+{% set draft_variants = model.products | selectattr('status', 'equalto', 'draft') | list %}
+
+<div class="tabs">
+    <button class="tab" onclick="switchTab('active', this)">Активные<span class="tab-count">{{ active_variants|length }}</span></button>
+    <button class="tab active" onclick="switchTab('drafts', this)">Черновики<span class="tab-count">{{ draft_variants|length }}</span></button>
+</div>
+
+<!-- Active Tab -->
+<div id="tab-active" class="tab-panel">
+    <div class="actions">
+        <button class="btn btn-primary" onclick="document.getElementById('addModal').style.display='flex'">Добавить вариант</button>
+        {% if model.products %}
+        <button class="btn btn-secondary" onclick="document.getElementById('copyModal').style.display='flex'">Новый вариант (копия)</button>
+        {% endif %}
+    </div>
+
+    {% if active_variants %}
+    <div class="card" style="padding:0; overflow:hidden;">
+    <table>
+        <thead>
+            <tr>
+                <th style="width:60px;">Фото</th>
+                <th>Название</th>
+                <th>Аккаунт</th>
+                <th>Статус</th>
+                <th>Цена</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in active_variants %}
+            <tr>
+                <td>
+                    {% if p.images %}
+                    <img src="{{ p.images[0].url }}" style="width:40px; height:40px; object-fit:cover; border-radius:4px;">
+                    {% elif p.image_url %}
+                    <img src="{{ p.image_url }}" style="width:40px; height:40px; object-fit:cover; border-radius:4px;">
+                    {% else %}
+                    <div style="width:40px; height:40px; background:var(--bg-elevated); border-radius:4px;"></div>
+                    {% endif %}
+                </td>
+                <td><a href="/products/{{ p.id }}">{{ p.title }}</a></td>
+                <td>
+                    {% if p.account %}
+                    <span class="badge badge-blue">{{ p.account.name }}</span>
+                    {% else %}
+                    <span style="color:var(--text-muted);">—</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if p.status == 'active' or p.status == 'published' %}
+                    <span class="badge badge-green">{{ p.status }}</span>
+                    {% elif p.status == 'imported' %}
+                    <span class="badge badge-yellow">imported</span>
+                    {% else %}
+                    <span class="badge badge-gray">{{ p.status }}</span>
+                    {% endif %}
+                </td>
+                <td>{{ '{:,}'.format(p.price).replace(',', ' ') if p.price else '—' }}</td>
+                <td style="text-align:right;">
+                    <button class="btn btn-secondary btn-sm" onclick="detachVariant({{ p.id }})">Отвязать</button>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% else %}
+    <div class="card" style="text-align:center; color:var(--text-secondary); padding:40px;">
+        Нет активных вариантов. Добавьте существующий товар или создайте копию.
+    </div>
+    {% endif %}
+</div>
+
+<!-- Drafts Tab -->
+<div id="tab-drafts" class="tab-panel active">
+    <div class="actions">
+        <a href="/products/new?model_id={{ model.id }}" class="btn btn-primary">Создать товар</a>
+        <button class="btn btn-secondary" onclick="document.getElementById('addModal').style.display='flex'">Добавить вариант</button>
+        <button class="btn btn-secondary" onclick="document.getElementById('createModal').style.display='flex'">Создать вариант</button>
+    </div>
+
+    {% if draft_variants %}
+    <div class="card" style="padding:0; overflow:hidden;">
+    <table>
+        <thead>
+            <tr>
+                <th style="width:60px;">Фото</th>
+                <th>Название</th>
+                <th>Аккаунт</th>
+                <th>Статус</th>
+                <th>Цена</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in draft_variants %}
+            <tr>
+                <td>
+                    {% if p.images %}
+                    <img src="{{ p.images[0].url }}" style="width:40px; height:40px; object-fit:cover; border-radius:4px;">
+                    {% elif p.image_url %}
+                    <img src="{{ p.image_url }}" style="width:40px; height:40px; object-fit:cover; border-radius:4px;">
+                    {% else %}
+                    <div style="width:40px; height:40px; background:var(--bg-elevated); border-radius:4px;"></div>
+                    {% endif %}
+                </td>
+                <td><a href="/products/{{ p.id }}">{{ p.title }}</a></td>
+                <td>
+                    {% if p.account %}
+                    <span class="badge badge-blue">{{ p.account.name }}</span>
+                    {% else %}
+                    <span style="color:var(--text-muted);">—</span>
+                    {% endif %}
+                </td>
+                <td><span class="badge badge-gray">draft</span></td>
+                <td>{{ '{:,}'.format(p.price).replace(',', ' ') if p.price else '—' }}</td>
+                <td style="text-align:right;">
+                    <a href="/products/{{ p.id }}/edit" class="btn btn-secondary btn-sm">Редактировать</a>
+                    <button class="btn btn-secondary btn-sm" onclick="detachVariant({{ p.id }})">Отвязать</button>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% else %}
+    <div class="card" style="text-align:center; color:var(--text-secondary); padding:40px;">
+        Нет черновиков. Создайте новый вариант.
+    </div>
+    {% endif %}
+</div>
+
+<!-- Add Variant Modal -->
+<div id="addModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:100; align-items:center; justify-content:center;">
+    <div class="card" style="width:600px; max-width:90vw; max-height:80vh; display:flex; flex-direction:column;">
+        <h2>Добавить варианты</h2>
+        <p style="color:var(--text-secondary); font-size:13px; margin-bottom:12px;">Выберите товары без модели для привязки</p>
+        <input type="text" id="searchUnassigned" placeholder="Поиск по названию..." style="margin-bottom:8px;" oninput="filterUnassigned()">
+        {% if unassigned %}
+        <div style="display:flex; gap:12px; align-items:center; margin-bottom:8px; font-size:13px;">
+            <label style="display:flex; align-items:center; gap:4px; cursor:pointer; color:var(--text-secondary);">
+                <input type="checkbox" id="selectAllCb" onchange="toggleSelectAll(this.checked)" style="width:auto;">
+                Выбрать все
+            </label>
+            <span id="selectedCount" style="color:var(--text-muted);">Выбрано: 0</span>
+        </div>
+        {% endif %}
+        <div id="unassignedList" style="flex:1; overflow-y:auto; min-height:0;">
+            {% for p in unassigned %}
+            <label class="unassigned-item" data-title="{{ p.title|lower }}" data-id="{{ p.id }}" style="display:flex; align-items:center; gap:10px; padding:8px; border-bottom:1px solid var(--border); cursor:pointer;">
+                <input type="checkbox" class="variant-cb" value="{{ p.id }}" onchange="updateSelectedCount()" style="width:auto; flex-shrink:0;">
+                {% if p.images %}
+                <img src="{{ p.images[0].url }}" style="width:32px; height:32px; object-fit:cover; border-radius:4px;">
+                {% elif p.image_url %}
+                <img src="{{ p.image_url }}" style="width:32px; height:32px; object-fit:cover; border-radius:4px;">
+                {% else %}
+                <div style="width:32px; height:32px; background:var(--bg-elevated); border-radius:4px; flex-shrink:0;"></div>
+                {% endif %}
+                <div style="flex:1; min-width:0;">
+                    <div style="font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ p.title }}</div>
+                    <div style="font-size:11px; color:var(--text-secondary);">
+                        {{ p.account.name if p.account else 'Без аккаунта' }}
+                        {% if p.price %} &middot; {{ '{:,}'.format(p.price).replace(',', ' ') }} ₽{% endif %}
+                    </div>
+                </div>
+            </label>
+            {% endfor %}
+            {% if not unassigned %}
+            <div style="padding:20px; text-align:center; color:var(--text-secondary);">Нет свободных товаров</div>
+            {% endif %}
+        </div>
+        <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px; padding-top:12px; border-top:1px solid var(--border);">
+            <button class="btn btn-secondary" onclick="document.getElementById('addModal').style.display='none'">Закрыть</button>
+            {% if unassigned %}
+            <button id="addSelectedBtn" class="btn btn-primary" onclick="addSelected()" disabled>Добавить выбранные</button>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Copy Variant Modal -->
+<div id="copyModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:100; align-items:center; justify-content:center;">
+    <div class="card" style="width:400px; max-width:90vw;">
+        <h2>Копировать вариант</h2>
+        <div class="field">
+            <label>Источник (товар)</label>
+            <select id="copySource">
+                {% for p in model.products %}
+                <option value="{{ p.id }}">{{ p.title }}{% if p.account %} ({{ p.account.name }}){% endif %}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="field">
+            <label>Целевой аккаунт</label>
+            <select id="copyAccount">
+                {% for acc in accounts %}
+                <option value="{{ acc.id }}">{{ acc.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px;">
+            <button class="btn btn-secondary" onclick="document.getElementById('copyModal').style.display='none'">Отмена</button>
+            <button class="btn btn-primary" onclick="copyVariant()">Создать копию</button>
+        </div>
+    </div>
+</div>
+
+<!-- Photo Packs Section (visible only on Drafts tab) -->
+<div id="photo-packs-section">
+<h2 style="margin-top:32px;">Пакеты фото</h2>
+<div class="actions">
+    <button class="btn btn-primary" onclick="document.getElementById('addPackModal').style.display='flex'">Добавить пак</button>
+</div>
+
+{% for pack in model.photo_packs %}
+<div class="card" style="margin-bottom:12px;" id="pack-{{ pack.id }}">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+        <h3 style="margin:0; font-size:15px;">{{ pack.name }} <span style="color:var(--text-secondary); font-size:12px;">({{ pack.images|length }} фото)</span></h3>
+        <div style="display:flex; gap:8px;">
+            <label class="btn btn-secondary btn-sm" style="cursor:pointer;">
+                Добавить фото
+                <input type="file" multiple accept="image/*" style="display:none;" onchange="uploadToExistingPack({{ pack.id }}, this.files)">
+            </label>
+            <button class="btn btn-danger btn-sm" onclick="deletePack({{ pack.id }})">Удалить</button>
+        </div>
+    </div>
+    {% if pack.images %}
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        {% for img in pack.images %}
+        {% set turl = img.url.rsplit('.', 1) %}
+        <img src="{{ turl[0] }}_thumb.{{ turl[1] }}" style="width:80px; height:80px; object-fit:cover; border-radius:4px; border:1px solid var(--border);">
+        {% endfor %}
+    </div>
+    {% else %}
+    <div style="color:var(--text-secondary); font-size:13px;">Нет фото</div>
+    {% endif %}
+</div>
+{% endfor %}
+
+{% if not model.photo_packs %}
+<div class="card" style="text-align:center; color:var(--text-secondary); padding:30px;">
+    Нет пакетов фото. Добавьте первый пак.
+</div>
+{% endif %}
+
+<!-- Add Photo Pack Modal -->
+<div id="addPackModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:100; align-items:center; justify-content:center;">
+    <div class="card" style="width:450px; max-width:90vw;">
+        <h2>Новый пакет фото</h2>
+        <div class="field">
+            <label>Название пака *</label>
+            <input type="text" id="packName" placeholder="Например: Белый фон">
+        </div>
+        <div class="field">
+            <label>Фото (можно несколько)</label>
+            <input type="file" id="packFiles" multiple accept="image/*">
+        </div>
+        <div id="packError" style="color:#fca5a5; font-size:13px; display:none; margin-bottom:8px;"></div>
+        <div id="packProgress" style="color:var(--text-secondary); font-size:13px; display:none; margin-bottom:8px;">Загрузка...</div>
+        <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px;">
+            <button class="btn btn-secondary" onclick="document.getElementById('addPackModal').style.display='none'">Отмена</button>
+            <button class="btn btn-primary" onclick="createPack()">Создать</button>
+        </div>
+    </div>
+</div>
+</div><!-- /photo-packs-section -->
+
+<!-- Create Variant Modal -->
+<div id="createModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:100; align-items:center; justify-content:center;">
+    <div class="card" style="width:500px; max-width:90vw; max-height:85vh; overflow-y:auto;">
+        <h2>Создать вариант</h2>
+        <form method="post" action="/models/{{ model.id }}/create-variant">
+            <div class="field">
+                <label>Название</label>
+                <input type="text" name="title" required>
+            </div>
+            <div class="grid-2">
+                <div class="field">
+                    <label>Бренд</label>
+                    <input type="text" name="brand">
+                </div>
+                <div class="field">
+                    <label>Цена</label>
+                    <input type="number" name="price" min="0">
+                </div>
+            </div>
+            <div class="grid-2">
+                <div class="field">
+                    <label>Размер</label>
+                    <input type="text" name="size">
+                </div>
+                <div class="field">
+                    <label>Цвет</label>
+                    <input type="text" name="color">
+                </div>
+            </div>
+            <div class="field">
+                <label>Состояние</label>
+                <select name="condition">
+                    {% for c in conditions %}
+                    <option value="{{ c }}" {{ 'selected' if c == default_condition }}>{{ c }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="field">
+                <label>Тип товара (GoodsType)</label>
+                <select name="goods_type" id="cv_goods_type" onchange="cvUpdateApparel()">
+                    <option value="">—</option>
+                    {% for cat_name, gt_list in goods_types.items() %}
+                    {% for gt in gt_list %}
+                    <option value="{{ gt }}">{{ gt }}</option>
+                    {% endfor %}
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="field">
+                <label>Подкатегория (Apparel)</label>
+                <select name="subcategory" id="cv_apparel" onchange="cvUpdateSubtype()">
+                    <option value="">—</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>Подтип (GoodsSubType)</label>
+                <select name="goods_subtype" id="cv_subtype">
+                    <option value="">—</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>Аккаунт</label>
+                <select name="account_id">
+                    <option value="">— Без аккаунта —</option>
+                    {% for acc in accounts %}
+                    <option value="{{ acc.id }}">{{ acc.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px;">
+                <button type="button" class="btn btn-secondary" onclick="document.getElementById('createModal').style.display='none'">Отмена</button>
+                <button type="submit" class="btn btn-primary">Создать</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+const modelId = {{ model.id }};
+const origName = document.getElementById('modelName').textContent.trim();
+
+// Catalog data for cascading dropdowns
+const apparelsMap = {{ apparels | tojson }};
+const subtypesMap = {{ goods_subtypes | tojson }};
+
+function switchTab(tabId, btn) {
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.getElementById('tab-' + tabId).classList.add('active');
+    btn.classList.add('active');
+    document.getElementById('photo-packs-section').style.display = tabId === 'drafts' ? '' : 'none';
+}
+
+document.getElementById('modelName').addEventListener('input', () => {
+    const cur = document.getElementById('modelName').textContent.trim();
+    document.getElementById('saveNameBtn').style.display = cur !== origName ? '' : 'none';
+});
+
+async function saveName() {
+    const name = document.getElementById('modelName').textContent.trim();
+    if (!name) return;
+    const resp = await fetch('/models/' + modelId + '/update-name', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ name })
+    });
+    const data = await resp.json();
+    if (data.ok) location.reload();
+    else alert(data.error || 'Ошибка');
+}
+
+function getSelectedIds() {
+    return [...document.querySelectorAll('.variant-cb:checked')].map(cb => parseInt(cb.value));
+}
+
+function updateSelectedCount() {
+    const ids = getSelectedIds();
+    const countEl = document.getElementById('selectedCount');
+    const btn = document.getElementById('addSelectedBtn');
+    if (countEl) countEl.textContent = 'Выбрано: ' + ids.length;
+    if (btn) btn.disabled = ids.length === 0;
+    const selectAll = document.getElementById('selectAllCb');
+    if (selectAll) {
+        const visible = document.querySelectorAll('.unassigned-item:not([style*="display: none"])');
+        const checkedCount = document.querySelectorAll('.variant-cb:checked').length;
+        selectAll.indeterminate = checkedCount > 0 && checkedCount < visible.length;
+    }
+}
+
+function toggleSelectAll(checked) {
+    document.querySelectorAll('.unassigned-item').forEach(el => {
+        if (el.style.display !== 'none') {
+            el.querySelector('.variant-cb').checked = checked;
+        }
+    });
+    updateSelectedCount();
+}
+
+async function addSelected() {
+    const ids = getSelectedIds();
+    if (!ids.length) return;
+    const btn = document.getElementById('addSelectedBtn');
+    btn.disabled = true;
+    btn.textContent = 'Добавляем...';
+    const resp = await fetch('/models/' + modelId + '/add-variant', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ product_ids: ids })
+    });
+    const data = await resp.json();
+    if (data.ok) location.reload();
+    else { alert(data.error || 'Ошибка'); btn.disabled = false; btn.textContent = 'Добавить выбранные'; }
+}
+
+async function copyVariant() {
+    const productId = document.getElementById('copySource').value;
+    const accountId = document.getElementById('copyAccount').value;
+    const resp = await fetch('/models/' + modelId + '/copy-variant', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ product_id: parseInt(productId), account_id: parseInt(accountId) })
+    });
+    const data = await resp.json();
+    if (data.ok) location.reload();
+    else alert(data.error || 'Ошибка');
+}
+
+async function detachVariant(productId) {
+    if (!confirm('Отвязать товар от модели?')) return;
+    const resp = await fetch('/models/' + modelId + '/detach-variant', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ product_id: productId })
+    });
+    const data = await resp.json();
+    if (data.ok) location.reload();
+    else alert(data.error || 'Ошибка');
+}
+
+function filterUnassigned() {
+    const q = document.getElementById('searchUnassigned').value.toLowerCase();
+    document.querySelectorAll('.unassigned-item').forEach(el => {
+        el.style.display = el.dataset.title.includes(q) ? '' : 'none';
+    });
+    updateSelectedCount();
+}
+
+async function deleteModel() {
+    if (!confirm('Удалить модель? Товары не будут удалены, только отвязаны.')) return;
+    const resp = await fetch('/models/' + modelId, { method: 'DELETE' });
+    const data = await resp.json();
+    if (data.ok) location.href = '/models';
+    else alert(data.error || 'Ошибка');
+}
+
+// Cascading dropdowns for create-variant
+function cvUpdateApparel() {
+    const gt = document.getElementById('cv_goods_type').value;
+    const sel = document.getElementById('cv_apparel');
+    sel.innerHTML = '<option value="">—</option>';
+    const list = apparelsMap[gt] || [];
+    list.forEach(a => { const o = document.createElement('option'); o.value = a; o.textContent = a; sel.appendChild(o); });
+    cvUpdateSubtype();
+}
+
+function cvUpdateSubtype() {
+    const ap = document.getElementById('cv_apparel').value;
+    const sel = document.getElementById('cv_subtype');
+    sel.innerHTML = '<option value="">—</option>';
+    const list = subtypesMap[ap] || [];
+    list.forEach(s => { const o = document.createElement('option'); o.value = s; o.textContent = s; sel.appendChild(o); });
+}
+
+// --- Photo Packs ---
+async function createPack() {
+    const name = document.getElementById('packName').value.trim();
+    const errEl = document.getElementById('packError');
+    const progressEl = document.getElementById('packProgress');
+    if (!name) { errEl.textContent = 'Введите название'; errEl.style.display = 'block'; return; }
+    errEl.style.display = 'none';
+    progressEl.style.display = 'block';
+
+    const form = new FormData();
+    form.append('name', name);
+    form.append('model_id', modelId);
+    try {
+        const resp = await fetch('/photo-packs', { method: 'POST', body: form });
+        const data = await resp.json();
+        if (!data.ok) { errEl.textContent = data.error || 'Ошибка'; errEl.style.display = 'block'; progressEl.style.display = 'none'; return; }
+
+        const files = document.getElementById('packFiles').files;
+        if (files.length > 0) {
+            const uploadForm = new FormData();
+            for (const f of files) uploadForm.append('files', f);
+            await fetch('/photo-packs/' + data.id + '/upload', { method: 'POST', body: uploadForm });
+        }
+        location.reload();
+    } catch (e) {
+        errEl.textContent = 'Ошибка сети'; errEl.style.display = 'block'; progressEl.style.display = 'none';
+    }
+}
+
+async function deletePack(packId) {
+    if (!confirm('Удалить пакет фото?')) return;
+    const resp = await fetch('/photo-packs/' + packId, { method: 'DELETE' });
+    const data = await resp.json();
+    if (data.ok) {
+        const el = document.getElementById('pack-' + packId);
+        if (el) el.remove();
+    } else {
+        alert(data.error || 'Ошибка');
+    }
+}
+
+async function uploadToExistingPack(packId, files) {
+    if (!files.length) return;
+    const form = new FormData();
+    for (const f of files) form.append('files', f);
+    const resp = await fetch('/photo-packs/' + packId + '/upload', { method: 'POST', body: form });
+    const data = await resp.json();
+    if (data.ok) location.reload();
+    else alert(data.error || 'Ошибка загрузки');
+}
+</script>
+{% endblock %}

@@ -1,0 +1,15 @@
+[Unit]
+Description=Avito Autoload FastAPI
+After=network.target postgresql.service
+
+[Service]
+User=claude2
+Group=claude2
+WorkingDirectory=/home/claude2/avito-autoload
+ExecStart=/home/claude2/avito-autoload/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8001
+Restart=always
+RestartSec=3
+Environment="PATH=/home/claude2/avito-autoload/venv/bin:/usr/bin"
+
+[Install]
+WantedBy=multi-user.target
