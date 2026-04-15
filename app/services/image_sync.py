@@ -21,6 +21,10 @@ ORDER BY item_id, id DESC;
 
 async def sync_images_from_crm(db: AsyncSession) -> dict:
     """Fetch image URLs from CRM chats and save to products.image_url."""
+    if not settings.CRM_DSN or settings.CRM_DSN.strip() == "":
+        logger.info("image_sync.skipped", reason="CRM_DSN not configured")
+        return {"synced": 0, "not_found": 0, "already_had": 0, "total_crm": 0}
+
     # Connect to CRM DB
     crm_conn = await asyncpg.connect(settings.CRM_DSN)
     try:

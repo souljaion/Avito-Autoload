@@ -1,3 +1,4 @@
+import asyncio
 import os
 from typing import List
 
@@ -12,9 +13,11 @@ from app.config import settings
 from app.db import get_db
 from app.models.product import Product
 from app.models.product_image import ProductImage
-from app.services.image_processor import process_image
+from app.services.image_processor import process_image_async
 
 router = APIRouter(tags=["images"])
+
+MAX_UPLOAD_SIZE = 20 * 1024 * 1024  # 20 MB per file
 
 
 @router.post("/products/{product_id}/images")
@@ -44,35 +47,53 @@ async def upload_images(
     max_order = existing[0].sort_order if existing else -1
     has_main = any(img.is_main for img in existing)
 
-    uploaded = []
+    # Read all files with size check
+    raw_files: list[tuple[int, str, bytes]] = []
     for i, file in enumerate(files):
         if not file.filename:
             continue
-
-        try:
-            raw = await file.read()
-            jpeg_bytes = process_image(raw, max_side=1600, quality=85)
-        except (ValueError, OSError, UnidentifiedImageError) as exc:
+        raw = await file.read()
+        if len(raw) > MAX_UPLOAD_SIZE:
+            msg = f"Файл {file.filename} превышает 20 МБ"
             if want_json:
-                uploaded.append({"filename": file.filename, "error": str(exc)})
+                return JSONResponse({"ok": False, "error": msg}, status_code=413)
+            return RedirectResponse(f"/products/{product_id}?error={msg}", status_code=303)
+        raw_files.append((i, file.filename, raw))
+
+    # Process all images in parallel via threadpool
+    async def _safe_process(idx, filename, raw):
+        try:
+            jpeg_bytes = await process_image_async(raw, max_side=1600, quality=85)
+            return idx, filename, jpeg_bytes, None
+        except (ValueError, OSError, UnidentifiedImageError) as exc:
+            return idx, filename, None, str(exc)
+
+    results = await asyncio.gather(*[_safe_process(i, fn, raw) for i, fn, raw in raw_files])
+
+    # Save to disk + DB sequentially
+    uploaded = []
+    for idx, filename, jpeg_bytes, error in sorted(results, key=lambda r: r[0]):
+        if error:
+            if want_json:
+                uploaded.append({"filename": filename, "error": error})
             continue
 
-        base = os.path.splitext(file.filename or "image")[0]
+        base = os.path.splitext(filename or "image")[0]
         clean_name = f"{base}.jpg"
-        filename = f"{max_order + 1 + i}_{clean_name}"
-        filepath = os.path.join(product_dir, filename)
+        fname = f"{max_order + 1 + idx}_{clean_name}"
+        filepath = os.path.join(product_dir, fname)
 
         async with aiofiles.open(filepath, "wb") as f:
             await f.write(jpeg_bytes)
 
-        url = f"/media/products/{product_id}/{filename}"
-        is_main = not has_main and i == 0
+        url = f"/media/products/{product_id}/{fname}"
+        is_main = not has_main and idx == 0
 
         image = ProductImage(
             product_id=product_id,
             url=url,
-            filename=filename,
-            sort_order=max_order + 1 + i,
+            filename=fname,
+            sort_order=max_order + 1 + idx,
             is_main=is_main,
         )
         db.add(image)
@@ -80,7 +101,7 @@ async def upload_images(
             has_main = True
 
         await db.flush()
-        uploaded.append({"id": image.id, "url": url, "filename": filename, "is_main": is_main})
+        uploaded.append({"id": image.id, "url": url, "filename": fname, "is_main": is_main})
 
     await db.commit()
 

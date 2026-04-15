@@ -1,45 +1,180 @@
 {% extends "base.html" %}
 {% block title %}Расписание — Avito Autoload{% endblock %}
 {% block content %}
-<h1>Расписание публикаций</h1>
+<style>
+.dash-metrics { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:24px; }
+.dash-metric { background:#f8f9ff; border-radius:10px; padding:14px 16px; text-align:center; }
+.dash-metric .mv { font-size:24px; font-weight:600; color:#1e1b4b; }
+.dash-metric .ml { font-size:11px; color:#6b7280; margin-top:2px; }
+.dash-metric.amber .mv { color:#92400e; }
+.dash-metric .mv-small { font-size:14px; font-weight:500; color:#1e1b4b; }
+@media (max-width:600px) { .dash-metrics { grid-template-columns:repeat(2,1fr); } }
 
-<div id="table-card">
-    <div style="color:var(--text-muted);padding:32px;text-align:center;">Загрузка...</div>
+.hourly-chart { display:flex; gap:2px; align-items:flex-end; height:80px; margin-bottom:24px; padding:0 4px; }
+.hourly-bar { flex:1; border-radius:3px 3px 0 0; min-height:4px; position:relative; display:flex; align-items:flex-end; justify-content:center; transition:height 0.3s; }
+.hourly-bar .bar-label { font-size:8px; color:#fff; font-weight:600; padding-bottom:2px; }
+.hourly-bar .hour-label { position:absolute; bottom:-14px; font-size:8px; color:#9ca3af; }
+.bar-empty { background:#e5e7eb; }
+.bar-green { background:#c0dd97; }
+.bar-amber { background:#fac775; }
+.bar-red { background:#f09595; }
+
+.sched-grid { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:16px; }
+@media (max-width:768px) { .sched-grid { grid-template-columns:1fr; } }
+
+.acc-card { background:#fff; border:0.5px solid #e2e4f0; border-radius:12px; overflow:hidden; }
+.card-top { padding:16px 20px; border-bottom:0.5px solid #e2e4f0; }
+.card-top .top-row { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+.avatar { width:38px; height:38px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:16px; font-weight:600; flex-shrink:0; }
+.top-name { font-size:15px; font-weight:600; color:#1e1b4b; cursor:pointer; }
+.top-name:hover { color:#667eea; }
+.top-online { font-size:10px; color:#22c55e; display:flex; align-items:center; gap:4px; margin-left:auto; }
+.top-online .dot { width:6px; height:6px; border-radius:50%; background:#22c55e; }
+
+.stats-row { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+.stat-cell { text-align:center; }
+.stat-cell .sv { font-size:16px; font-weight:600; color:#1e1b4b; }
+.stat-cell .sl { font-size:10px; color:#9ca3af; }
+.stat-cell.amber .sv { color:#92400e; }
+
+.card-bottom { padding:14px 20px; }
+.section-label { font-size:10px; text-transform:uppercase; letter-spacing:0.04em; color:#9ca3af; font-weight:500; margin-bottom:8px; }
+.q-row { display:flex; align-items:center; gap:8px; padding:4px 0; font-size:12px; color:#374151; }
+.q-row .q-time { flex-shrink:0; color:#6b7280; font-size:11px; font-weight:500; width:38px; }
+.q-row .q-title { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.q-row .q-price { flex-shrink:0; font-size:11px; color:#6b7280; }
+.card-empty { text-align:center; color:#9ca3af; font-size:12px; padding:6px 0; }
+.card-footer { display:flex; align-items:center; gap:8px; padding:12px 20px; border-top:0.5px solid #e2e4f0; }
+.card-footer .feed-note { margin-left:auto; font-size:11px; color:#9ca3af; }
+.add-btn { padding:6px 12px; border:1px dashed #d1d5db; border-radius:8px; background:transparent; color:#534AB7; font-size:12px; cursor:pointer; }
+.add-btn:hover { background:#f9fafb; border-color:#534AB7; }
+.open-btn { padding:6px 14px; border:1px solid #667eea; border-radius:8px; background:transparent; color:#667eea; font-size:12px; cursor:pointer; text-decoration:none; }
+.open-btn:hover { background:#f0f2ff; }
+</style>
+
+<!-- Dashboard metrics -->
+<div class="dash-metrics" id="dash-metrics">
+    <div class="dash-metric"><div class="mv" id="dm-sched">—</div><div class="ml">Запланировано сегодня</div></div>
+    <div class="dash-metric"><div class="mv" id="dm-pub">—</div><div class="ml">Опубликовано сегодня</div></div>
+    <div class="dash-metric amber"><div class="mv" id="dm-drafts">—</div><div class="ml">Черновиков ждут</div></div>
+    <div class="dash-metric"><div class="mv-small" id="dm-feed">—</div><div class="ml">Следующая выгрузка</div></div>
 </div>
 
-<div id="toast" style="display:none;position:fixed;bottom:24px;right:24px;padding:14px 20px;border-radius:8px;font-size:14px;max-width:500px;z-index:1000;box-shadow:0 4px 12px rgba(0,0,0,0.3);"></div>
+<!-- Hourly chart -->
+<div style="margin-bottom:24px;">
+    <div style="font-size:12px;color:#6b7280;margin-bottom:6px;font-weight:500;">Нагрузка по часам (сегодня)</div>
+    <div class="hourly-chart" id="hourly-chart"></div>
+</div>
+
+<!-- Account cards grid -->
+<div class="sched-grid" id="cards">
+    <div style="color:#9ca3af;padding:20px;text-align:center;grid-column:1/-1;">Загрузка...</div>
+</div>
+
+<div id="toast" style="display:none;position:fixed;bottom:24px;right:24px;padding:14px 20px;border-radius:8px;font-size:14px;max-width:500px;z-index:1000;box-shadow:0 4px 12px rgba(0,0,0,0.15);"></div>
 
 <script>
-function showToast(msg, isError) { const t = document.getElementById('toast'); t.textContent = msg; t.style.display = 'block'; t.style.background = isError ? 'rgba(127,29,29,0.9)' : 'rgba(5,48,24,0.9)'; t.style.color = isError ? '#fca5a5' : '#34d399'; setTimeout(() => t.style.display = 'none', 5000); }
-function badge(s) { return `<span class="badge ${s==='scheduled'?'badge-yellow':s==='published'?'badge-green':'badge-gray'}">${s}</span>`; }
+const _avatarMap = {
+    'C':'#EEF0FF,#534AB7','К':'#EEF0FF,#534AB7',
+    'P':'#FFF0E8,#E8593C','П':'#FFF0E8,#E8593C',
+    'Z':'#E6F1FB,#185FA5','З':'#E6F1FB,#185FA5',
+    'R':'#E1F5EE,#0F6E56','Р':'#E1F5EE,#0F6E56',
+};
+function avatarStyle(name) {
+    const ch = (name||'?')[0].toUpperCase();
+    const c = _avatarMap[ch] || '#F1EFE8,#5F5E5A';
+    const [bg, fg] = c.split(',');
+    return `background:${bg};color:${fg};`;
+}
 
-function renderTable(items) {
-    const card = document.getElementById('table-card');
-    if (!items.length) { card.innerHTML = '<div style="color:var(--text-muted);padding:32px;text-align:center;">Нет запланированных публикаций</div>'; return; }
-    let html = '<table><thead><tr><th></th><th>Название</th><th>Аккаунт</th><th>Запланировано</th><th>Опубликовано</th><th>Статус</th><th></th></tr></thead><tbody>';
-    for (const i of items) {
-        const img = i.image ? `<img src="${i.image}" style="width:50px;height:50px;object-fit:cover;border-radius:6px;">` : `<div style="width:50px;height:50px;border-radius:6px;background:var(--bg-elevated);display:flex;align-items:center;justify-content:center;color:var(--text-muted);">?</div>`;
-        html += `<tr id="sched-row-${i.id}"><td>${img}</td><td><a href="/listings/${i.id}/edit">${i.title}</a></td><td><span class="badge badge-blue" style="font-size:10px;">${i.account||'—'}</span></td><td style="font-size:12px;color:var(--text-secondary);">${i.scheduled_at||'—'}</td><td style="font-size:12px;color:var(--text-secondary);">${i.published_at||'—'}</td><td>${badge(i.status)}</td>
-            <td>${i.status==='scheduled'?`<button class="btn btn-danger btn-sm" onclick="cancel(${i.id},event)">Отменить</button>`:''}</td></tr>`;
+function renderHourlyChart(hourly, containerId) {
+    const el = document.getElementById(containerId);
+    const max = Math.max(1, ...hourly);
+    let html = '';
+    for (let h = 0; h < 24; h++) {
+        const v = hourly[h] || 0;
+        const pct = Math.max(5, (v / max) * 100);
+        let cls = 'bar-empty';
+        if (v >= 5) cls = 'bar-red';
+        else if (v >= 3) cls = 'bar-amber';
+        else if (v >= 1) cls = 'bar-green';
+        const label = v > 0 ? `<span class="bar-label">${v}</span>` : '';
+        const hourLabel = h % 3 === 0 ? `<span class="hour-label">${h}</span>` : '';
+        html += `<div class="hourly-bar ${cls}" style="height:${v > 0 ? pct : 5}%;">${label}${hourLabel}</div>`;
     }
-    html += '</tbody></table>'; card.innerHTML = html;
+    el.innerHTML = html;
 }
 
-async function cancel(id, event) {
-    event.stopPropagation();
-    if (!confirm('Отменить публикацию #' + id + '?')) return;
-    try { const resp = await fetch('/api/schedule/' + id + '/cancel', { method: 'POST' }); const data = await resp.json();
-        if (data.ok) { showToast('Отменено', false); document.getElementById('sched-row-' + id)?.remove(); }
-        else { showToast(data.error, true); }
-    } catch (e) { showToast('Ошибка', true); }
-}
+async function loadOverview() {
+    try {
+        const resp = await fetch('/api/schedule/overview');
+        const data = await resp.json();
 
-async function loadData() {
-    try { const resp = await fetch('/api/schedule'); const data = await resp.json(); renderTable(data.items || []); }
-    catch (e) { document.getElementById('table-card').innerHTML = '<div class="flash flash-error">Ошибка</div>'; }
-}
+        // Dashboard metrics
+        const t = data.totals || {};
+        document.getElementById('dm-sched').textContent = t.scheduled_today ?? 0;
+        document.getElementById('dm-pub').textContent = t.published_today ?? 0;
+        document.getElementById('dm-drafts').textContent = t.drafts ?? 0;
+        document.getElementById('dm-feed').textContent = t.next_feed || '—';
 
-document.addEventListener('DOMContentLoaded', loadData);
-setInterval(loadData, 30000);
+        // Hourly chart
+        renderHourlyChart(data.hourly_load || new Array(24).fill(0), 'hourly-chart');
+
+        // Account cards
+        const el = document.getElementById('cards');
+        if (!data.accounts || !data.accounts.length) {
+            el.innerHTML = '<div style="color:#9ca3af;padding:20px;text-align:center;grid-column:1/-1;">Нет аккаунтов</div>';
+            return;
+        }
+        let html = '';
+        for (const a of data.accounts) {
+            const initial = (a.name||'?')[0].toUpperCase();
+
+            // Queue rows
+            let qHtml = '';
+            if (a.upcoming && a.upcoming.length) {
+                for (const u of a.upcoming) {
+                    const priceStr = u.price ? u.price.toLocaleString('ru-RU') + ' \u20BD' : '';
+                    qHtml += `<div class="q-row">
+                        <span class="q-time">${u.scheduled_at || '—'}</span>
+                        <span class="q-title">${u.title}</span>
+                        <span class="q-price">${priceStr}</span>
+                    </div>`;
+                }
+            } else {
+                qHtml = `<div class="card-empty">Нет запланированных <a href="/schedule/${a.id}" style="color:#667eea;">+ добавить</a></div>`;
+            }
+
+            const draftAmber = a.draft > 0 ? ' amber' : '';
+
+            html += `<div class="acc-card">
+                <div class="card-top">
+                    <div class="top-row">
+                        <div class="avatar" style="${avatarStyle(a.name)}">${initial}</div>
+                        <span class="top-name" onclick="location.href='/schedule/${a.id}'">${a.name}</span>
+                        <span class="top-online"><span class="dot"></span> Онлайн</span>
+                    </div>
+                    <div class="stats-row">
+                        <div class="stat-cell"><div class="sv">${a.scheduled_today}</div><div class="sl">Запланировано</div></div>
+                        <div class="stat-cell"><div class="sv">${a.published_today}</div><div class="sl">Опубликовано</div></div>
+                        <div class="stat-cell"><div class="sv">${a.active}</div><div class="sl">Активных</div></div>
+                        <div class="stat-cell${draftAmber}"><div class="sv">${a.draft}</div><div class="sl">Черновиков</div></div>
+                    </div>
+                </div>
+                <div class="card-bottom">
+                    <div class="section-label">Очередь</div>
+                    ${qHtml}
+                </div>
+                <div class="card-footer">
+                    <a href="/schedule/${a.id}" class="add-btn">+ Добавить</a>
+                    <a href="/schedule/${a.id}" class="open-btn">Открыть &rarr;</a>
+                    ${a.feed_time ? `<span class="feed-note">Фид в ${a.feed_time}</span>` : ''}
+                </div>
+            </div>`;
+        }
+        el.innerHTML = html;
+    } catch(e) { document.getElementById('cards').innerHTML = '<div style="color:#dc2626;padding:20px;text-align:center;grid-column:1/-1;">Ошибка загрузки</div>'; }
+}
+document.addEventListener('DOMContentLoaded', loadOverview);
 </script>
 {% endblock %}

@@ -1,5 +1,7 @@
 import os
 import shutil
+from datetime import datetime as dt, timezone
+from zoneinfo import ZoneInfo
 
 import aiofiles
 import structlog
@@ -13,10 +15,46 @@ from sqlalchemy.orm import selectinload
 from app.config import settings
 from app.db import get_db
 from app.models.account import Account
+from app.models.listing import Listing
 from app.models.product import Product
 from app.models.product_image import ProductImage
 from app.models.model import Model
 from app.models.photo_pack_image import PhotoPackImage
+from app.services.feed_generator import is_ready_for_feed
+
+MSK = ZoneInfo("Europe/Moscow")
+
+
+def _to_utc_naive(val: dt) -> dt:
+    """Convert a datetime to naive UTC. Treat naive datetimes as Moscow time."""
+    if val.tzinfo is None:
+        val = val.replace(tzinfo=MSK)
+    return val.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _get_feed_problems(product: Product, has_account_template: bool = False) -> list[str]:
+    """Return list of human-readable problems preventing feed readiness."""
+    problems = []
+    if not product.title:
+        problems.append("Не заполнено название")
+    has_description = bool(product.description)
+    if not has_description and not product.use_custom_description and has_account_template:
+        has_description = True
+    if not has_description:
+        problems.append("Не заполнено описание")
+    if product.price is None:
+        problems.append("Не указана цена")
+    if not product.category:
+        problems.append("Не указана категория")
+    if not product.goods_type:
+        problems.append("Не указан тип товара (goods_type)")
+    if not product.subcategory:
+        problems.append("Не указана подкатегория")
+    if not product.goods_subtype:
+        problems.append("Не указан подтип товара (goods_subtype)")
+    if not product.images:
+        problems.append("Нет фотографий")
+    return problems
 from app.schemas.product import ProductCreateForm
 from app.services.avito_client import AvitoClient
 from app.services.photo_uniquifier import uniquify_image
@@ -35,7 +73,7 @@ from app.catalog import (
 router = APIRouter(prefix="/products", tags=["products"])
 templates = Jinja2Templates(directory="app/templates")
 
-PRODUCT_STATUSES = ["draft", "imported", "active", "paused", "sold", "scheduled", "published"]
+PRODUCT_STATUSES = ["draft", "imported", "active", "paused", "sold", "scheduled", "published", "removed"]
 
 EXTRA_FIELD_OPTIONS = {
     "ad_types": AD_TYPES,
@@ -51,6 +89,46 @@ EXTRA_FIELD_OPTIONS = {
     "default_multi_item": DEFAULT_MULTI_ITEM,
     "default_try_on": DEFAULT_TRY_ON,
 }
+
+
+@router.get("/search")
+async def search_products(q: str = "", account_id: int | None = None, db: AsyncSession = Depends(get_db)):
+    """Search unlinked products by title for model linking."""
+    q = q.strip()
+    if len(q) < 2:
+        return JSONResponse([])
+    words = q.split()
+    filters = [Product.model_id.is_(None)]
+    for word in words:
+        filters.append(Product.title.ilike(f"%{word}%"))
+    if account_id:
+        filters.append(Product.account_id == account_id)
+    stmt = (
+        select(Product)
+        .options(selectinload(Product.account), selectinload(Product.images))
+        .where(*filters)
+        .order_by(Product.id.desc())
+        .limit(20)
+    )
+    result = await db.execute(stmt)
+    products = result.scalars().all()
+    items = []
+    for p in products:
+        image_url = None
+        if p.images:
+            sorted_imgs = sorted(p.images, key=lambda x: (not x.is_main, x.sort_order))
+            image_url = sorted_imgs[0].url
+        elif p.image_url:
+            image_url = p.image_url
+        items.append({
+            "id": p.id,
+            "title": p.title,
+            "account_name": p.account.name if p.account else None,
+            "price": p.price,
+            "status": p.status,
+            "image_url": image_url,
+        })
+    return JSONResponse(items)
 
 
 @router.get("", response_class=HTMLResponse)
@@ -120,6 +198,8 @@ async def import_from_avito(request: Request, db: AsyncSession = Depends(get_db)
             account_id=account.id,
         )
         db.add(product)
+        await db.flush()
+        db.add(Listing(product_id=product.id, account_id=account.id, status="draft"))
         existing_ids.add(avito_id)
         imported.append({
             "avito_id": avito_id,
@@ -356,6 +436,10 @@ async def product_create(
     if pack_id:
         await _apply_pack_to_product(db, product.id, int(pack_id), pack_uniquify == "1")
 
+    # Auto-create listing so product is visible on /products page
+    if product.account_id:
+        db.add(Listing(product_id=product.id, account_id=product.account_id, status="draft"))
+
     await db.commit()
     return RedirectResponse(f"/products/{product.id}", status_code=303)
 
@@ -369,7 +453,41 @@ async def product_detail(request: Request, product_id: int, db: AsyncSession = D
     product = result.scalar_one_or_none()
     if not product:
         return HTMLResponse("Товар не найден", status_code=404)
-    return templates.TemplateResponse("products/detail.html", {"request": request, "product": product})
+    return templates.TemplateResponse("products/detail.html", {"request": request, "product": product, "page_title": "Объявления"})
+
+
+@router.get("/{product_id}/avito-status")
+async def product_avito_status(product_id: int, db: AsyncSession = Depends(get_db)):
+    """Fetch real-time Avito autoload status for a single product."""
+    result = await db.execute(
+        select(Product).options(selectinload(Product.account)).where(Product.id == product_id)
+    )
+    product = result.scalar_one_or_none()
+    if not product:
+        return JSONResponse({"ok": False, "error": "Товар не найден"}, status_code=404)
+    if not product.account or not product.account.client_id:
+        return JSONResponse({"ok": False, "error": "Аккаунт не настроен"}, status_code=400)
+
+    client = AvitoClient(product.account, db)
+    try:
+        items = await client.get_items_info([str(product.id)])
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": f"Ошибка Avito API: {e}"}, status_code=502)
+    finally:
+        await client.close()
+
+    if not items:
+        return JSONResponse({"ok": False, "error": "Объявление не найдено в Avito"}, status_code=404)
+
+    item = items[0]
+    return JSONResponse({
+        "ok": True,
+        "avito_status": item.get("avito_status"),
+        "url": item.get("url"),
+        "messages": item.get("messages"),
+        "processing_time": item.get("processing_time"),
+        "avito_date_end": item.get("avito_date_end"),
+    })
 
 
 @router.get("/{product_id}/edit", response_class=HTMLResponse)
@@ -497,6 +615,11 @@ async def duplicate_product(product_id: int, db: AsyncSession = Depends(get_db))
         extra=dict(product.extra) if product.extra else None,
     )
     db.add(copy)
+    await db.flush()
+
+    if copy.account_id:
+        db.add(Listing(product_id=copy.id, account_id=copy.account_id, status="draft"))
+
     await db.commit()
     return RedirectResponse(f"/products/{copy.id}/edit", status_code=303)
 
@@ -520,7 +643,43 @@ async def patch_product(product_id: int, request: Request, db: AsyncSession = De
         val = body["status"]
         if val not in PRODUCT_STATUSES:
             return JSONResponse({"ok": False, "error": f"Недопустимый статус: {val}"}, status_code=400)
+        old_status = product.status
         product.status = val
+        # If cancelling a scheduled product, clear scheduled_at and sync listings
+        if old_status == "scheduled" and val == "draft":
+            product.scheduled_at = None
+            listings_result = await db.execute(
+                select(Listing).where(
+                    Listing.product_id == product_id,
+                    Listing.status == "scheduled",
+                )
+            )
+            for listing in listings_result.scalars().all():
+                listing.status = "draft"
+                listing.scheduled_at = None
+
+    if "title" in body:
+        product.title = body["title"].strip() if body["title"] else product.title
+
+    if "description" in body:
+        product.description = body["description"].strip() or None
+
+    if "use_custom_description" in body:
+        product.use_custom_description = bool(body["use_custom_description"])
+
+    if "size" in body:
+        product.size = body["size"].strip() or None
+
+    if "condition" in body:
+        product.condition = body["condition"].strip() or None
+
+    if "model_id" in body:
+        val = body["model_id"]
+        product.model_id = int(val) if val is not None else None
+
+    if "account_id" in body:
+        val = body["account_id"]
+        product.account_id = int(val) if val else None
 
     await db.commit()
     return JSONResponse({"ok": True, "id": product.id, "price": product.price, "status": product.status})
@@ -528,25 +687,22 @@ async def patch_product(product_id: int, request: Request, db: AsyncSession = De
 
 @router.delete("/{product_id}")
 async def delete_product(product_id: int, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(
-        select(Product).options(selectinload(Product.images)).where(Product.id == product_id)
-    )
-    product = result.scalar_one_or_none()
+    product = await db.get(Product, product_id)
     if not product:
         return JSONResponse({"ok": False, "error": "Товар не найден"}, status_code=404)
 
-    # Delete images from DB (cascade should handle it, but be explicit)
-    for img in product.images:
-        await db.delete(img)
+    product.status = "removed"
+    product.removed_at = dt.utcnow()
 
-    # Delete media folder from disk
-    product_dir = os.path.join(settings.MEDIA_DIR, "products", str(product_id))
-    if os.path.isdir(product_dir):
-        shutil.rmtree(product_dir, ignore_errors=True)
+    # Update related listings
+    listing_result = await db.execute(
+        select(Listing).where(Listing.product_id == product_id)
+    )
+    for ls in listing_result.scalars().all():
+        ls.status = "draft"
 
-    await db.delete(product)
     await db.commit()
-    return JSONResponse({"ok": True})
+    return JSONResponse({"ok": True, "message": "Товар будет снят с Авито при следующей выгрузке фида"})
 
 
 async def _apply_pack_to_product(db: AsyncSession, product_id: int, pack_id: int, do_uniquify: bool) -> int:
@@ -624,3 +780,367 @@ async def apply_pack(product_id: int, request: Request, db: AsyncSession = Depen
     count = await _apply_pack_to_product(db, product_id, int(pack_id), do_uniquify)
     await db.commit()
     return JSONResponse({"ok": True, "images_added": count})
+
+
+@router.patch("/{product_id}/pack")
+async def patch_product_pack(product_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+    """Change the photo pack assigned to a product."""
+    from app.models.pack_usage_history import PackUsageHistory
+
+    product = await db.get(Product, product_id)
+    if not product:
+        return JSONResponse({"ok": False, "error": "Товар не найден"}, status_code=404)
+
+    body = await request.json()
+    pack_id = body.get("pack_id")
+    if not pack_id:
+        return JSONResponse({"ok": False, "error": "Не указан pack_id"}, status_code=400)
+
+    count = await _apply_pack_to_product(db, product_id, int(pack_id), False)
+
+    # Update pack usage history so accounts-status reflects the current pack
+    if product.account_id and product.model_id:
+        from app.models.photo_pack import PhotoPack
+        # Get all pack IDs for this model
+        model_packs = await db.execute(
+            select(PhotoPack.id).where(PhotoPack.model_id == product.model_id)
+        )
+        model_pack_ids = [r[0] for r in model_packs.all()]
+        if model_pack_ids:
+            # Remove old usage records for this account + this model's packs
+            old_usage = await db.execute(
+                select(PackUsageHistory).where(
+                    PackUsageHistory.account_id == product.account_id,
+                    PackUsageHistory.pack_id.in_(model_pack_ids),
+                )
+            )
+            for old in old_usage.scalars().all():
+                await db.delete(old)
+        # Record new usage
+        db.add(PackUsageHistory(
+            pack_id=int(pack_id),
+            account_id=product.account_id,
+            uniquified=False,
+        ))
+
+    await db.commit()
+    return JSONResponse({"ok": True, "images_added": count})
+
+
+@router.post("/{product_id}/schedule")
+async def schedule_product(product_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+    body = await request.json()
+    account_id = body.get("account_id")
+    scheduled_at_str = body.get("scheduled_at")
+
+    if not account_id or not scheduled_at_str:
+        return JSONResponse({"ok": False, "error": "account_id and scheduled_at required"}, status_code=400)
+
+    result = await db.execute(
+        select(Product).options(selectinload(Product.images)).where(Product.id == product_id)
+    )
+    product = result.scalar_one_or_none()
+    if not product:
+        return JSONResponse({"ok": False, "error": "Товар не найден"}, status_code=404)
+
+    # Check if account has a description template
+    from app.models.account_description_template import AccountDescriptionTemplate as ADT
+    tmpl_result = await db.execute(select(ADT).where(ADT.account_id == int(account_id)))
+    has_template = tmpl_result.scalar_one_or_none() is not None
+
+    # Validate product readiness before scheduling
+    problems = _get_feed_problems(product, has_account_template=has_template)
+    if problems:
+        return JSONResponse({
+            "ok": False,
+            "error": "Товар не готов к публикации",
+            "problems": problems,
+        }, status_code=400)
+
+    try:
+        scheduled_at = _to_utc_naive(dt.fromisoformat(scheduled_at_str))
+    except ValueError:
+        return JSONResponse({"ok": False, "error": "Invalid datetime"}, status_code=400)
+
+    # Update product status and scheduled_at so /schedule page sees it
+    product.status = "scheduled"
+    product.scheduled_at = scheduled_at
+
+    # Find or create listing
+    result = await db.execute(
+        select(Listing).where(Listing.product_id == product_id, Listing.account_id == int(account_id))
+    )
+    listing = result.scalar_one_or_none()
+    if listing:
+        listing.status = "scheduled"
+        listing.scheduled_at = scheduled_at
+    else:
+        listing = Listing(
+            product_id=product_id,
+            account_id=int(account_id),
+            status="scheduled",
+            scheduled_at=scheduled_at,
+        )
+        db.add(listing)
+
+    await db.commit()
+    # Return display time in Moscow
+    display_time = scheduled_at.replace(tzinfo=timezone.utc).astimezone(MSK)
+
+    # Include sync hint if account has avito_sync_minute
+    account = await db.get(Account, int(account_id))
+    sync_hint = None
+    if account and account.avito_sync_minute is not None:
+        sync_min = account.avito_sync_minute
+        sync_hint = f"Авито заберёт фид в XX:{sync_min:02d}, объявление появится не раньше этого времени"
+
+    return JSONResponse({
+        "ok": True,
+        "scheduled_at": display_time.strftime("%d.%m.%Y %H:%M"),
+        "sync_hint": sync_hint,
+    })
+
+
+@router.delete("/{product_id}/avito")
+async def delete_from_avito(product_id: int, db: AsyncSession = Depends(get_db)):
+    """Remove ad from Avito and set product status to draft."""
+    from app.services.avito_client import AvitoClient
+
+    result = await db.execute(
+        select(Product).options(selectinload(Product.account)).where(Product.id == product_id)
+    )
+    product = result.scalar_one_or_none()
+    if not product:
+        return JSONResponse({"ok": False, "error": "Товар не найден"}, status_code=404)
+
+    # Try to delete from Avito if we have avito_id and account
+    avito_deleted = False
+    if product.avito_id and product.account:
+        try:
+            client = AvitoClient(product.account, db)
+            try:
+                await client.delete_ad(product.avito_id)
+                avito_deleted = True
+            finally:
+                await client.close()
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": f"Ошибка Avito API: {e}"}, status_code=502)
+
+    product.status = "removed"
+    product.removed_at = dt.utcnow()
+
+    # Also update related listings
+    listing_result = await db.execute(
+        select(Listing).where(Listing.product_id == product_id)
+    )
+    for ls in listing_result.scalars().all():
+        if ls.status in ("published", "active"):
+            ls.status = "draft"
+            ls.avito_id = None
+
+    await db.commit()
+    msg = "Удалено с Авито" if avito_deleted else "Статус сброшен"
+    return JSONResponse({"ok": True, "message": msg})
+
+
+@router.post("/{product_id}/repost")
+async def repost_product(product_id: int, db: AsyncSession = Depends(get_db)):
+    """Hide old ad, re-apply pack with uniquification, generate & upload new feed."""
+    import os
+    import shutil
+    import aiofiles
+    from app.services.avito_client import AvitoClient
+    from app.services.photo_uniquifier import uniquify_image
+    from app.services.feed_generator import generate_feed
+    from app.models.pack_usage_history import PackUsageHistory
+    from app.models.photo_pack import PhotoPack
+    from app.models.photo_pack_image import PhotoPackImage
+
+    result = await db.execute(
+        select(Product)
+        .options(selectinload(Product.account), selectinload(Product.images))
+        .where(Product.id == product_id)
+    )
+    product = result.scalar_one_or_none()
+    if not product:
+        return JSONResponse({"ok": False, "error": "Товар не найден"}, status_code=404)
+    if not product.account:
+        return JSONResponse({"ok": False, "error": "Товар не привязан к аккаунту"}, status_code=400)
+
+    account = product.account
+
+    # 1. Hide old ad on Avito
+    if product.avito_id:
+        try:
+            client = AvitoClient(account, db)
+            try:
+                await client.delete_ad(product.avito_id)
+            finally:
+                await client.close()
+        except Exception:
+            pass  # Continue even if hide fails
+
+    # 2. Find last used pack for this account
+    usage_result = await db.execute(
+        select(PackUsageHistory)
+        .where(PackUsageHistory.account_id == account.id)
+        .order_by(PackUsageHistory.used_at.desc())
+        .limit(1)
+    )
+    last_usage = usage_result.scalar_one_or_none()
+
+    pack = None
+    if last_usage:
+        pack_result = await db.execute(
+            select(PhotoPack)
+            .options(selectinload(PhotoPack.images))
+            .where(PhotoPack.id == last_usage.pack_id)
+        )
+        pack = pack_result.scalar_one_or_none()
+
+    # 3. Re-apply pack with uniquification if pack found
+    if pack and pack.images:
+        # Delete old product images
+        for img in list(product.images):
+            await db.delete(img)
+
+        product_dir = os.path.join(settings.MEDIA_DIR, "products", str(product.id))
+        if os.path.isdir(product_dir):
+            shutil.rmtree(product_dir)
+        os.makedirs(product_dir, exist_ok=True)
+
+        for idx, pimg in enumerate(sorted(pack.images, key=lambda x: x.sort_order)):
+            if not os.path.isfile(pimg.file_path):
+                continue
+            basename = os.path.basename(pimg.file_path)
+            filename = f"{idx}_{basename}"
+            filepath = os.path.join(product_dir, filename)
+
+            data = uniquify_image(pimg.file_path)
+            async with aiofiles.open(filepath, "wb") as f:
+                await f.write(data)
+
+            url = f"/media/products/{product.id}/{filename}"
+            db.add(ProductImage(
+                product_id=product.id,
+                url=url,
+                filename=filename,
+                sort_order=idx,
+                is_main=(idx == 0),
+            ))
+
+        db.add(PackUsageHistory(pack_id=pack.id, account_id=account.id, uniquified=True))
+
+    # 4. Update status
+    product.status = "active"
+    product.avito_id = None
+    await db.commit()
+
+    # 5. Generate and upload feed
+    try:
+        filepath, count = await generate_feed(account.id, db)
+        from app.models.feed_export import FeedExport
+        feed_result = await db.execute(
+            select(FeedExport)
+            .where(FeedExport.account_id == account.id)
+            .order_by(FeedExport.created_at.desc())
+            .limit(1)
+        )
+        export = feed_result.scalar_one_or_none()
+        if export:
+            async with aiofiles.open(export.file_path, "rb") as f:
+                xml_bytes = await f.read()
+            client = AvitoClient(account, db)
+            try:
+                await client.upload_feed(xml_bytes, os.path.basename(export.file_path))
+                from app.db import utc_now
+                export.status = "uploaded"
+                export.uploaded_at = utc_now()
+                await db.commit()
+            finally:
+                await client.close()
+    except Exception as e:
+        return JSONResponse({"ok": True, "message": f"Фото обновлены, но загрузка фида не удалась: {e}"})
+
+    return JSONResponse({"ok": True, "message": "Перевыложено успешно"})
+
+
+@router.delete("/{product_id}/schedule")
+async def cancel_schedule(product_id: int, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(Listing).where(Listing.product_id == product_id, Listing.status == "scheduled")
+    )
+    listings = result.scalars().all()
+    for ls in listings:
+        ls.status = "draft"
+        ls.scheduled_at = None
+    await db.commit()
+    return JSONResponse({"ok": True})
+
+
+@router.post("/schedule-bulk")
+async def schedule_bulk(request: Request, db: AsyncSession = Depends(get_db)):
+    body = await request.json()
+    product_ids = body.get("product_ids", [])
+    account_id = body.get("account_id")
+    start_time_str = body.get("start_time")
+    interval_minutes = body.get("interval_minutes", 60)
+
+    if not product_ids or not account_id or not start_time_str:
+        return JSONResponse({"ok": False, "error": "Missing required fields"}, status_code=400)
+
+    from datetime import timedelta
+    try:
+        start_time = _to_utc_naive(dt.fromisoformat(start_time_str))
+    except ValueError:
+        return JSONResponse({"ok": False, "error": "Invalid datetime"}, status_code=400)
+
+    # Validate all products before scheduling any
+    result = await db.execute(
+        select(Product).options(selectinload(Product.images)).where(Product.id.in_([int(p) for p in product_ids]))
+    )
+    products_map = {p.id: p for p in result.scalars().all()}
+    not_ready = []
+    for pid in product_ids:
+        product = products_map.get(int(pid))
+        if not product:
+            not_ready.append({"product_id": int(pid), "problems": ["Товар не найден"]})
+            continue
+        problems = _get_feed_problems(product)
+        if problems:
+            not_ready.append({"product_id": int(pid), "title": product.title, "problems": problems})
+    if not_ready:
+        return JSONResponse({
+            "ok": False,
+            "error": f"{len(not_ready)} товар(ов) не готовы к публикации",
+            "not_ready": not_ready,
+        }, status_code=400)
+
+    items = []
+    for i, pid in enumerate(product_ids):
+        scheduled_at = start_time + timedelta(minutes=interval_minutes * i)
+
+        result = await db.execute(
+            select(Listing).where(Listing.product_id == int(pid), Listing.account_id == int(account_id))
+        )
+        listing = result.scalar_one_or_none()
+        if listing:
+            listing.status = "scheduled"
+            listing.scheduled_at = scheduled_at
+        else:
+            listing = Listing(
+                product_id=int(pid),
+                account_id=int(account_id),
+                status="scheduled",
+                scheduled_at=scheduled_at,
+            )
+            db.add(listing)
+
+        display_time = scheduled_at.replace(tzinfo=timezone.utc).astimezone(MSK)
+        items.append({
+            "product_id": int(pid),
+            "scheduled_at": display_time.strftime("%d.%m.%Y %H:%M"),
+        })
+
+    await db.commit()
+    return JSONResponse({"ok": True, "scheduled": len(items), "items": items})

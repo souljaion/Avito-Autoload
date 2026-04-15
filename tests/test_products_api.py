@@ -86,3 +86,24 @@ async def test_patch_nonexistent_product(client):
         json={"status": "active"},
     )
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_product_with_account_creates_listing(client):
+    """Product created with account_id should auto-create a listing and appear on /products."""
+    # Create product with account_id=1
+    create_resp = await client.post(
+        "/products/new",
+        data={"title": "Auto Listing Test", "price": "3000", "status": "draft", "account_id": "1"},
+        follow_redirects=False,
+    )
+    assert create_resp.status_code == 303
+    pid = create_resp.headers["location"].rstrip("/").split("/")[-1]
+
+    # Verify listing was auto-created via /api/listings
+    resp = await client.get("/api/listings?status=draft")
+    assert resp.status_code == 200
+    items = resp.json()["items"]
+    matching = [i for i in items if i["product_id"] == int(pid)]
+    assert len(matching) >= 1, f"Product {pid} should have a listing in draft status"
+    assert matching[0]["title"] == "Auto Listing Test"

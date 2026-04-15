@@ -1,5 +1,7 @@
+import asyncio
 import os
 import shutil
+from datetime import timezone
 
 import aiofiles
 import structlog
@@ -17,7 +19,8 @@ from app.models.account import Account
 from app.models.listing import Listing
 from app.models.listing_image import ListingImage
 from app.models.product import Product
-from app.services.image_processor import process_image
+from app.services.image_processor import process_image_async
+from app.routes.products import _to_utc_naive, MSK
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(tags=["listings"])
@@ -30,10 +33,36 @@ templates = Jinja2Templates(directory="app/templates")
 async def list_listings(
     status: str | None = None,
     account_id: int | None = None,
+    product_status: str | None = None,
+    search: str | None = None,
+    page: int = 1,
+    per_page: int = 50,
     db: AsyncSession = Depends(get_db),
 ):
+    per_page = min(per_page, 200)
+    offset = (max(page, 1) - 1) * per_page
+
+    base_filters = []
+    if status and status != "all":
+        base_filters.append(Listing.status == status)
+    if account_id:
+        base_filters.append(Listing.account_id == account_id)
+    if product_status:
+        statuses = [s.strip() for s in product_status.split(",")]
+        base_filters.append(Product.status.in_(statuses))
+    if search and search.strip():
+        base_filters.append(Product.title.ilike(f"%{search.strip()}%"))
+
+    # Count total for pagination
+    from sqlalchemy import func as sa_func
+    count_stmt = select(sa_func.count()).select_from(Listing).join(Listing.product)
+    for f in base_filters:
+        count_stmt = count_stmt.where(f)
+    total = (await db.execute(count_stmt)).scalar() or 0
+
     stmt = (
         select(Listing)
+        .join(Listing.product)
         .options(
             selectinload(Listing.product).selectinload(Product.images),
             selectinload(Listing.account),
@@ -41,11 +70,10 @@ async def list_listings(
         )
         .order_by(Listing.updated_at.desc())
     )
-    if status and status != "all":
-        stmt = stmt.where(Listing.status == status)
-    if account_id:
-        stmt = stmt.where(Listing.account_id == account_id)
+    for f in base_filters:
+        stmt = stmt.where(f)
 
+    stmt = stmt.limit(per_page).offset(offset)
     result = await db.execute(stmt)
     listings = result.scalars().all()
 
@@ -68,14 +96,38 @@ async def list_listings(
             "account_id": ls.account_id,
             "account": ls.account.name if ls.account else "—",
             "status": ls.status,
-            "avito_id": ls.avito_id,
-            "scheduled_at": ls.scheduled_at.strftime("%d.%m.%Y %H:%M") if ls.scheduled_at else None,
+            "product_status": ls.product.status if ls.product else None,
+            "avito_id": ls.avito_id or (ls.product.avito_id if ls.product else None),
+            "scheduled_at": ls.scheduled_at.replace(tzinfo=timezone.utc).astimezone(MSK).strftime("%d.%m.%Y %H:%M") if ls.scheduled_at else None,
+            "scheduled_at_iso": ls.scheduled_at.isoformat() if ls.scheduled_at else None,
             "published_at": ls.published_at.strftime("%d.%m.%Y %H:%M") if ls.published_at else None,
             "image": first_img,
             "image_count": len(ls.images),
         })
 
-    return JSONResponse({"items": items})
+    import math
+    total_pages = math.ceil(total / per_page) if total > 0 else 1
+    return JSONResponse({"items": items, "page": page, "per_page": per_page, "total": total, "total_pages": total_pages, "has_more": len(items) == per_page})
+
+
+@router.get("/api/listings/counts")
+async def listings_counts(db: AsyncSession = Depends(get_db)):
+    """Return counts of listings by product status for filter tabs."""
+    from sqlalchemy import func as sa_func
+    result = await db.execute(
+        select(Product.status, sa_func.count())
+        .select_from(Listing)
+        .join(Listing.product)
+        .where(Product.status.in_(["draft", "scheduled", "active"]))
+        .group_by(Product.status)
+    )
+    counts = {row[0]: row[1] for row in result.all()}
+    return JSONResponse({
+        "draft": counts.get("draft", 0),
+        "scheduled": counts.get("scheduled", 0),
+        "active": counts.get("active", 0),
+        "all": sum(counts.values()),
+    })
 
 
 # ── Create listing for product ──
@@ -98,7 +150,7 @@ async def create_listing(product_id: int, request: Request, db: AsyncSession = D
     if scheduled_at_str:
         from datetime import datetime as dt
         try:
-            scheduled_at = dt.fromisoformat(scheduled_at_str)
+            scheduled_at = _to_utc_naive(dt.fromisoformat(scheduled_at_str))
             status = "scheduled"
         except ValueError:
             pass
@@ -133,7 +185,7 @@ async def edit_listing_page(request: Request, listing_id: int, db: AsyncSession 
 
     accs = await db.execute(select(Account).order_by(Account.name))
 
-    return templates.TemplateResponse("listings/edit.html", {
+    return templates.TemplateResponse("listings/edit.html", {"page_title": "Листинг",
         "request": request,
         "listing": listing,
         "product": listing.product,
@@ -160,7 +212,7 @@ async def patch_listing(listing_id: int, request: Request, db: AsyncSession = De
         if val:
             from datetime import datetime as dt
             try:
-                listing.scheduled_at = dt.fromisoformat(val)
+                listing.scheduled_at = _to_utc_naive(dt.fromisoformat(val))
             except ValueError:
                 pass
         else:
@@ -212,7 +264,7 @@ async def update_listing_form(
     if scheduled_at:
         from datetime import datetime as dt
         try:
-            listing.scheduled_at = dt.fromisoformat(scheduled_at)
+            listing.scheduled_at = _to_utc_naive(dt.fromisoformat(scheduled_at))
             if status != "published":
                 listing.status = "scheduled"
         except ValueError:
@@ -254,28 +306,48 @@ async def upload_listing_images(
     existing = result.scalars().all()
     max_order = existing[0].order if existing else -1
 
-    uploaded = []
+    MAX_UPLOAD_SIZE = 20 * 1024 * 1024  # 20 MB per file
+
+    # Read all files with size check
+    raw_files: list[tuple[int, str, bytes]] = []
     for i, file in enumerate(files):
         if not file.filename:
             continue
+        raw = await file.read()
+        if len(raw) > MAX_UPLOAD_SIZE:
+            msg = f"Файл {file.filename} превышает 20 МБ"
+            if want_json:
+                return JSONResponse({"ok": False, "error": msg}, status_code=413)
+            return RedirectResponse(f"/listings/{listing_id}/edit?error={msg}", status_code=303)
+        raw_files.append((i, file.filename, raw))
+
+    # Process in parallel via threadpool
+    async def _safe_process(idx, filename, raw):
         try:
-            raw = await file.read()
-            jpeg_bytes = process_image(raw, max_side=1600, quality=85)
+            jpeg_bytes = await process_image_async(raw, max_side=1600, quality=85)
+            return idx, filename, jpeg_bytes, None
         except (ValueError, OSError, UnidentifiedImageError):
+            return idx, filename, None, "error"
+
+    results = await asyncio.gather(*[_safe_process(i, fn, raw) for i, fn, raw in raw_files])
+
+    uploaded = []
+    for idx, filename, jpeg_bytes, error in sorted(results, key=lambda r: r[0]):
+        if error:
             continue
 
-        base = os.path.splitext(file.filename or "image")[0]
+        base = os.path.splitext(filename or "image")[0]
         clean_name = f"{base}.jpg"
-        filename = f"{max_order + 1 + i}_{clean_name}"
-        filepath = os.path.join(listing_dir, filename)
+        fname = f"{max_order + 1 + idx}_{clean_name}"
+        filepath = os.path.join(listing_dir, fname)
         async with aiofiles.open(filepath, "wb") as f:
             await f.write(jpeg_bytes)
 
-        url = f"/media/listings/{listing_id}/{filename}"
+        url = f"/media/listings/{listing_id}/{fname}"
         img = ListingImage(
             listing_id=listing_id,
             file_path=url,
-            order=max_order + 1 + i,
+            order=max_order + 1 + idx,
         )
         db.add(img)
         await db.flush()

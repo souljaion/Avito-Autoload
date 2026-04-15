@@ -2,56 +2,101 @@
 {% block title %}Модели — Avito Autoload{% endblock %}
 
 {% block content %}
-<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-    <h1>Модели</h1>
-    <button class="btn btn-primary" onclick="document.getElementById('createModal').style.display='flex'">Создать модель</button>
+<style>
+.models-toolbar { display:flex; gap:10px; align-items:center; margin-bottom:20px; flex-wrap:wrap; }
+.models-toolbar .search-input { flex:1; min-width:200px; max-width:350px; }
+.models-grid { display:grid; grid-template-columns:repeat(6, minmax(0, 1fr)); gap:10px; }
+@media (max-width:1100px) { .models-grid { grid-template-columns:repeat(3, minmax(0, 1fr)); } }
+@media (max-width:700px) { .models-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
+@media (max-width:480px) { .models-grid { grid-template-columns:1fr; } }
+
+.model-card {
+    background:#fff; border:0.5px solid #e2e4f0; border-radius:12px;
+    cursor:pointer; transition:border-color 0.15s, box-shadow 0.15s;
+    display:flex; flex-direction:column; overflow:hidden;
+}
+.model-card:hover { border-color:#667eea; box-shadow:0 2px 12px rgba(102,126,234,0.15); }
+.model-card .card-img-wrap { width:100%; aspect-ratio:4/3; overflow:hidden; background:#f3f4f6; }
+.model-card .card-img-wrap img { width:100%; height:100%; object-fit:cover; display:block; }
+.model-card .card-img-placeholder { width:100%; height:100%; display:flex; align-items:center; justify-content:center; color:#d1d5db; font-size:32px; }
+.model-card .card-body { padding:8px 10px 10px; display:flex; flex-direction:column; gap:3px; }
+.model-card .brand { font-size:9px; color:#6b7280; text-transform:uppercase; letter-spacing:0.5px; }
+.model-card .name { font-size:12px; font-weight:500; color:#1e1b4b; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.model-card .meta { font-size:11px; color:#1e1b4b; display:flex; justify-content:space-between; align-items:center; }
+.model-card .meta .count { font-size:10px; color:#6b7280; }
+
+.model-card-new {
+    background:transparent; border:1.5px dashed var(--color-border-secondary, #d1d5db); border-radius:12px;
+    cursor:pointer; display:flex; flex-direction:column; overflow:hidden;
+    color:#6b7280; font-size:14px; transition:border-color 0.15s, color 0.15s;
+    align-items:center; justify-content:center;
+}
+.model-card-new .card-img-wrap { width:100%; aspect-ratio:4/3; display:flex; align-items:center; justify-content:center; }
+.model-card-new:hover { border-color:#667eea; color:#667eea; }
+</style>
+
+<div class="models-toolbar">
+    <input type="text" id="searchInput" class="search-input" placeholder="Поиск по названию или бренду..." oninput="filterModels()">
+    <select id="brandFilter" onchange="filterModels()" style="padding:8px 12px;border:0.5px solid #d1d5db;color:#6b7280;border-radius:6px;font-size:13px;min-width:140px;">
+        <option value="">Все бренды</option>
+        {% for b in brands %}
+        <option value="{{ b }}">{{ b }}</option>
+        {% endfor %}
+    </select>
+    <div style="margin-left:auto;">
+        <button class="btn btn-primary" onclick="document.getElementById('createModal').style.display='flex'">+ Новая модель</button>
+    </div>
 </div>
 
-{% if model_data %}
-<div class="card" style="padding:0; overflow:hidden;">
-<table>
-    <thead>
-        <tr>
-            <th>Название</th>
-            <th>Вариантов</th>
-            <th>Аккаунты</th>
-            <th></th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for item in model_data %}
-        <tr>
-            <td><a href="/models/{{ item.model.id }}">{{ item.model.name }}</a></td>
-            <td>{{ item.variant_count }}</td>
-            <td>
-                {% for acc in item.accounts %}
-                <span class="badge badge-blue">{{ acc }}</span>
-                {% endfor %}
-                {% if not item.accounts %}
-                <span style="color:var(--text-muted);">—</span>
+<div class="models-grid" id="modelsGrid">
+    {% for row in matrix %}
+    <div class="model-card" data-brand="{{ row.model.brand or '' }}" data-name="{{ row.model.name }}" onclick="location.href='/models/{{ row.model.id }}'">
+        <div class="card-img-wrap">
+            {% if row.first_image %}
+            <img src="{{ row.first_image }}" alt="" loading="lazy">
+            {% else %}
+            <div class="card-img-placeholder">&#x1F5BC;</div>
+            {% endif %}
+        </div>
+        <div class="card-body">
+            {% if row.model.brand %}
+            <div class="brand">{{ row.model.brand }}</div>
+            {% endif %}
+            <div class="name">{{ row.model.name }}</div>
+            <div class="meta">
+                {% if row.min_price %}
+                <span>от {{ '{:,}'.format(row.min_price).replace(',', ' ') }} &#8381;</span>
+                {% else %}
+                <span>Нет цен</span>
                 {% endif %}
-            </td>
-            <td style="text-align:right;">
-                <button class="btn btn-danger btn-sm" onclick="deleteModel({{ item.model.id }})">Удалить</button>
-            </td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
+                <span class="count">{{ row.product_count }} {{ 'товар' if row.product_count == 1 else ('товара' if row.product_count in (2,3,4) else 'товаров') }}</span>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+
+    <div class="model-card-new" onclick="document.getElementById('createModal').style.display='flex'">
+        <div class="card-img-wrap">+ Новая модель</div>
+    </div>
 </div>
-{% else %}
-<div class="card" style="text-align:center; color:var(--text-secondary); padding:40px;">
+
+{% if not matrix %}
+<div class="card" style="text-align:center; color:#6b7280; padding:40px;">
     Моделей пока нет. Создайте первую.
 </div>
 {% endif %}
 
 <!-- Create Modal -->
-<div id="createModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:100; align-items:center; justify-content:center;">
+<div id="createModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:100; align-items:center; justify-content:center;">
     <div class="card" style="width:400px; max-width:90vw;">
         <h2>Новая модель</h2>
         <form method="post" action="/models">
             <div class="field">
-                <label>Название</label>
+                <label>Бренд</label>
+                <input type="text" name="brand" placeholder="Nike, Adidas...">
+            </div>
+            <div class="field">
+                <label>Название *</label>
                 <input type="text" name="name" required autofocus>
             </div>
             <div class="field">
@@ -67,12 +112,16 @@
 </div>
 
 <script>
-async function deleteModel(id) {
-    if (!confirm('Удалить модель? Товары не будут удалены, только отвязаны.')) return;
-    const resp = await fetch('/models/' + id, { method: 'DELETE' });
-    const data = await resp.json();
-    if (data.ok) location.reload();
-    else alert(data.error || 'Ошибка');
+function filterModels() {
+    const q = document.getElementById('searchInput').value.toLowerCase();
+    const brand = document.getElementById('brandFilter').value.toLowerCase();
+    document.querySelectorAll('.model-card').forEach(card => {
+        const cardBrand = (card.dataset.brand || '').toLowerCase();
+        const cardName = (card.dataset.name || '').toLowerCase();
+        const matchSearch = !q || cardBrand.includes(q) || cardName.includes(q);
+        const matchBrand = !brand || cardBrand === brand;
+        card.style.display = (matchSearch && matchBrand) ? '' : 'none';
+    });
 }
 </script>
 {% endblock %}

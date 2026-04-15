@@ -2,13 +2,17 @@ import os
 from datetime import datetime, timezone
 
 import aiofiles
+import structlog
 from lxml import etree
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config import settings
+
+logger = structlog.get_logger(__name__)
 from app.models.account import Account
+from app.models.account_description_template import AccountDescriptionTemplate
 from app.models.product import Product
 from app.models.feed_export import FeedExport
 
@@ -30,7 +34,7 @@ def _add_images(ad: etree._Element, images, base_url: str):
     if not images:
         return
     imgs_el = etree.SubElement(ad, "Images")
-    sorted_images = sorted(images, key=lambda x: (not x.is_main, x.sort_order))
+    sorted_images = sorted(images, key=lambda x: (not x.is_main, x.sort_order))[:10]
     for img in sorted_images:
         url = img.url
         if url.startswith("/"):
@@ -52,11 +56,26 @@ _APPAREL_TYPE_MAP = {
 # We use goods_subtype which already contains the correct value.
 
 
-def is_ready_for_feed(product: Product) -> bool:
-    """Товар считается готовым к выгрузке, если заполнены все обязательные поля."""
-    if product.status != "active":
+def is_ready_for_feed(product: Product, has_account_template: bool = False) -> bool:
+    """Товар считается готовым к выгрузке, если заполнены все обязательные поля.
+
+    Status is NOT checked — scheduled/active/draft products can all be ready.
+    If has_account_template=True and use_custom_description=False,
+    description is considered filled (comes from account template at feed time).
+
+    Imported products with avito_id are always ready — Avito already has all
+    the data, we just need to include them in the feed to take them under management.
+    """
+    # Imported products with avito_id are always feed-ready
+    if product.status == "imported" and product.avito_id:
+        return True
+
+    if not product.title:
         return False
-    if not product.title or not product.description:
+    has_description = bool(product.description)
+    if not has_description and not product.use_custom_description and has_account_template:
+        has_description = True
+    if not has_description:
         return False
     if product.price is None:
         return False
@@ -69,12 +88,14 @@ def is_ready_for_feed(product: Product) -> bool:
     return True
 
 
-def build_ad_element(product: Product, account: Account, base_url: str) -> etree._Element:
+def build_ad_element(product: Product, account: Account, base_url: str, description_override: str | None = None) -> etree._Element:
     ad = etree.Element("Ad")
 
     _add_element(ad, "Id", str(product.id))
+    if product.avito_id:
+        _add_element(ad, "AvitoId", str(product.avito_id))
     _add_element(ad, "Title", product.title)
-    _add_element(ad, "Description", product.description, cdata=True)
+    _add_element(ad, "Description", description_override if description_override is not None else product.description, cdata=True)
     _add_element(ad, "Category", product.category)
 
     if account.phone:
@@ -94,7 +115,7 @@ def build_ad_element(product: Product, account: Account, base_url: str) -> etree
             _add_element(ad, "ApparelType", apparel_type)
     _add_element(ad, "Apparel", product.subcategory)
     _add_element(ad, "GoodsSubType", product.goods_subtype)
-    _add_element(ad, "Condition", product.condition)
+    _add_element(ad, "Condition", product.condition or "Новое с биркой")
     _add_element(ad, "AdType", extra.get("ad_type", "Товар приобретён на продажу"))
     _add_element(ad, "Availability", extra.get("availability", "В наличии"))
     _add_element(ad, "Color", product.color)
@@ -134,25 +155,71 @@ async def generate_feed(account_id: int, db: AsyncSession) -> tuple[str, int]:
     if not account:
         raise ValueError(f"Account {account_id} not found")
 
+    from sqlalchemy import or_, and_
     stmt = (
         select(Product)
         .options(selectinload(Product.images))
-        .where(Product.account_id == account_id, Product.status == "active")
+        .where(
+            Product.account_id == account_id,
+            or_(
+                Product.status.in_(["active", "scheduled"]),
+                and_(Product.status == "imported", Product.avito_id.isnot(None)),
+            ),
+        )
         .order_by(Product.id)
     )
     result = await db.execute(stmt)
     products = result.scalars().all()
+
+    # Also load recently removed products (within 48h) for removal from Avito
+    from datetime import timedelta
+    removal_cutoff = datetime.utcnow() - timedelta(hours=48)
+    removed_stmt = (
+        select(Product)
+        .where(
+            Product.account_id == account_id,
+            Product.status == "removed",
+            Product.removed_at >= removal_cutoff,
+            Product.avito_id.isnot(None),
+        )
+    )
+    removed_result = await db.execute(removed_stmt)
+    removed_products = removed_result.scalars().all()
+
+    # Load account description template for non-custom descriptions
+    tmpl_result = await db.execute(
+        select(AccountDescriptionTemplate).where(
+            AccountDescriptionTemplate.account_id == account_id
+        )
+    )
+    tmpl = tmpl_result.scalar_one_or_none()
+    account_description = tmpl.description_template if tmpl else None
 
     base_url = settings.BASE_URL
     root = etree.Element("Ads", formatVersion="3", target="Avito.ru")
 
     included = 0
     for product in products:
-        if not is_ready_for_feed(product):
+        if not is_ready_for_feed(product, has_account_template=bool(account_description)):
             continue
-        ad = build_ad_element(product, account, base_url)
+        # If product doesn't use custom description, substitute account template
+        effective_description = product.description
+        if not product.use_custom_description and account_description:
+            effective_description = account_description
+        ad = build_ad_element(product, account, base_url, description_override=effective_description)
         root.append(ad)
         included += 1
+
+    logger.info("feed_build", account=account.name, active=included, removed=len(removed_products))
+
+    # Add removed products with <Status>Removed</Status>
+    for product in removed_products:
+        ad = etree.Element("Ad")
+        _add_element(ad, "Id", str(product.id))
+        if product.avito_id:
+            _add_element(ad, "AvitoId", str(product.avito_id))
+        _add_element(ad, "Status", "Removed")
+        root.append(ad)
 
     xml_bytes = etree.tostring(root, xml_declaration=True, encoding="UTF-8", pretty_print=True)
 

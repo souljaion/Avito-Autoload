@@ -7,6 +7,8 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
+import structlog
+
 from app.config import settings
 from app.logging_config import setup_logging
 from app.middleware.auth import BasicAuthMiddleware
@@ -31,9 +33,44 @@ _start_time = time.monotonic()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
-    sched = start_scheduler()
+    if settings.SENTRY_DSN:
+        import sentry_sdk
+        sentry_sdk.init(dsn=settings.SENTRY_DSN, traces_sample_rate=0.1)
+
+    # Only start scheduler in one worker to avoid duplicate jobs
+    import fcntl
+    lock_path = "/tmp/avito-autoload-scheduler.lock"
+    sched = None
+    lock_file = None
+    try:
+        lock_file = open(lock_path, "w")
+        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        sched = start_scheduler()
+        app.state.scheduler = sched
+    except (IOError, OSError):
+        pass  # Another worker already holds the lock
+
+    # Zulla diagnostics
+    try:
+        from app.db import async_session as _async_session
+        async with _async_session() as _db:
+            rows = (await _db.execute(text(
+                "SELECT p.status, COUNT(*) FROM products p "
+                "JOIN accounts a ON a.id = p.account_id "
+                "WHERE a.name = 'Zulla' GROUP BY p.status ORDER BY p.status"
+            ))).all()
+            diag_log = structlog.get_logger("zulla_diag")
+            for status, cnt in rows:
+                diag_log.info("zulla_products", status=status, count=cnt)
+    except Exception as e:
+        structlog.get_logger("zulla_diag").warning("zulla_diag_failed", error=str(e))
+
     yield
-    sched.shutdown(wait=False)
+
+    if sched:
+        sched.shutdown(wait=False)
+    if lock_file:
+        lock_file.close()
 
 
 app = FastAPI(title="Avito Autoload", version="0.1.0", lifespan=lifespan)
@@ -73,10 +110,23 @@ async def health():
     except Exception:
         db_status = "error"
 
+    # Scheduler jobs
+    from app.scheduler import get_job_health
+    job_health = get_job_health()
+    jobs_info = {}
+    sched = getattr(app.state, "scheduler", None)
+    if sched:
+        for job in sched.get_jobs():
+            next_run = job.next_run_time
+            jobs_info[job.id] = {
+                "next_run": next_run.isoformat() if next_run else None,
+                "status": "scheduled" if next_run else "paused",
+                "last_success": job_health.get(job.id),
+            }
+
     status = "ok" if db_status == "ok" else "degraded"
-    code = 200 if status == "ok" else 503
 
     return JSONResponse(
-        {"status": status, "db": db_status, "uptime_seconds": uptime},
-        status_code=code,
+        {"status": status, "jobs": jobs_info, "db": db_status, "uptime_seconds": uptime},
+        status_code=200,
     )

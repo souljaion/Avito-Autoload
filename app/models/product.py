@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, Integer, String, Text, ForeignKey, Index
+from sqlalchemy import BigInteger, Boolean, DateTime, Integer, String, Text, ForeignKey, Index
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -36,11 +36,17 @@ class Product(Base):
     status: Mapped[str] = mapped_column(String(20), default="draft")
     scheduled_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
     published_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
     scheduled_account_id: Mapped[int | None] = mapped_column(
         ForeignKey("accounts.id", ondelete="SET NULL"), default=None
     )
+    use_custom_description: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     image_url: Mapped[str | None] = mapped_column(String(500), default=None)
     extra: Mapped[dict | None] = mapped_column(JSONB, default=None)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    variant_id: Mapped[int | None] = mapped_column(
+        ForeignKey("model_variants.id", ondelete="SET NULL"), default=None
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         default=utc_now
@@ -54,6 +60,7 @@ class Product(Base):
         back_populates="products", foreign_keys=[account_id]
     )
     model_ref: Mapped["Model | None"] = relationship(back_populates="products")
+    variant: Mapped["ModelVariant | None"] = relationship(back_populates="products")
     images: Mapped[list["ProductImage"]] = relationship(
         back_populates="product", order_by="ProductImage.sort_order"
     )

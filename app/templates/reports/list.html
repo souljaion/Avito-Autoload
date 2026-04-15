@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Отчеты — Avito Autoload{% endblock %}
 {% block content %}
-<h1>Отчеты Autoload</h1>
 <div class="card">
     <table>
         <thead>
@@ -24,12 +23,13 @@
                 <td>{{ r.account.name if r.account else r.account_id }}</td>
                 <td>{{ r.avito_report_id or "—" }}</td>
                 <td>
-                    {% if r.status == "done" or r.status == "completed" %}
-                        <span class="badge badge-green">{{ r.status }}</span>
+                    {% set rs = {'done':'Завершён','completed':'Завершён','processing':'Обрабатывается','pending':'В очереди','failed':'Ошибка'} %}
+                    {% if r.status in ("done", "completed") %}
+                        <span class="badge badge-green">{{ rs.get(r.status, r.status) }}</span>
                     {% elif r.status == "processing" %}
-                        <span class="badge badge-yellow">{{ r.status }}</span>
+                        <span class="badge badge-yellow">{{ rs.get(r.status, r.status) }}</span>
                     {% else %}
-                        <span class="badge badge-gray">{{ r.status }}</span>
+                        <span class="badge badge-gray">{{ rs.get(r.status, r.status) }}</span>
                     {% endif %}
                 </td>
                 <td>{{ r.total_ads }}</td>

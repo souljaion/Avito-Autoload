@@ -1,25 +1,43 @@
 {% extends "base.html" %}
-{% block title %}Товары — Avito Autoload{% endblock %}
+{% block title %}Объявления — Avito Autoload{% endblock %}
 {% block content %}
 <style>
 .toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:16px; }
 .filter-btn { padding:6px 14px; border:1px solid var(--border); border-radius:6px; background:var(--bg-surface); color:var(--text-secondary); cursor:pointer; font-size:12px; transition:all 0.15s; }
 .filter-btn:hover { color:var(--text-primary); border-color:#374151; }
 .filter-btn.active { border-color:rgba(59,130,246,0.35); background:rgba(59,130,246,0.07); color:#60a5fa; }
-.thumb { width:50px; height:50px; object-fit:cover; border-radius:6px; background:var(--bg-elevated); }
-.no-thumb { width:50px; height:50px; border-radius:6px; background:var(--bg-elevated); display:flex; align-items:center; justify-content:center; color:var(--text-muted); font-size:16px; }
-.row-actions { display:flex; gap:4px; align-items:center; }
+.filter-count { font-size:10px; opacity:0.7; margin-left:2px; }
+.thumb { width:48px; height:48px; object-fit:cover; border-radius:4px; background:var(--bg-elevated); }
+.no-thumb { width:48px; height:48px; border-radius:4px; background:var(--bg-elevated); display:flex; align-items:center; justify-content:center; color:var(--text-muted); font-size:20px; }
+.row-actions { display:flex; gap:4px; align-items:center; flex-wrap:wrap; }
 .divider { border-left:1px solid var(--border); height:24px; margin:0 4px; }
+.bulk-bar { display:none; padding:10px 16px; background:rgba(59,130,246,0.08); border:1px solid rgba(59,130,246,0.2); border-radius:8px; margin-bottom:12px; align-items:center; gap:12px; font-size:13px; }
+.bulk-bar.visible { display:flex; }
+.sched-badge { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:4px; font-size:11px; background:rgba(234,179,8,0.12); color:#eab308; cursor:pointer; }
+.sched-badge:hover { background:rgba(234,179,8,0.2); }
+.modal-bg { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:999; }
+.modal-box { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:var(--bg-surface); border:1px solid var(--border); border-radius:12px; padding:24px; min-width:420px; max-width:600px; max-height:80vh; overflow-y:auto; z-index:1000; box-shadow:0 8px 30px rgba(0,0,0,0.4); }
+.preview-list { margin:12px 0; max-height:200px; overflow-y:auto; font-size:13px; }
+.preview-list div { padding:4px 0; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; }
+.inline-sched { display:inline-flex; align-items:center; gap:8px; }
+.inline-sched input[type="datetime-local"] { padding:4px 8px; background:var(--bg-base); border:1px solid var(--border); color:var(--text-primary); border-radius:4px; font-size:12px; width:185px; }
+.inline-sched .btn { padding:3px 10px; font-size:11px; }
+.sched-error { color:#fca5a5; font-size:11px; margin-top:2px; }
+#table-card td { min-height:72px; padding-top:12px; padding-bottom:12px; vertical-align:middle; border-bottom:1px solid var(--border); }
+#table-card tr:last-child td { border-bottom:1px solid #111827; }
+.pagination-bar { display:flex; justify-content:space-between; align-items:center; padding:14px 0; margin-top:8px; font-size:13px; }
+.search-box { padding:6px 12px; background:var(--bg-surface); border:1px solid var(--border); color:var(--text-primary); border-radius:6px; font-size:13px; width:220px; }
+.search-box:focus { border-color:rgba(59,130,246,0.35); outline:none; }
 </style>
 
-<h1>Товары</h1>
 <div class="toolbar">
-    <a href="/products/new" class="btn btn-primary">+ Новый товар</a>
-    <button class="btn btn-primary" onclick="showImportDialog()" style="background:#1e3a5f;color:#60a5fa;">Импорт с Авито</button>
+    <a href="/products/new" class="btn btn-primary">+ Новое объявление</a>
+    <button class="btn btn-secondary" id="sync-btn" onclick="syncAvito()">&#x1F504; Синхронизировать</button>
     <div class="divider"></div>
-    <button class="filter-btn active" onclick="setFilter('active', this)">Все</button>
-    <button class="filter-btn" onclick="setFilter('scheduled', this)">Запланированные</button>
-    <button class="filter-btn" onclick="setFilter('draft', this)">Черновики</button>
+    <button class="filter-btn active" data-filter="all" onclick="setFilter('all', this)">Все <span class="filter-count" id="cnt-all"></span></button>
+    <button class="filter-btn" data-filter="draft" onclick="setFilter('draft', this)">Черновики <span class="filter-count" id="cnt-draft"></span></button>
+    <button class="filter-btn" data-filter="scheduled" onclick="setFilter('scheduled', this)">Запланированные <span class="filter-count" id="cnt-scheduled"></span></button>
+    <button class="filter-btn" data-filter="active" onclick="setFilter('active', this)">Активные <span class="filter-count" id="cnt-active"></span></button>
     <div class="divider"></div>
     <select id="account-filter" onchange="loadData()" style="padding:6px 10px;background:var(--bg-surface);border:1px solid var(--border);color:var(--text-secondary);border-radius:6px;font-size:12px;">
         <option value="">Все аккаунты</option>
@@ -27,37 +45,56 @@
         <option value="{{ acc.id }}">{{ acc.name }}</option>
         {% endfor %}
     </select>
+    <input type="text" id="search-input" class="search-box" placeholder="Поиск по названию..." oninput="onSearchInput()">
+</div>
+
+<div id="bulk-bar" class="bulk-bar">
+    <span id="bulk-count">Выбрано: 0</span>
+    <button class="btn btn-primary btn-sm" onclick="openBulkSchedule()">&#x1F550; Запланировать все</button>
+    <button class="btn btn-danger btn-sm" onclick="bulkDelete()">&#x1F5D1; Удалить все</button>
 </div>
 
 <div class="card" style="padding:0;border:none;background:transparent;" id="table-card">
     <div style="color:var(--text-secondary);padding:32px;text-align:center;">Загрузка...</div>
 </div>
 
-<!-- Add listing modal -->
-<div id="modal-overlay" onclick="closeModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:999;"></div>
-<div id="add-modal" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--bg-surface);border:1px solid var(--border);border-radius:12px;padding:24px;min-width:400px;max-width:500px;z-index:1000;box-shadow:0 8px 30px rgba(0,0,0,0.4);">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-        <h3 id="modal-title"></h3>
-        <button onclick="closeModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-secondary);">&times;</button>
+<!-- Bulk schedule modal -->
+<div id="bulk-bg" class="modal-bg" onclick="closeBulkModal()"></div>
+<div id="bulk-modal" class="modal-box" style="display:none;">
+    <h3>Массовое планирование</h3>
+    <div class="field">
+        <label>Время первой публикации</label>
+        <input type="datetime-local" id="bulk-start">
     </div>
-    <div id="modal-body"></div>
+    <div class="field">
+        <label>Интервал между публикациями</label>
+        <select id="bulk-interval" onchange="updateBulkPreview()">
+            <option value="30">30 мин</option>
+            <option value="60" selected>1 час</option>
+            <option value="120">2 часа</option>
+            <option value="240">4 часа</option>
+        </select>
+    </div>
+    <div id="bulk-preview" class="preview-list"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+        <button class="btn btn-secondary" onclick="closeBulkModal()">Отмена</button>
+        <button class="btn btn-primary" id="bulk-confirm-btn" onclick="confirmBulkSchedule()">Подтвердить</button>
+    </div>
 </div>
 
-<!-- Import modal -->
-<div id="import-modal" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--bg-surface);border:1px solid var(--border);border-radius:12px;padding:24px;min-width:450px;max-width:600px;max-height:80vh;overflow-y:auto;z-index:1000;box-shadow:0 8px 30px rgba(0,0,0,0.4);">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-        <h3 id="import-title">Импорт с Авито</h3>
-        <button onclick="closeImportModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-secondary);">&times;</button>
-    </div>
-    <div id="import-body"></div>
+<!-- Problems modal -->
+<div id="modal-overlay" onclick="closeModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:999;"></div>
+<div id="problems-modal" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--bg-surface);border:1px solid var(--border);border-radius:12px;padding:24px;min-width:400px;max-width:500px;z-index:1000;box-shadow:0 8px 30px rgba(0,0,0,0.4);">
+    <h3>Товар не готов к публикации</h3>
+    <div id="problems-body"></div>
+    <button class="btn btn-secondary" onclick="closeModal()" style="margin-top:12px;">Закрыть</button>
 </div>
 
 <div id="toast" style="display:none;position:fixed;bottom:24px;right:24px;padding:14px 20px;border-radius:8px;font-size:14px;max-width:500px;z-index:1001;box-shadow:0 4px 12px rgba(0,0,0,0.3);"></div>
 
 <script>
-const ACCOUNTS = {{ accounts | map(attribute='id') | list | tojson }};
-const ACCOUNT_NAMES = {{ accounts | map(attribute='name') | list | tojson }};
-let currentFilter = 'active';
+let currentFilter = 'all', allItems = [], selectedIds = new Set(), currentPage = 1, hasMore = false;
+let totalItems = 0, totalPages = 1, searchTimer = null;
 
 function showToast(msg, isError) {
     const t = document.getElementById('toast');
@@ -68,161 +105,322 @@ function showToast(msg, isError) {
 }
 
 function badge(status) {
-    const map = { draft: 'badge-gray', scheduled: 'badge-yellow', published: 'badge-green' };
-    return `<span class="badge ${map[status] || 'badge-gray'}">${status}</span>`;
+    const map = { draft:'badge-gray', scheduled:'badge-yellow', published:'badge-green', active:'badge-green', imported:'badge-blue' };
+    const labels = { draft:'&#x1F4DD; черновик', scheduled:'&#x23F0; запланировано', active:'&#x2705; активно', published:'&#x2705; опубликовано', imported:'&#x1F4E5; импортирован' };
+    return `<span class="badge ${map[status]||'badge-gray'}">${labels[status]||status}</span>`;
 }
 
-function closeModal() { document.getElementById('modal-overlay').style.display = 'none'; document.getElementById('add-modal').style.display = 'none'; }
-function closeImportModal() { document.getElementById('modal-overlay').style.display = 'none'; document.getElementById('import-modal').style.display = 'none'; }
+function closeModal() {
+    document.getElementById('modal-overlay').style.display = 'none';
+    document.getElementById('problems-modal').style.display = 'none';
+}
+
+function defaultScheduleTime() {
+    const now = new Date();
+    now.setHours(now.getHours() + 1, 0, 0, 0);
+    return now.toISOString().slice(0, 16);
+}
 
 function setFilter(f, btn) {
-    currentFilter = f;
+    currentFilter = f; currentPage = 1;
     document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     loadData();
 }
 
-async function loadData() {
-    const accId = document.getElementById('account-filter').value;
-    // "active" filter = show draft + scheduled (not published)
-    let url = '/api/listings?';
-    if (currentFilter === 'active') {
-        url += 'status=draft&';  // we'll merge below
-    } else {
-        url += 'status=' + currentFilter + '&';
-    }
-    if (accId) url += 'account_id=' + accId;
+function onSearchInput() {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => { currentPage = 1; loadData(); }, 300);
+}
 
+async function loadCounts() {
     try {
-        let items = [];
-        if (currentFilter === 'active') {
-            // Fetch draft + scheduled
-            const [r1, r2] = await Promise.all([
-                fetch('/api/listings?status=draft' + (accId ? '&account_id=' + accId : '')),
-                fetch('/api/listings?status=scheduled' + (accId ? '&account_id=' + accId : '')),
-            ]);
-            const d1 = await r1.json();
-            const d2 = await r2.json();
-            items = [...(d1.items || []), ...(d2.items || [])];
-        } else {
-            const resp = await fetch(url);
-            const data = await resp.json();
-            items = data.items || [];
-        }
-        renderTable(items);
-    } catch (e) {
-        document.getElementById('table-card').innerHTML = '<div class="flash flash-error">Ошибка загрузки</div>';
-    }
+        const resp = await fetch('/api/listings/counts');
+        const c = await resp.json();
+        document.getElementById('cnt-all').textContent = '(' + c.all + ')';
+        document.getElementById('cnt-draft').textContent = '(' + c.draft + ')';
+        document.getElementById('cnt-scheduled').textContent = '(' + c.scheduled + ')';
+        document.getElementById('cnt-active').textContent = '(' + c.active + ')';
+    } catch(e) {}
+}
+
+async function loadData(page) {
+    if (page !== undefined) currentPage = page;
+    const accId = document.getElementById('account-filter').value;
+    const search = document.getElementById('search-input').value.trim();
+    selectedIds.clear(); updateBulkBar();
+    try {
+        const filterMap = { all:'draft,scheduled,active', draft:'draft', scheduled:'scheduled', active:'active' };
+        let url = '/api/listings?product_status=' + (filterMap[currentFilter] || 'draft,scheduled,active') + '&page=' + currentPage + '&per_page=50';
+        if (accId) url += '&account_id=' + accId;
+        if (search) url += '&search=' + encodeURIComponent(search);
+        const resp = await fetch(url);
+        const data = await resp.json();
+        allItems = data.items || [];
+        hasMore = data.has_more || false;
+        totalItems = data.total || 0;
+        totalPages = data.total_pages || 1;
+        renderTable(allItems);
+    } catch(e) { document.getElementById('table-card').innerHTML = '<div class="flash flash-error">Ошибка загрузки</div>'; }
 }
 
 function renderTable(items) {
     const card = document.getElementById('table-card');
     if (!items.length) {
-        card.innerHTML = '<div style="color:var(--text-secondary);padding:32px;text-align:center;">Нет листингов</div>';
+        card.innerHTML = '<div style="color:var(--text-secondary);padding:32px;text-align:center;">Нет объявлений</div>';
         return;
     }
 
-    const groups = {};
-    for (const item of items) {
-        if (!groups[item.product_id]) groups[item.product_id] = [];
-        groups[item.product_id].push(item);
-    }
+    let html = `<table><thead><tr>
+        <th style="width:30px;"><input type="checkbox" id="select-all" onchange="toggleAll(this.checked)" style="width:auto;"></th>
+        <th style="width:56px;"></th>
+        <th>Название</th>
+        <th>Аккаунт</th>
+        <th style="width:40px;text-align:center;">Авито</th>
+        <th>Статус</th>
+        <th>Действия</th>
+    </tr></thead><tbody>`;
 
-    let html = '<table><thead><tr><th></th><th>Название</th><th>Аккаунт</th><th>Цена</th><th>Статус</th><th>Публикация</th><th></th></tr></thead><tbody>';
-    for (const [pid, group] of Object.entries(groups)) {
-        for (let i = 0; i < group.length; i++) {
-            const ls = group[i];
-            const img = ls.image
-                ? `<img src="${ls.image}" class="thumb">`
-                : ls.avito_id
-                    ? `<div class="no-thumb" style="background:var(--accent-blue-dim);color:#60a5fa;font-weight:700;font-size:18px;">A</div>`
-                    : `<div class="no-thumb">?</div>`;
-            const pubDate = ls.status === 'scheduled' ? (ls.scheduled_at || '') : ls.status === 'published' ? (ls.published_at || '') : '';
+    const _brandColors = ['#7C6FCD','#E8593C','#1D9E75','#378ADD','#BA7517','#D4537E'];
+    function _brandBg(name) { if (!name) return '#9ca3af'; let h=0; for(let i=0;i<name.length;i++) h=((h<<5)-h)+name.charCodeAt(i); return _brandColors[Math.abs(h)%_brandColors.length]; }
 
-            html += `<tr id="listing-row-${ls.id}">
-                <td>${img}</td>
-                <td>${i === 0 ? ls.title : '<span style="color:var(--text-muted);font-size:12px;">same product</span>'}</td>
-                <td><span class="badge badge-blue" style="font-size:10px;">${ls.account}</span></td>
-                <td style="color:var(--text-secondary);">${ls.price !== null ? ls.price.toLocaleString('ru-RU') : ''}</td>
-                <td>${badge(ls.status)}</td>
-                <td style="font-size:12px;color:var(--text-secondary);">${pubDate}</td>
-                <td><div class="row-actions">
-                    <a href="/listings/${ls.id}/edit" class="btn btn-secondary btn-sm">Ред.</a>
-                    <button class="btn btn-secondary btn-sm" onclick="showAddAccount(${ls.product_id}, '${ls.title.replace(/'/g, "\\'")}'); event.stopPropagation();">+ акк</button>
-                    <button class="btn btn-danger btn-sm" onclick="deleteListing(${ls.id}); event.stopPropagation();">&#128465;</button>
-                </div></td>
-            </tr>`;
+    for (const ls of items) {
+        let img;
+        if (ls.image) {
+            img = `<img src="${ls.image}" class="thumb" loading="lazy">`;
+        } else {
+            const initial = (ls.brand || ls.title || '?')[0].toUpperCase();
+            const bg = _brandBg(ls.brand || ls.title);
+            img = `<div class="no-thumb" style="background:${bg};color:#fff;font-weight:600;font-size:16px;">${initial}</div>`;
         }
+
+        const pStatus = ls.product_status || ls.status;
+
+        // Status column
+        let statusHtml;
+        if (pStatus === 'scheduled' && ls.scheduled_at) {
+            statusHtml = `<span class="sched-badge" onclick="startEditTime(${ls.product_id}, '${ls.scheduled_at_iso || ''}', this); event.stopPropagation();">&#x23F0; ${ls.scheduled_at}</span>`;
+        } else {
+            statusHtml = badge(pStatus);
+        }
+
+        // Actions column
+        let actionsHtml = '';
+        if (pStatus === 'draft') {
+            actionsHtml = `<div class="inline-sched" id="sched-inline-${ls.product_id}">
+                <input type="datetime-local" id="sched-dt-${ls.product_id}" value="${defaultScheduleTime()}">
+                <button class="btn btn-primary btn-sm" onclick="inlineSchedule(${ls.product_id}, ${ls.account_id}); event.stopPropagation();" title="Запланировать">&#x2713; Запланировать</button>
+            </div>
+            <div class="sched-error" id="sched-err-${ls.product_id}"></div>`;
+        } else if (pStatus === 'scheduled') {
+            actionsHtml = `<button class="btn btn-secondary btn-sm" onclick="cancelSchedule(${ls.product_id}); event.stopPropagation();">&#x2715; Отменить</button>`;
+        } else if (pStatus === 'active' || pStatus === 'published') {
+            actionsHtml = `<button class="btn btn-secondary btn-sm" onclick="repostProduct(${ls.product_id}); event.stopPropagation();">&#x1F504; Перевыложить</button>`;
+            if (ls.avito_id) {
+                actionsHtml += ` <button class="btn btn-danger btn-sm" onclick="deleteFromAvito(${ls.product_id}); event.stopPropagation();">&#x1F5D1; Удалить</button>`;
+            }
+        }
+
+        html += `<tr data-product-id="${ls.product_id}">
+            <td><input type="checkbox" class="row-cb" value="${ls.product_id}" onchange="onRowCheck()" style="width:auto;"></td>
+            <td>${img}</td>
+            <td><a href="/products/${ls.product_id}">${ls.title}</a>
+                ${ls.price ? `<span style="color:var(--text-muted);font-size:12px;margin-left:6px;">${ls.price.toLocaleString('ru-RU')} &#8381;</span>` : ''}</td>
+            <td><span class="badge badge-blue" style="font-size:10px;">${ls.account}</span></td>
+            <td style="text-align:center;">${ls.avito_id ? `<span title="avito_id: ${ls.avito_id}" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${pStatus==='active'||pStatus==='published'?'#43a047':pStatus==='paused'?'#e53935':'#9e9e9e'};"></span>` : ''}</td>
+            <td>${statusHtml}</td>
+            <td>${actionsHtml}</td>
+        </tr>`;
     }
     html += '</tbody></table>';
+
+    // Pagination
+    html += `<div class="pagination-bar"><span style="color:var(--text-secondary);">Страница ${currentPage} из ${totalPages} (${totalItems} объявлений)</span><div style="display:flex;gap:8px;">`;
+    if (currentPage > 1) html += `<button class="btn btn-secondary btn-sm" onclick="loadData(${currentPage - 1})">&#8592; Назад</button>`;
+    if (hasMore) html += `<button class="btn btn-secondary btn-sm" onclick="loadData(${currentPage + 1})">Вперёд &#8594;</button>`;
+    html += '</div></div>';
     card.innerHTML = html;
 }
 
-function showAddAccount(productId, title) {
-    document.getElementById('modal-overlay').style.display = 'block';
-    document.getElementById('add-modal').style.display = 'block';
-    document.getElementById('modal-title').textContent = '+ аккаунт: ' + title;
-    let opts = ACCOUNTS.map((id, i) => `<option value="${id}">${ACCOUNT_NAMES[i]}</option>`).join('');
-    document.getElementById('modal-body').innerHTML = `
-        <div class="field"><label>Аккаунт</label><select id="new-acc-id">${opts}</select></div>
-        <div class="field"><label>Дата публикации</label><input type="datetime-local" id="new-sched-at"></div>
-        <button class="btn btn-primary" onclick="createListing(${productId})" style="margin-top:12px;">Создать</button>`;
-}
+// ── Inline scheduling ──
 
-async function createListing(productId) {
-    const accountId = document.getElementById('new-acc-id').value;
-    const scheduledAt = document.getElementById('new-sched-at').value;
+async function inlineSchedule(productId, accountId) {
+    const dt = document.getElementById('sched-dt-' + productId).value;
+    const errEl = document.getElementById('sched-err-' + productId);
+    if (!dt) { errEl.textContent = 'Укажите дату'; return; }
+    errEl.textContent = '';
     try {
-        const resp = await fetch('/products/' + productId + '/listings', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ account_id: parseInt(accountId), scheduled_at: scheduledAt || null }),
-        });
-        const data = await resp.json();
-        if (data.ok) { showToast('Listing создан', false); closeModal(); loadData(); }
-        else { showToast(data.error, true); }
-    } catch (e) { showToast('Ошибка сети', true); }
-}
-
-async function deleteListing(id) {
-    if (!confirm('Удалить листинг #' + id + '?')) return;
-    try {
-        const resp = await fetch('/listings/' + id, { method: 'DELETE' });
-        const data = await resp.json();
-        if (data.ok) { showToast('Удалён', false); document.getElementById('listing-row-' + id)?.remove(); }
-        else { showToast(data.error, true); }
-    } catch (e) { showToast('Ошибка сети', true); }
-}
-
-function showImportDialog() {
-    if (!ACCOUNTS.length) { showToast('Нет аккаунтов', true); return; }
-    if (ACCOUNTS.length === 1) { startImport(ACCOUNTS[0], ACCOUNT_NAMES[0]); return; }
-    document.getElementById('modal-overlay').style.display = 'block';
-    document.getElementById('import-modal').style.display = 'block';
-    document.getElementById('import-body').innerHTML = ACCOUNTS.map((id, i) =>
-        `<button class="btn btn-primary" style="margin:4px;" onclick="startImport(${id}, '${ACCOUNT_NAMES[i]}')">${ACCOUNT_NAMES[i]}</button>`
-    ).join('');
-}
-
-async function startImport(accountId, accountName) {
-    if (!confirm('Импортировать объявления ' + accountName + '?')) return;
-    document.getElementById('modal-overlay').style.display = 'block';
-    document.getElementById('import-modal').style.display = 'block';
-    document.getElementById('import-body').innerHTML = '<p style="color:var(--text-secondary);">Загрузка...</p>';
-    try {
-        const resp = await fetch('/products/import-from-avito', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ account_id: accountId }),
+        const resp = await fetch('/products/' + productId + '/schedule', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ account_id: accountId, scheduled_at: dt }),
         });
         const data = await resp.json();
         if (data.ok) {
-            document.getElementById('import-body').innerHTML = `<p>Импортировано: <b>${data.imported}</b>, пропущено: <b>${data.skipped}</b></p>
-                <button class="btn btn-primary" onclick="closeImportModal(); loadData();" style="margin-top:12px;">OK</button>`;
-        } else {
-            document.getElementById('import-body').innerHTML = `<div class="flash flash-error">${data.error}</div>`;
-        }
-    } catch (e) { document.getElementById('import-body').innerHTML = '<div class="flash flash-error">Ошибка сети</div>'; }
+            showToast('Запланировано на ' + data.scheduled_at, false);
+            loadData(); loadCounts();
+        } else if (data.problems) {
+            errEl.innerHTML = data.problems.map(p => '&#x274C; ' + p).join('<br>');
+        } else { errEl.textContent = data.error || 'Ошибка'; }
+    } catch(e) { errEl.textContent = 'Ошибка сети'; }
 }
 
-document.addEventListener('DOMContentLoaded', loadData);
+function startEditTime(productId, isoTime, el) {
+    const parent = el.parentElement;
+    const dt = isoTime ? isoTime.slice(0, 16) : defaultScheduleTime();
+    parent.innerHTML = `<div class="inline-sched">
+        <input type="datetime-local" id="edit-dt-${productId}" value="${dt}">
+        <button class="btn btn-primary btn-sm" onclick="updateScheduleTime(${productId}); event.stopPropagation();">&#x2713;</button>
+        <button class="btn btn-secondary btn-sm" onclick="loadData(); event.stopPropagation();">&#x2715;</button>
+    </div>`;
+}
+
+async function updateScheduleTime(productId) {
+    const dt = document.getElementById('edit-dt-' + productId).value;
+    if (!dt) return;
+    const item = allItems.find(i => i.product_id === productId);
+    const accountId = item ? item.account_id : null;
+    if (!accountId) return;
+    try {
+        const resp = await fetch('/products/' + productId + '/schedule', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ account_id: accountId, scheduled_at: dt }),
+        });
+        const data = await resp.json();
+        if (data.ok) { showToast('Время обновлено', false); loadData(); }
+        else { showToast(data.error, true); }
+    } catch(e) { showToast('Ошибка сети', true); }
+}
+
+async function cancelSchedule(productId) {
+    try {
+        const resp = await fetch('/products/' + productId, {
+            method: 'PATCH', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ status: 'draft' }),
+        });
+        const data = await resp.json();
+        if (data.ok) { showToast('Отменено', false); loadData(); loadCounts(); }
+        else { showToast(data.error, true); }
+    } catch(e) { showToast('Ошибка сети', true); }
+}
+
+// ── Checkboxes & bulk bar ──
+
+function toggleAll(checked) { document.querySelectorAll('.row-cb').forEach(cb => cb.checked = checked); onRowCheck(); }
+function onRowCheck() { selectedIds.clear(); document.querySelectorAll('.row-cb:checked').forEach(cb => selectedIds.add(parseInt(cb.value))); updateBulkBar(); }
+function updateBulkBar() {
+    const bar = document.getElementById('bulk-bar');
+    if (selectedIds.size > 0) { bar.classList.add('visible'); document.getElementById('bulk-count').textContent = 'Выбрано: ' + selectedIds.size; }
+    else { bar.classList.remove('visible'); }
+}
+
+// ── Bulk schedule ──
+
+function openBulkSchedule() {
+    if (!selectedIds.size) return;
+    document.getElementById('bulk-bg').style.display = 'block';
+    document.getElementById('bulk-modal').style.display = 'block';
+    document.getElementById('bulk-start').value = defaultScheduleTime();
+    updateBulkPreview();
+}
+function closeBulkModal() { document.getElementById('bulk-bg').style.display = 'none'; document.getElementById('bulk-modal').style.display = 'none'; }
+
+function updateBulkPreview() {
+    const startStr = document.getElementById('bulk-start').value;
+    const interval = parseInt(document.getElementById('bulk-interval').value);
+    if (!startStr) return;
+    const start = new Date(startStr);
+    const ids = [...selectedIds];
+    const fmt = new Intl.DateTimeFormat('ru-RU', { weekday:'short', hour:'2-digit', minute:'2-digit' });
+    let html = '';
+    for (let i = 0; i < ids.length; i++) {
+        const t = new Date(start.getTime() + i * interval * 60000);
+        const item = allItems.find(it => it.product_id === ids[i]);
+        const title = item ? item.title : '#' + ids[i];
+        html += `<div><span>${title.length > 35 ? title.slice(0,35) + '...' : title}</span><span style="color:var(--text-secondary);">${fmt.format(t)}</span></div>`;
+    }
+    document.getElementById('bulk-preview').innerHTML = html;
+}
+
+async function confirmBulkSchedule() {
+    const startTime = document.getElementById('bulk-start').value;
+    const interval = parseInt(document.getElementById('bulk-interval').value);
+    if (!startTime) { showToast('Укажите время', true); return; }
+    const btn = document.getElementById('bulk-confirm-btn');
+    btn.disabled = true; btn.textContent = 'Планирование...';
+    try {
+        const resp = await fetch('/products/schedule-bulk', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ product_ids: [...selectedIds], start_time: startTime, interval_minutes: interval }),
+        });
+        const data = await resp.json();
+        if (data.ok) {
+            showToast(`Запланировано ${data.scheduled} объявлений`, false);
+            closeBulkModal(); selectedIds.clear(); updateBulkBar(); loadData(); loadCounts();
+        } else if (data.not_ready) {
+            closeBulkModal();
+            const lines = data.not_ready.flatMap(nr => nr.problems.map(p => (nr.title || '#' + nr.product_id) + ': ' + p));
+            document.getElementById('modal-overlay').style.display = 'block';
+            document.getElementById('problems-modal').style.display = 'block';
+            document.getElementById('problems-body').innerHTML = '<ul style="margin:8px 0;padding-left:20px;color:var(--text-secondary);font-size:13px;">' + lines.map(l => '<li>' + l + '</li>').join('') + '</ul>';
+        } else { showToast(data.error, true); }
+    } catch(e) { showToast('Ошибка сети', true); }
+    btn.disabled = false; btn.textContent = 'Подтвердить';
+}
+
+function fadeRemoveRow(productId) {
+    const row = document.querySelector(`[data-product-id="${productId}"]`);
+    if (row) { row.style.transition = 'opacity 0.2s'; row.style.opacity = '0'; setTimeout(() => row.remove(), 200); }
+}
+
+async function bulkDelete() {
+    if (!selectedIds.size) return;
+    if (!confirm(`Удалить ${selectedIds.size} объявлений? Они будут сняты с Авито при следующей выгрузке фида.`)) return;
+    let ok = 0;
+    for (const id of selectedIds) {
+        try {
+            const resp = await fetch('/products/' + id, { method: 'DELETE' });
+            const data = await resp.json();
+            if (data.ok) { ok++; fadeRemoveRow(id); }
+        } catch(e) {}
+    }
+    showToast(`Удалено: ${ok}`, ok < selectedIds.size);
+    selectedIds.clear(); updateBulkBar(); loadCounts();
+}
+
+// ── Actions ──
+
+async function repostProduct(productId) {
+    if (!confirm('Перевыложить объявление?')) return;
+    showToast('Перевыкладка...', false);
+    try {
+        const resp = await fetch('/products/' + productId + '/repost', { method: 'POST' });
+        const data = await resp.json();
+        if (data.ok) { showToast(data.message, false); loadData(); }
+        else { showToast(data.error, true); }
+    } catch(e) { showToast('Ошибка сети', true); }
+}
+
+async function deleteFromAvito(productId) {
+    if (!confirm('Товар будет снят с Авито при следующей выгрузке фида.')) return;
+    try {
+        const resp = await fetch('/products/' + productId + '/avito', { method: 'DELETE' });
+        const data = await resp.json();
+        if (data.ok) { showToast(data.message || 'Удалено', false); fadeRemoveRow(productId); loadCounts(); }
+        else { showToast(data.error, true); }
+    } catch(e) { showToast('Ошибка сети', true); }
+}
+
+async function syncAvito() {
+    const btn = document.getElementById('sync-btn');
+    btn.disabled = true; btn.textContent = 'Синхронизация...';
+    try {
+        const resp = await fetch('/api/stats/sync', { method: 'POST' });
+        const data = await resp.json();
+        if (data.ok) { showToast(`Статистика: ${data.stats_updated||0} | Импорт: ${data.imported||0}`, false); window.location.reload(); }
+        else { showToast(data.error || 'Ошибка', true); btn.disabled = false; btn.innerHTML = '&#x1F504; Синхронизировать'; }
+    } catch(e) { showToast('Ошибка сети', true); btn.disabled = false; btn.innerHTML = '&#x1F504; Синхронизировать'; }
+}
+
+document.addEventListener('DOMContentLoaded', () => { loadCounts(); loadData(); });
 </script>
 {% endblock %}

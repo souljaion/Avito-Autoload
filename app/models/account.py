@@ -1,6 +1,7 @@
+import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, String, Boolean, Text
+from sqlalchemy import BigInteger, Integer, String, Boolean, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -22,6 +23,10 @@ class Account(Base):
     autoload_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     report_email: Mapped[str | None] = mapped_column(String(255))
     schedule: Mapped[str | None] = mapped_column(String(50))
+    avito_sync_minute: Mapped[int | None] = mapped_column(Integer, default=None)
+    feed_token: Mapped[str] = mapped_column(
+        String(36), unique=True, nullable=False, default=lambda: str(uuid.uuid4())
+    )
     extra: Mapped[dict | None] = mapped_column(JSONB, default=None)
 
     created_at: Mapped[datetime] = mapped_column(

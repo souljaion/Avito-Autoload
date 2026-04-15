@@ -11,6 +11,7 @@ from app.models.item_stats import ItemStats
 from app.models.model import Model
 from app.models.photo_pack import PhotoPack
 from app.models.photo_pack_image import PhotoPackImage
+from app.models.variant import ModelVariant
 
 __all__ = [
     "Account",
@@ -26,4 +27,5 @@ __all__ = [
     "Model",
     "PhotoPack",
     "PhotoPackImage",
+    "ModelVariant",
 ]

@@ -7,34 +7,98 @@
 .analytics-table th:hover { color:var(--accent-blue); }
 .analytics-table th .sort-arrow { font-size:10px; margin-left:4px; }
 .analytics-table td { vertical-align:middle; }
-.analytics-table tbody tr { cursor:pointer; }
 .analytics-table tbody tr:hover { background:#111827; }
-.thumb { width:50px; height:50px; object-fit:cover; border-radius:6px; background:var(--bg-elevated); }
 .no-thumb { width:50px; height:50px; border-radius:6px; background:var(--bg-elevated); display:flex; align-items:center; justify-content:center; color:var(--text-muted); font-size:16px; }
-.conversion-bar { display:inline-block; height:5px; border-radius:3px; min-width:2px; }
-.trend-up { color:#34d399; font-weight:600; }
-.trend-down { color:#fca5a5; font-weight:600; }
-.trend-flat { color:var(--text-muted); }
-.sync-info { font-size:12px; color:var(--text-muted); margin-top:12px; }
 .spinner { display:inline-block; width:14px; height:14px; border:2px solid var(--border); border-top-color:var(--accent-blue); border-radius:50%; animation:spin 0.8s linear infinite; margin-right:6px; vertical-align:middle; }
 @keyframes spin { to { transform:rotate(360deg); } }
 .chart-toggle button { padding:4px 12px; border:1px solid var(--border); border-radius:6px; background:var(--bg-surface); color:var(--text-secondary); cursor:pointer; font-size:12px; }
 .chart-toggle button.active { background:rgba(59,130,246,0.1); color:#60a5fa; border-color:rgba(59,130,246,0.3); }
+
+/* Efficiency section */
+.eff-counters { display:flex; gap:16px; margin-bottom:12px; font-size:14px; }
+.eff-counters span { font-weight:600; }
+.eff-filters { display:flex; gap:6px; margin-bottom:12px; flex-wrap:wrap; }
+.eff-filters button { padding:5px 14px; border:1px solid var(--border); border-radius:6px; background:var(--bg-surface); color:var(--text-secondary); cursor:pointer; font-size:13px; }
+.eff-filters button.active { background:rgba(59,130,246,0.1); color:#60a5fa; border-color:rgba(59,130,246,0.3); }
+.bulk-bar { display:none; padding:10px 16px; background:rgba(59,130,246,0.08); border:1px solid rgba(59,130,246,0.2); border-radius:8px; margin-bottom:12px; align-items:center; gap:12px; font-size:13px; }
+.bulk-bar.visible { display:flex; }
+.marker-dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:4px; }
+.marker-dead { background:#ef4444; }
+.marker-weak { background:#eab308; }
+.marker-alive { background:#22c55e; }
+.marker-unknown { background:#6b7280; }
+.acc-card-wrap { cursor:pointer; transition:border-color 0.15s, box-shadow 0.15s; }
+.acc-card-wrap:hover { border-color:#667eea !important; box-shadow:0 2px 12px rgba(102,126,234,0.15); }
+.acc-card-wrap.acc-active { border:1.5px solid #534AB7 !important; box-shadow:0 2px 12px rgba(83,74,183,0.2); }
+#summary-card { cursor:pointer; transition:border-color 0.15s, box-shadow 0.15s; }
+#summary-card:hover { box-shadow:0 2px 12px rgba(83,74,183,0.2); }
+#summary-card.acc-active { border-color:#534AB7; box-shadow:0 2px 12px rgba(83,74,183,0.25); }
 </style>
 
-<h1>Аналитика</h1>
-<div class="actions">
-    <button class="btn btn-primary" id="btn-sync" onclick="syncStats()">Обновить статистику</button>
-    <button class="btn btn-secondary" id="btn-photos" onclick="syncPhotos()">Загрузить фото из CRM</button>
+
+<!-- Summary cards -->
+<div id="summary-card" style="display:none;background:#FAFAFF;border:1.5px solid #e2e4f0;border-radius:12px;padding:20px 24px;margin-bottom:16px;" onclick="selectAccount('')">
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+        <div style="display:flex;align-items:center;gap:12px;min-width:200px;">
+            <div style="width:48px;height:48px;border-radius:50%;background:#EEF0FF;color:#534AB7;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:600;flex-shrink:0;">&sum;</div>
+            <div><div style="font-size:15px;font-weight:600;color:#1e1b4b;">Все объявления</div><div id="sum-sub" style="font-size:12px;color:#6b7280;"></div></div>
+        </div>
+        <div style="width:0.5px;align-self:stretch;background:#e2e4f0;margin:0 4px;"></div>
+        <div style="display:flex;gap:20px;" id="sum-metrics"></div>
+        <div style="width:0.5px;align-self:stretch;background:#e2e4f0;margin:0 4px;"></div>
+        <div style="flex:1;min-width:160px;" id="sum-top3"></div>
+    </div>
 </div>
 
-<div id="table-card" style="overflow-x:auto;">
-    <div style="color:var(--text-muted);padding:32px;text-align:center;">Загрузка...</div>
+<div id="acc-cards-grid" style="display:none;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-bottom:20px;"></div>
+
+<!-- Efficiency section -->
+<div id="efficiency-section" style="display:none;">
+<div class="card" style="margin-bottom:20px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+        <h2 style="margin:0;" id="eff-title">Эффективность объявлений</h2>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <span id="eff-last-sync" style="font-size:12px;color:#9ca3af;"></span>
+            <button class="btn btn-primary btn-sm" id="eff-sync-btn" onclick="syncEffStats()">&#x1F504; Синхронизировать с Авито</button>
+        </div>
+    </div>
+    <div class="eff-counters" id="eff-counters">Загрузка...</div>
+
+    <!-- Help block -->
+    <details style="margin-bottom:10px;font-size:12px;color:#6b7280;">
+        <summary style="cursor:pointer;color:#667eea;font-size:12px;">&#x25B6; Как работают маркеры?</summary>
+        <div style="margin-top:6px;padding:8px 12px;background:#f8f9ff;border-radius:6px;line-height:1.8;">
+            &#x1F534; <b>Мёртвые</b> &mdash; 0 просмотров за 3+ дня<br>
+            &#x1F7E1; <b>Слабые</b> &mdash; менее 3 просмотров за 3 дня<br>
+            &#x1F7E2; <b>Живые</b> &mdash; 3+ просмотров за 3 дня<br>
+            &#x26AA; <b>Без данных</b> &mdash; статистика ещё не собрана, нажмите &laquo;Синхронизировать&raquo;
+        </div>
+    </details>
+
+    <div class="eff-filters" id="eff-filters" style="align-items:center;">
+        <button onclick="setEffFilter('dead_weak', this)" class="active">&#x1F534;&#x1F7E1; Проблемные</button>
+        <button onclick="setEffFilter('all', this)">Все</button>
+        <button onclick="setEffFilter('dead', this)">&#x1F534; Мёртвые</button>
+        <button onclick="setEffFilter('weak', this)">&#x1F7E1; Слабые</button>
+        <button onclick="setEffFilter('alive', this)">&#x1F7E2; Живые</button>
+        <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:#6b7280;margin-left:8px;cursor:pointer;">
+            <input type="checkbox" id="eff-show-unknown" onchange="applyEffFilters()" style="width:auto;"> Без данных
+        </label>
+        <select id="eff-account-filter" onchange="applyEffFilters()" style="padding:5px 10px;border:0.5px solid #d1d5db;color:#6b7280;border-radius:6px;font-size:13px;margin-left:8px;">
+            <option value="">Все аккаунты</option>
+        </select>
+        <button id="eff-reset-btn" onclick="resetEffFilters()" style="display:none;padding:5px 14px;border:1px solid #d1d5db;border-radius:6px;background:transparent;color:#9ca3af;cursor:pointer;font-size:12px;margin-left:4px;">&#x2715; Сбросить</button>
+    </div>
+    <div id="eff-bulk" class="bulk-bar">
+        <span id="eff-bulk-count">Выбрано: 0</span>
+        <button class="btn btn-danger btn-sm" onclick="bulkDeleteAvito()">&#x1F5D1; Удалить с Авито</button>
+        <button class="btn btn-secondary btn-sm" onclick="bulkRepost()">&#x1F504; Перевыложить</button>
+    </div>
+    <div id="eff-table" style="overflow-x:auto;">
+        <div style="color:var(--text-muted);padding:16px;text-align:center;">Загрузка...</div>
+    </div>
 </div>
-<div style="display:flex;gap:24px;flex-wrap:wrap;">
-    <div class="sync-info" id="sync-info"></div>
-    <div class="sync-info" id="photo-info"></div>
-</div>
+</div><!-- /efficiency-section -->
 
 <!-- Chart modal -->
 <div id="modal-overlay" onclick="closeModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:999;"></div>
@@ -57,60 +121,357 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <script>
-let currentData = [], sortCol = 'views', sortAsc = false, chartInstance = null, chartHistory = null, chartMode = 'both';
-
+// ── Toast ──
 function showToast(msg, isError) { const t = document.getElementById('toast'); t.textContent = msg; t.style.display = 'block'; t.style.background = isError ? 'rgba(127,29,29,0.9)' : 'rgba(5,48,24,0.9)'; t.style.color = isError ? '#fca5a5' : '#34d399'; setTimeout(() => t.style.display = 'none', 5000); }
 
-function trendHtml(dir, delta) {
-    if (dir === null || delta === null) return '<span class="trend-flat">&mdash;</span>';
-    if (dir === 'up') return `<span class="trend-up" title="Прирост с прошлой синхронизации">&uarr;+${delta}</span>`;
-    if (dir === 'down') return `<span class="trend-down" title="Прирост с прошлой синхронизации">&darr;${delta}</span>`;
-    return '<span class="trend-flat" title="Без изменений">&rarr;0</span>';
+// ══════════════════════════════════════════
+// EFFICIENCY SECTION
+// ══════════════════════════════════════════
+let effData = [], effFilter = 'dead_weak', effAccount = '';
+
+async function loadEfficiency() {
+    try {
+        const resp = await fetch('/api/analytics/efficiency');
+        const data = await resp.json();
+        effData = data.products || [];
+        document.getElementById('eff-last-sync').textContent = data.last_sync ? 'Обновлено: ' + data.last_sync : '';
+
+        // Populate account dropdown
+        const accounts = [...new Set(effData.map(p => p.account_name).filter(Boolean))].sort();
+        const sel = document.getElementById('eff-account-filter');
+        const cur = sel.value;
+        sel.innerHTML = '<option value="">Все аккаунты</option>';
+        for (const a of accounts) {
+            sel.innerHTML += `<option value="${a}" ${a === cur ? 'selected' : ''}>${a}</option>`;
+        }
+
+        updateEffCounters();
+        renderEffTable();
+        renderSummaryCard(data);
+        renderAccCards(data.accounts || []);
+    } catch(e) { document.getElementById('eff-table').innerHTML = '<div style="color:#fca5a5;">Ошибка загрузки</div>'; }
 }
-function viewsTodayHtml(val) {
-    if (val === null || val === undefined) return '<span class="trend-flat">&mdash;</span>';
-    if (val > 0) return `<span style="color:#34d399;font-weight:600;">+${val}</span>`;
-    return `<span class="trend-flat">${val}</span>`;
+
+const _avatarMap = {'C':'#EEF0FF,#534AB7','К':'#EEF0FF,#534AB7','P':'#FFF0E8,#E8593C','П':'#FFF0E8,#E8593C','Z':'#E6F1FB,#185FA5','З':'#E6F1FB,#185FA5','R':'#E1F5EE,#0F6E56','Р':'#E1F5EE,#0F6E56'};
+function _av(name){const ch=(name||'?')[0].toUpperCase();const c=_avatarMap[ch]||'#F1EFE8,#5F5E5A';const[bg,fg]=c.split(',');return `background:${bg};color:${fg};`;}
+
+function _dotColor(m){return m==='alive'?'#22c55e':m==='weak'?'#f59e0b':'#ef4444';}
+
+function renderSummaryCard(data) {
+    const s = data.summary || {};
+    const el = document.getElementById('summary-card');
+    el.style.display = '';
+    document.getElementById('sum-sub').textContent = `${data.total_accounts||0} аккаунтов \u00B7 ${data.total_products||0} объявлений`;
+    document.getElementById('sum-metrics').innerHTML =
+        `<div style="text-align:center;"><div style="font-size:28px;font-weight:600;color:#dc2626;">${s.dead||0}</div><div style="font-size:10px;color:#6b7280;">Мёртвых</div></div>` +
+        `<div style="text-align:center;"><div style="font-size:28px;font-weight:600;color:#d97706;">${s.weak||0}</div><div style="font-size:10px;color:#6b7280;">Слабых</div></div>` +
+        `<div style="text-align:center;"><div style="font-size:28px;font-weight:600;color:#16a34a;">${s.alive||0}</div><div style="font-size:10px;color:#6b7280;">Живых</div></div>` +
+        `<div style="text-align:center;"><div style="font-size:28px;font-weight:600;color:#9ca3af;">${s.unknown||0}</div><div style="font-size:10px;color:#6b7280;">Без данных</div></div>`;
+    const top3 = data.global_top3 || [];
+    let t3 = '';
+    if (top3.length) {
+        for (const t of top3) {
+            const short = t.title.length > 28 ? t.title.slice(0,28) + '...' : t.title;
+            t3 += `<div style="display:flex;align-items:center;gap:6px;font-size:12px;color:#374151;padding:2px 0;">
+                <span style="width:6px;height:6px;border-radius:50%;background:${_dotColor(t.marker)};flex-shrink:0;"></span>
+                <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${short}</span>
+                <span style="flex-shrink:0;color:#6b7280;">${t.views} просм.</span>
+            </div>`;
+        }
+    } else { t3 = '<div style="font-size:12px;color:#9ca3af;">Нет данных</div>'; }
+    document.getElementById('sum-top3').innerHTML = t3;
 }
 
-const COLUMNS = [
-    {key:'image',label:'',sortable:false},{key:'title',label:'Название',sortable:true},{key:'account',label:'Аккаунт',sortable:true},
-    {key:'price',label:'Цена',sortable:true},{key:'views',label:'Просмотры',sortable:true},{key:'views_today',label:'Сегодня',sortable:true},
-    {key:'contacts',label:'Контакты',sortable:true},{key:'favorites',label:'Избранное',sortable:true},
-    {key:'conversion',label:'Конв.',sortable:true},{key:'trend_delta',label:'Прирост',sortable:true},
-];
+function renderAccCards(accounts) {
+    const grid = document.getElementById('acc-cards-grid');
+    if (!accounts.length) { grid.style.display = 'none'; return; }
+    grid.style.display = 'grid';
+    let html = '';
+    for (const a of accounts) {
+        const ch = (a.account_name||'?')[0].toUpperCase();
+        const c = a.counts || {};
+        const total = (c.dead||0)+(c.weak||0)+(c.alive||0)+(c.unknown||0);
 
-function renderTable(items) {
-    currentData = items;
-    const card = document.getElementById('table-card');
-    if (!items.length) { card.innerHTML = '<div style="color:var(--text-muted);padding:32px;text-align:center;">Нет данных. <a href="/products">Импортируйте объявления</a>.</div>'; return; }
+        // Top3
+        let t3html = '';
+        if (a.top3 && a.top3.length) {
+            for (const t of a.top3) {
+                const short = t.title.length > 30 ? t.title.slice(0,30) + '...' : t.title;
+                t3html += `<div style="display:flex;align-items:center;gap:6px;font-size:12px;color:#374151;padding:2px 0;">
+                    <span style="width:5px;height:5px;border-radius:50%;background:${_dotColor(t.marker)};flex-shrink:0;"></span>
+                    <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${short}</span>
+                    <span style="flex-shrink:0;color:#6b7280;font-size:11px;">${t.views}</span>
+                </div>`;
+            }
+        } else { t3html = '<div style="font-size:12px;color:#9ca3af;text-align:center;padding:6px 0;">Данных пока нет</div>'; }
 
-    let html = '<table class="analytics-table"><thead><tr>';
-    for (const col of COLUMNS) {
-        const arrow = col.key === sortCol ? (sortAsc ? '\u25b2' : '\u25bc') : '';
-        html += `<th${col.sortable ? ` onclick="sortBy('${col.key}')"` : ''}>${col.label}<span class="sort-arrow">${arrow}</span></th>`;
+        html += `<div class="acc-card-wrap" data-account="${a.account_name}" style="background:#fff;border:0.5px solid #e2e4f0;border-radius:12px;overflow:hidden;" onclick="selectAccount('${a.account_name}')">
+            <div style="padding:18px 20px 14px;border-bottom:0.5px solid #e2e4f0;">
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+                    <div style="width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:600;flex-shrink:0;${_av(a.account_name)}">${ch}</div>
+                    <div><div style="font-size:14px;font-weight:600;color:#1e1b4b;">${a.account_name}</div><div style="font-size:11px;color:#6b7280;">${total} объявлений</div></div>
+                </div>
+                <div style="display:flex;gap:8px;">
+                    <div style="flex:1;background:#FCEBEB;border-radius:8px;padding:6px 8px;text-align:center;"><div style="font-size:16px;font-weight:600;color:#dc2626;">${c.dead||0}</div><div style="font-size:10px;color:#991b1b;">Мёртвых</div></div>
+                    <div style="flex:1;background:#FAEEDA;border-radius:8px;padding:6px 8px;text-align:center;"><div style="font-size:16px;font-weight:600;color:#d97706;">${c.weak||0}</div><div style="font-size:10px;color:#92400e;">Слабых</div></div>
+                    <div style="flex:1;background:#EAF3DE;border-radius:8px;padding:6px 8px;text-align:center;"><div style="font-size:16px;font-weight:600;color:#16a34a;">${c.alive||0}</div><div style="font-size:10px;color:#166534;">Живых</div></div>
+                    <div style="flex:1;background:#f3f4f6;border-radius:8px;padding:6px 8px;text-align:center;"><div style="font-size:16px;font-weight:600;color:#9ca3af;">${c.unknown||0}</div><div style="font-size:10px;color:#6b7280;">Нет данных</div></div>
+                </div>
+            </div>
+            <div style="padding:12px 20px;">
+                <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:#9ca3af;font-weight:500;margin-bottom:6px;">Топ по просмотрам</div>
+                ${t3html}
+            </div>
+        </div>`;
     }
-    html += '</tr></thead><tbody>';
-    for (const item of items) {
-        const img = item.image
-            ? `<img src="${item.image}" class="thumb" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="no-thumb" style="display:none;background:var(--accent-blue-dim);color:#60a5fa;font-weight:700;font-size:16px;">A</div>`
-            : item.avito_id
-                ? `<div class="no-thumb" style="background:var(--accent-blue-dim);color:#60a5fa;font-weight:700;font-size:16px;">A</div>`
-                : `<div class="no-thumb">?</div>`;
-        const cw = Math.min(item.conversion * 2, 80);
-        const cc = item.conversion >= 5 ? '#34d399' : item.conversion >= 2 ? '#3b82f6' : 'var(--border)';
-        html += `<tr onclick="openChart(${item.id},'${item.title.replace(/'/g,"\\'")}',${item.avito_id})">
-            <td>${img}</td><td style="max-width:250px;">${item.title}</td><td><span class="badge badge-blue" style="font-size:10px;">${item.account||'—'}</span></td>
-            <td style="color:var(--text-secondary);">${item.price!==null?item.price.toLocaleString('ru-RU'):''}</td>
-            <td style="font-weight:600;">${item.views}</td><td>${viewsTodayHtml(item.views_today)}</td>
-            <td style="font-weight:600;color:#34d399;">${item.contacts}</td><td style="color:var(--text-secondary);">${item.favorites}</td>
-            <td>${item.conversion}% <div class="conversion-bar" style="width:${cw}px;background:${cc};"></div></td>
-            <td>${trendHtml(item.trend_dir, item.trend_delta)}</td></tr>`;
-    }
-    html += '</tbody></table>'; card.innerHTML = html;
+    grid.innerHTML = html;
 }
 
-function sortBy(col) { if (sortCol===col){sortAsc=!sortAsc;}else{sortCol=col;sortAsc=false;} currentData.sort((a,b)=>{let va=a[col]??(typeof a[col]==='string'?'':-1),vb=b[col]??(typeof b[col]==='string'?'':-1);if(typeof va==='string')return sortAsc?va.localeCompare(vb):vb.localeCompare(va);return sortAsc?va-vb:vb-va;}); renderTable(currentData); }
+function getFilteredEff() {
+    const showUnknown = document.getElementById('eff-show-unknown')?.checked;
+    return effData.filter(p => {
+        if (p.marker === 'unknown' && !showUnknown && effFilter !== 'all') return false;
+        const matchMarker = effFilter === 'all' || (effFilter === 'dead_weak' ? (p.marker === 'dead' || p.marker === 'weak') : p.marker === effFilter);
+        const matchAccount = !effAccount || p.account_name === effAccount;
+        return matchMarker && matchAccount;
+    });
+}
+
+function updateEffCounters() {
+    const subset = effAccount ? effData.filter(p => p.account_name === effAccount) : effData;
+    const s = {dead:0, weak:0, alive:0, unknown:0};
+    for (const p of subset) s[p.marker] = (s[p.marker] || 0) + 1;
+    document.getElementById('eff-counters').innerHTML =
+        `<span style="color:#ef4444;">&#x1F534; Мёртвых: ${s.dead}</span>` +
+        `<span style="color:#eab308;">&#x1F7E1; Слабых: ${s.weak}</span>` +
+        `<span style="color:#22c55e;">&#x1F7E2; Живых: ${s.alive}</span>` +
+        `<span style="color:#6b7280;cursor:help;" title="Нет данных статистики. Нажмите 'Синхронизировать с Авито' для обновления.">&#x26AA; Без данных: ${s.unknown}</span>`;
+}
+
+async function syncEffStats() {
+    const btn = document.getElementById('eff-sync-btn');
+    btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Синхронизация...';
+    try {
+        const resp = await fetch('/api/stats/sync', { method: 'POST' });
+        const data = await resp.json();
+        if (data.ok) {
+            const parts = [];
+            if (data.imported) parts.push(`Импортировано: ${data.imported}`);
+            parts.push(`Статистика: ${data.stats_updated || 0}`);
+            if (data.duration_seconds) parts.push(`${data.duration_seconds}с`);
+            showToast(parts.join(' | '), false);
+            await loadEfficiency();
+        } else { showToast(data.error || 'Ошибка', true); }
+    } catch(e) { showToast('Ошибка сети', true); }
+    btn.disabled = false; btn.innerHTML = '&#x1F504; Синхронизировать с Авито';
+}
+
+function setEffFilter(f, btn) {
+    effFilter = f;
+    document.querySelectorAll('#eff-filters button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    applyEffFilters();
+}
+
+function applyEffFilters() {
+    effAccount = document.getElementById('eff-account-filter').value;
+    // Show/hide reset button
+    const isDefault = effFilter === 'dead_weak' && !effAccount;
+    document.getElementById('eff-reset-btn').style.display = isDefault ? 'none' : '';
+    updateEffCounters();
+    renderEffTable();
+}
+
+function resetEffFilters() {
+    effFilter = 'dead_weak';
+    effAccount = '';
+    document.getElementById('eff-account-filter').value = '';
+    const unknownCb = document.getElementById('eff-show-unknown');
+    if (unknownCb) unknownCb.checked = false;
+    document.querySelectorAll('#eff-filters button').forEach(b => b.classList.remove('active'));
+    document.querySelector('#eff-filters button').classList.add('active');
+    document.getElementById('eff-reset-btn').style.display = 'none';
+    updateEffCounters();
+    renderEffTable();
+}
+
+function selectAccount(accountName) {
+    // Remove active from all cards
+    document.querySelectorAll('.acc-card-wrap').forEach(c => c.classList.remove('acc-active'));
+    document.getElementById('summary-card').classList.remove('acc-active');
+
+    // Highlight selected
+    if (accountName) {
+        const card = document.querySelector(`.acc-card-wrap[data-account="${accountName}"]`);
+        if (card) card.classList.add('acc-active');
+    } else {
+        document.getElementById('summary-card').classList.add('acc-active');
+    }
+
+    // Update title
+    document.getElementById('eff-title').textContent = accountName
+        ? `Эффективность — ${accountName}`
+        : 'Эффективность — Все объявления';
+
+    // Apply filter
+    effFilter = 'all';
+    document.querySelectorAll('#eff-filters button').forEach(b => b.classList.remove('active'));
+    const allBtn = document.querySelector('#eff-filters button:nth-child(2)');
+    if (allBtn) allBtn.classList.add('active');
+    document.getElementById('eff-account-filter').value = accountName;
+    effAccount = accountName;
+    updateEffCounters();
+
+    // Show spinner, then render
+    const section = document.getElementById('efficiency-section');
+    const table = document.getElementById('eff-table');
+    section.style.display = '';
+    table.innerHTML = '<div style="color:var(--text-muted);padding:16px;text-align:center;"><span class="spinner"></span> Загрузка...</div>';
+
+    setTimeout(() => {
+        renderEffTable();
+        document.getElementById('efficiency-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
+}
+
+function _todayCell(val) {
+    if (val === null || val === undefined) return '<span style="color:#6b7280;">&mdash;</span>';
+    if (val > 0) return `<span style="color:#22c55e;font-weight:600;">+${val}</span>`;
+    return '<span style="color:#6b7280;">&mdash;</span>';
+}
+
+function renderEffTable() {
+    const filtered = getFilteredEff();
+    const container = document.getElementById('eff-table');
+    if (!filtered.length) {
+        container.innerHTML = '<div style="color:var(--text-muted);padding:16px;text-align:center;">Нет объявлений в этой категории</div>';
+        updateEffBulk();
+        return;
+    }
+    let html = `<table class="analytics-table"><thead><tr>
+        <th style="width:30px;"><input type="checkbox" onchange="toggleAllEff(this.checked)" style="width:auto;cursor:pointer;"></th>
+        <th style="font-size:10px;text-transform:uppercase;letter-spacing:0.04em;">Маркер</th>
+        <th></th>
+        <th style="font-size:10px;text-transform:uppercase;letter-spacing:0.04em;">Товар</th>
+        <th style="font-size:10px;text-transform:uppercase;letter-spacing:0.04em;">Просмотры</th>
+        <th style="font-size:10px;text-transform:uppercase;letter-spacing:0.04em;">Сегодня</th>
+        <th style="font-size:10px;text-transform:uppercase;letter-spacing:0.04em;">Контакты</th>
+        <th style="font-size:10px;text-transform:uppercase;letter-spacing:0.04em;">Сегодня</th>
+        <th style="font-size:10px;text-transform:uppercase;letter-spacing:0.04em;">Выложено</th>
+        <th></th>
+    </tr></thead><tbody>`;
+    for (const p of filtered) {
+        let markerHtml = {dead:'&#x1F534;', weak:'&#x1F7E1;', alive:'&#x1F7E2;', unknown:'&#x26AA;'}[p.marker];
+        if (p.avito_messages && p.avito_messages.length > 0) {
+            const msgTitle = (p.avito_messages[0].title || '') + ': ' + (p.avito_messages[0].description || '');
+            markerHtml += ` <span title="${msgTitle.replace(/"/g, '&quot;')}" style="cursor:help;font-size:14px;">&#x26A0;&#xFE0F;</span>`;
+        }
+        const imgHtml = p.image
+            ? `<img src="${p.image}" style="width:48px;height:48px;object-fit:cover;border-radius:6px;border:1px solid var(--border);" onerror="this.style.display='none'">`
+            : `<div class="no-thumb" style="width:48px;height:48px;">?</div>`;
+        const daysAgoText = p.days_ago !== null ? `<div style="font-size:10px;color:#9ca3af;">${p.days_ago} дн. назад</div>` : '';
+        html += `<tr>
+            <td><input type="checkbox" class="eff-cb" value="${p.product_id}" data-marker="${p.marker}" onchange="updateEffBulk()" style="width:auto;cursor:pointer;"></td>
+            <td>${markerHtml}</td>
+            <td>${imgHtml}</td>
+            <td style="max-width:250px;"><div>${p.title}</div><span class="badge badge-blue" style="font-size:10px;">${p.account_name||'—'}</span></td>
+            <td style="font-weight:600;">${p.views_total !== null && p.views_total !== undefined ? p.views_total : '—'}</td>
+            <td>${_todayCell(p.views_today)}</td>
+            <td style="font-weight:600;">${p.contacts_total !== null && p.contacts_total !== undefined ? p.contacts_total : '—'}</td>
+            <td>${_todayCell(p.contacts_today)}</td>
+            <td style="white-space:nowrap;">${p.published_at || '—'}${daysAgoText}</td>
+            <td style="text-align:right;white-space:nowrap;">
+                <button class="btn btn-danger btn-sm" onclick="softDeleteProduct(${p.product_id}, '${p.title.replace(/'/g,"\\'")}', this)" title="Удалить">&#x1F5D1;</button>
+            </td></tr>`;
+    }
+    html += '</tbody></table>';
+    container.innerHTML = html;
+    updateEffBulk();
+}
+
+function toggleAllEff(checked) {
+    document.querySelectorAll('.eff-cb').forEach(cb => cb.checked = checked);
+    updateEffBulk();
+}
+
+function getSelectedEffIds() {
+    return [...document.querySelectorAll('.eff-cb:checked')].map(cb => parseInt(cb.value));
+}
+
+function updateEffBulk() {
+    const ids = getSelectedEffIds();
+    const bar = document.getElementById('eff-bulk');
+    if (ids.length > 0) {
+        bar.classList.add('visible');
+        document.getElementById('eff-bulk-count').textContent = 'Выбрано: ' + ids.length;
+    } else {
+        bar.classList.remove('visible');
+    }
+}
+
+async function deleteOneAvito(productId, title, btn) {
+    if (!confirm(`Удалить "${title}"? Будет снято с Авито при следующей выгрузке фида.`)) return;
+    btn.disabled = true;
+    try {
+        const resp = await fetch('/products/' + productId + '/avito', { method: 'DELETE' });
+        const data = await resp.json();
+        if (data.ok) {
+            const row = btn.closest('tr');
+            if (row) { row.style.transition = 'opacity 0.2s'; row.style.opacity = '0'; setTimeout(() => row.remove(), 200); }
+            showToast('Удалено', false);
+        } else showToast(data.error, true);
+    } catch(e) { showToast('Ошибка сети', true); }
+    btn.disabled = false;
+}
+
+async function softDeleteProduct(productId, title, btn) {
+    if (!confirm(`Удалить "${title}"? Товар будет снят с Авито.`)) return;
+    btn.disabled = true;
+    try {
+        const resp = await fetch('/products/' + productId, { method: 'DELETE' });
+        const data = await resp.json();
+        if (data.ok) {
+            const row = btn.closest('tr');
+            if (row) { row.style.transition = 'opacity 0.2s'; row.style.opacity = '0'; setTimeout(() => row.remove(), 200); }
+            showToast('Объявление удалено — будет снято с Авито при следующей выгрузке', false);
+        } else showToast(data.error || 'Ошибка удаления', true);
+    } catch(e) { showToast('Ошибка сети', true); }
+    btn.disabled = false;
+}
+
+async function bulkDeleteAvito() {
+    const ids = getSelectedEffIds();
+    if (!ids.length) return;
+    if (!confirm(`Удалить ${ids.length} объявлений с Авито? Это нельзя отменить.`)) return;
+    let ok = 0;
+    for (const id of ids) {
+        try {
+            const resp = await fetch('/products/' + id + '/avito', { method: 'DELETE' });
+            const data = await resp.json();
+            if (data.ok) ok++;
+        } catch(e) {}
+    }
+    showToast(`Удалено: ${ok} из ${ids.length}`, ok < ids.length);
+    loadEfficiency();
+}
+
+async function bulkRepost() {
+    const ids = getSelectedEffIds();
+    if (!ids.length) return;
+    if (!confirm(`Перевыложить ${ids.length} объявлений?`)) return;
+    let ok = 0;
+    for (const id of ids) {
+        try {
+            const resp = await fetch('/products/' + id + '/repost', { method: 'POST' });
+            const data = await resp.json();
+            if (data.ok) ok++;
+        } catch(e) {}
+    }
+    showToast(`Перевыложено: ${ok} из ${ids.length}`, ok < ids.length);
+    loadEfficiency();
+}
+
+let chartInstance = null, chartHistory = null, chartMode = 'both';
 
 function closeModal() { document.getElementById('modal-overlay').style.display='none'; document.getElementById('chart-modal').style.display='none'; if(chartInstance){chartInstance.destroy();chartInstance=null;} }
 
@@ -139,31 +500,64 @@ function drawChart() {
     chartInstance=new Chart(document.getElementById('stats-chart'),{type:'line',data:{labels,datasets},options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{labels:{color:'var(--text-secondary)'}},tooltip:{}},scales}});
 }
 
-async function loadData() {
-    try { const resp=await fetch('/api/analytics');const data=await resp.json();renderTable(data.items||[]);
-        document.getElementById('sync-info').textContent=data.last_sync?'Статистика: '+data.last_sync:'Нажмите "Обновить статистику"';
-        document.getElementById('photo-info').textContent=`Фото: ${data.photos_synced||0} из ${data.photos_total||0}`;
-    } catch(e){document.getElementById('table-card').innerHTML='<div class="flash flash-error">Ошибка загрузки</div>';}
-}
+document.addEventListener('DOMContentLoaded', () => { loadEfficiency(); });
 
-async function syncStats() {
-    const btn=document.getElementById('btn-sync'); btn.disabled=true; btn.innerHTML='<span class="spinner"></span>Синхронизация...';
-    try { const resp=await fetch('/api/stats/sync',{method:'POST'});const data=await resp.json();
-        if(data.ok){const msgs=(data.results||[]).map(r=>r.error?`${r.account}: ошибка`:`${r.account}: ${r.synced}/${r.total}`);showToast(msgs.join(', '),false);await loadData();}
-        else{showToast(data.error||'Ошибка',true);}
-    } catch(e){showToast('Ошибка сети',true);}
-    btn.disabled=false; btn.textContent='Обновить статистику';
+// ══════════════════════════════════════════
+// FEES SECTION
+// ══════════════════════════════════════════
+async function loadFees() {
+    const sel = document.getElementById('fees-account');
+    const accId = sel.value;
+    if (!accId) return;
+    const container = document.getElementById('fees-result');
+    container.innerHTML = '<div style="text-align:center;padding:16px;"><span class="spinner"></span> Загрузка расходов...</div>';
+    try {
+        const resp = await fetch('/api/analytics/fees?account_id=' + accId);
+        const data = await resp.json();
+        if (!data.ok) { container.innerHTML = `<div style="color:#fca5a5;padding:12px;">${data.error||'Ошибка'}</div>`; return; }
+        if (!data.fees || data.fees.length === 0) { container.innerHTML = '<div style="color:#9ca3af;padding:12px;">Нет данных о расходах</div>'; return; }
+        let html = '<table class="analytics-table" style="margin-top:12px;"><thead><tr><th style="font-size:10px;text-transform:uppercase;">Ad ID</th><th style="font-size:10px;text-transform:uppercase;">Avito ID</th><th style="font-size:10px;text-transform:uppercase;">Услуга</th><th style="font-size:10px;text-transform:uppercase;">Сумма (руб)</th></tr></thead><tbody>';
+        for (const f of data.fees) {
+            html += `<tr><td>${f.ad_id||'—'}</td><td>${f.avito_id||'—'}</td><td>${f.service_type||f.type||'—'}</td><td style="font-weight:600;">${f.amount_total != null ? f.amount_total : '—'}</td></tr>`;
+        }
+        html += '</tbody></table>';
+        html += `<div style="margin-top:12px;font-size:14px;font-weight:600;">Итого списано: ${data.total_fees_rub} руб</div>`;
+        html += `<div style="font-size:11px;color:#9ca3af;margin-top:4px;">Отчёт #${data.report_id}</div>`;
+        container.innerHTML = html;
+    } catch(e) { container.innerHTML = '<div style="color:#fca5a5;padding:12px;">Ошибка сети</div>'; }
 }
+</script>
 
-async function syncPhotos() {
-    const btn=document.getElementById('btn-photos'); btn.disabled=true; btn.innerHTML='<span class="spinner"></span>Загрузка фото...';
-    try { const resp=await fetch('/api/images/sync-from-crm',{method:'POST'});const data=await resp.json();
-        if(data.ok){showToast(`Синхронизировано: ${data.synced} фото (не найдено: ${data.not_found})`,false);await loadData();}
-        else{showToast(data.error||'Ошибка',true);}
-    } catch(e){showToast('Ошибка сети',true);}
-    btn.disabled=false; btn.textContent='Загрузить фото из CRM';
-}
+<!-- Fees section -->
+<div class="card" style="margin-top:20px;">
+    <details>
+        <summary style="cursor:pointer;font-size:16px;font-weight:600;padding:4px 0;">&#x1F4B8; Расходы по выгрузке</summary>
+        <div style="margin-top:12px;">
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <select id="fees-account" style="padding:6px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+                    <option value="">— Выберите аккаунт —</option>
+                </select>
+                <button class="btn btn-primary btn-sm" onclick="loadFees()">Загрузить расходы</button>
+            </div>
+            <div id="fees-result"></div>
+        </div>
+    </details>
+</div>
 
-document.addEventListener('DOMContentLoaded', loadData);
+<script>
+// Populate fees account selector from efficiency data
+(function() {
+    const interval = setInterval(() => {
+        if (!effData.length) return;
+        clearInterval(interval);
+        const accounts = [...new Set(effData.map(p => p.account_name).filter(Boolean))].sort();
+        const sel = document.getElementById('fees-account');
+        for (const a of accounts) {
+            // Find account_id from effData
+            const item = effData.find(p => p.account_name === a);
+            if (item) sel.innerHTML += `<option value="${item.account_id}">${a}</option>`;
+        }
+    }, 500);
+})();
 </script>
 {% endblock %}

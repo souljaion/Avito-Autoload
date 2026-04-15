@@ -1,35 +1,56 @@
 {% extends "base.html" %}
 {% block title %}{{ "Редактировать" if product else "Новый" }} товар — Avito Autoload{% endblock %}
 {% block content %}
-<h1>{{ "Редактировать" if product else "Новый" }} товар
-    {% if catalog_source == "avito" %}
-    <span class="badge badge-green" style="font-size:12px;vertical-align:middle;">Avito</span>
-    {% else %}
-    <span class="badge badge-gray" style="font-size:12px;vertical-align:middle;">fallback</span>
-    {% endif %}
-</h1>
-<div class="card">
+<style>
+.compact .field { margin-bottom:6px; }
+.compact label { font-size:0.85rem; }
+.compact h3 { margin:12px 0 8px; font-size:14px; color:var(--text-secondary); }
+.compact .grid-2 { gap:8px; }
+.compact .grid-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; }
+</style>
+<h1 style="font-size:20px;">{{ "Редактировать" if product else "Новый" }} товар</h1>
+<div class="card compact">
     <form method="post">
+        <div class="field">
+            <label>Название *</label>
+            <input name="title" value="{{ product.title if product else '' }}" required>
+        </div>
         <div class="grid-2">
             <div class="field">
-                <label>Название *</label>
-                <input name="title" value="{{ product.title if product else '' }}" required>
+                <label>Цена *</label>
+                <input name="price" type="number" value="{{ product.price if product and product.price else '' }}" required>
             </div>
             <div class="field">
                 <label>SKU</label>
                 <input name="sku" value="{{ product.sku if product and product.sku else '' }}">
             </div>
+        </div>
+        <div class="grid-3">
             <div class="field">
                 <label>Бренд</label>
                 <input name="brand" value="{{ product.brand if product and product.brand else '' }}">
             </div>
             <div class="field">
+                <label>Размер</label>
+                <input name="size" value="{{ product.size if product and product.size else '' }}">
+            </div>
+            <div class="field">
+                <label>Цвет</label>
+                <input name="color" value="{{ product.color if product and product.color else '' }}">
+            </div>
+        </div>
+        <div class="grid-2">
+            <div class="field">
                 <label>Модель</label>
                 <input name="model" value="{{ product.model if product and product.model else '' }}">
             </div>
+            <div class="field">
+                <label>Материал</label>
+                <input name="material" value="{{ product.material if product and product.material else '' }}" placeholder="Хлопок, полиэстер...">
+            </div>
         </div>
 
-        <h3 style="margin:20px 0 12px;font-size:16px;color:#555;">Категория Avito</h3>
+        <h3>Категория Avito</h3>
         <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
             <button type="button" class="btn btn-secondary btn-sm" onclick="applyPreset('Мужская обувь','Кроссовки и кеды','')">&#x1f45f; Кроссовки (муж)</button>
             <button type="button" class="btn btn-secondary btn-sm" onclick="applyPreset('Женская обувь','Кроссовки и кеды','')">&#x1f45f; Кроссовки (жен)</button>
@@ -65,46 +86,18 @@
             </div>
         </div>
 
-        <h3 style="margin:20px 0 12px;font-size:16px;color:#555;">Характеристики</h3>
+        <div class="field">
+            <label>Описание *</label>
+            <textarea name="description" rows="10" required placeholder="Описание обязательно для Avito">{{ product.description if product and product.description else '' }}</textarea>
+        </div>
+
+        <h3>Параметры Avito</h3>
         <div class="grid-2">
-            <div class="field">
-                <label>Размер</label>
-                <input name="size" value="{{ product.size if product and product.size else '' }}">
-            </div>
-            <div class="field">
-                <label>Цвет</label>
-                <input name="color" value="{{ product.color if product and product.color else '' }}">
-            </div>
-            <div class="field">
-                <label>Материал</label>
-                <input name="material" value="{{ product.material if product and product.material else '' }}" placeholder="Хлопок, полиэстер...">
-            </div>
             <div class="field">
                 <label>Состояние</label>
                 <select name="condition">
                     {% for c in conditions %}
                     <option value="{{ c }}" {{ "selected" if product and product.condition == c else ("selected" if not product else "") }}>{{ c }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div class="field">
-                <label>Цена *</label>
-                <input name="price" type="number" value="{{ product.price if product and product.price else '' }}" required>
-            </div>
-        </div>
-
-        <div class="field">
-            <label>Описание *</label>
-            <textarea name="description" required placeholder="Описание обязательно для Avito">{{ product.description if product and product.description else '' }}</textarea>
-        </div>
-
-        <h3 style="margin:20px 0 12px;font-size:16px;color:#555;">Параметры Avito</h3>
-        <div class="grid-2">
-            <div class="field">
-                <label>Тип объявления</label>
-                <select name="ad_type">
-                    {% for v in ad_types %}
-                    <option value="{{ v }}" {{ "selected" if product and product.extra and product.extra.get("ad_type") == v else ("selected" if v == default_ad_type and (not product or not product.extra) else "") }}>{{ v }}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -150,7 +143,7 @@
             </div>
         </div>
 
-        <h3 style="margin:20px 0 12px;font-size:16px;color:#555;">Привязка к модели</h3>
+        <h3>Привязка к модели</h3>
         <div class="grid-2">
             <div class="field">
                 <label>Привязать к модели</label>
@@ -180,7 +173,7 @@
             </div>
         </div>
 
-        <h3 style="margin:20px 0 12px;font-size:16px;color:#555;">Фотографии из пака</h3>
+        <h3>Фотографии из пака</h3>
         <div id="pack-section">
             <div class="grid-2">
                 <div class="field">
@@ -202,13 +195,13 @@
             <input type="hidden" name="pack_uniquify" id="pack-uniquify-input" value="">
         </div>
 
-        <h3 style="margin:20px 0 12px;font-size:16px;color:#555;">Публикация</h3>
+        <h3>Публикация</h3>
         <div class="grid-2">
             <div class="field">
                 <label>Статус</label>
                 <select name="status" id="status-select">
                     {% for s in statuses %}
-                    {% if s not in ('scheduled', 'published') %}
+                    {% if s not in ('scheduled', 'published', 'sold') %}
                     <option value="{{ s }}" {{ "selected" if product and product.status == s else "" }}>{{ s }}</option>
                     {% endif %}
                     {% endfor %}
@@ -216,7 +209,7 @@
             </div>
             <div class="field">
                 <label>Аккаунт</label>
-                <select name="account_id">
+                <select name="account_id" id="account-select">
                     <option value="">— Не привязан —</option>
                     {% for acc in accounts %}
                     <option value="{{ acc.id }}" {{ "selected" if product and product.account_id == acc.id else "" }}>{{ acc.name }}</option>
@@ -226,7 +219,7 @@
         </div>
 
         {% if product %}
-        <h3 style="margin:20px 0 12px;font-size:16px;color:#555;">Запланировать публикацию</h3>
+        <h3>Запланировать публикацию</h3>
         {% if product.status == 'scheduled' and product.scheduled_at %}
         <div class="flash flash-success" style="margin-bottom:12px;background:#fef9c3;color:#854d0e;">
             Запланировано: {{ product.scheduled_at.strftime("%d.%m.%Y в %H:%M") }}
@@ -443,13 +436,68 @@ function choosePackMode(uniquify) {
     chosen.style.display = 'block';
 }
 
-// Reload packs when model changes
-modelSelect.addEventListener('change', function() {
+// Reload packs when model changes + autofill title/brand from model
+modelSelect.addEventListener('change', async function() {
     if (this.value === '__new__') return; // handled by modal
     loadPacksForModel(this.value);
+    if (this.value) {
+        try {
+            const resp = await fetch('/models/' + this.value + '/info');
+            const info = await resp.json();
+            const titleEl = document.querySelector('input[name="title"]');
+            if (titleEl && !titleEl.value.trim()) {
+                titleEl.value = info.name || '';
+            }
+            const brandEl = document.querySelector('input[name="brand"]');
+            if (brandEl && !brandEl.value.trim() && info.brand) {
+                brandEl.value = info.brand;
+            }
+        } catch(e) {}
+    }
+});
+
+// --- Account description template autofill ---
+document.getElementById('account-select').addEventListener('change', async function() {
+    if (!isNewProduct) return;
+    const descEl = document.querySelector('textarea[name="description"]');
+    if (!this.value || (descEl.value && descEl.value.trim())) return;
+    try {
+        const resp = await fetch('/accounts/' + this.value + '/description-template');
+        const data = await resp.json();
+        if (data.description_template) {
+            descEl.value = data.description_template;
+        }
+    } catch(e) {}
+});
+
+// --- localStorage: remember last category choices for new products ---
+const isNewProduct = {{ 'false' if product else 'true' }};
+const catFields = ['category', 'goods_type', 'subcategory', 'goods_subtype'];
+
+function saveCatChoice(field) {
+    const el = document.getElementById(field);
+    if (el) localStorage.setItem('last_' + field, el.value);
+}
+
+function restoreCatChoices() {
+    if (!isNewProduct) return;
+    const cat = localStorage.getItem('last_category');
+    if (cat) {
+        const catEl = document.getElementById('category');
+        catEl.value = cat;
+        saved.goodsType = localStorage.getItem('last_goods_type') || '';
+        saved.apparel = localStorage.getItem('last_subcategory') || '';
+        saved.goodsSubtype = localStorage.getItem('last_goods_subtype') || '';
+    }
+}
+
+catFields.forEach(f => {
+    const el = document.getElementById(f);
+    if (el) el.addEventListener('change', () => saveCatChoice(f));
 });
 
 document.addEventListener("DOMContentLoaded", function() {
+    restoreCatChoices();
     updateGoodsTypes();
     toggleSchedule();
     // Load packs for preselected model

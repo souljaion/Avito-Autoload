@@ -5,7 +5,7 @@ import structlog
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -36,7 +36,7 @@ async def feeds_page(request: Request, db: AsyncSession = Depends(get_db)):
     )
     exports = exports_result.scalars().all()
 
-    return templates.TemplateResponse("feeds/list.html", {
+    return templates.TemplateResponse("feeds/list.html", {"page_title": "Фиды",
         "request": request,
         "accounts": accounts,
         "exports": exports,
@@ -55,9 +55,15 @@ async def generate_feed_endpoint(
     return RedirectResponse("/feeds", status_code=303)
 
 
-@router.get("/feeds/{account_id}.xml")
-async def serve_feed(account_id: int):
-    filepath = os.path.join(settings.FEEDS_DIR, f"{account_id}.xml")
+@router.get("/feeds/{token}.xml")
+async def serve_feed(token: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(Account).where(Account.feed_token == token)
+    )
+    account = result.scalar_one_or_none()
+    if not account:
+        return Response("Feed not found", status_code=404)
+    filepath = os.path.join(settings.FEEDS_DIR, f"{account.id}.xml")
     if not os.path.exists(filepath):
         return Response("Feed not found", status_code=404)
     async with aiofiles.open(filepath, "rb") as f:
@@ -145,7 +151,7 @@ async def upload_feed_to_avito(
         export.status = "upload_error"
         export.upload_response = {"error": error_msg}
         await db.commit()
-        return JSONResponse({"ok": False, "error": error_msg}, status_code=502)
+        return JSONResponse({"ok": False, "error": "Ошибка загрузки фида в Avito"}, status_code=502)
     finally:
         await client.close()
 
@@ -261,8 +267,13 @@ async def get_feed_report(feed_id: int, db: AsyncSession = Depends(get_db)):
         report_row.applied_ads = applied
         report_row.declined_ads = declined
 
-        # Save items
+        # Save items — clear old items first to avoid duplicates
         if items_data:
+            await db.execute(
+                delete(AutoloadReportItem).where(
+                    AutoloadReportItem.report_id == report_row.id
+                )
+            )
             for item in items_data:
                 item_row = AutoloadReportItem(
                     report_id=report_row.id,
@@ -279,6 +290,16 @@ async def get_feed_report(feed_id: int, db: AsyncSession = Depends(get_db)):
                 db.add(item_row)
 
         await db.commit()
+
+        # Send Telegram notification if there are declined ads
+        if declined > 0:
+            from app.services.telegram_notify import notify_declined
+            await notify_declined(
+                account_name=account.name,
+                declined_ads=declined,
+                total_ads=report_row.total_ads,
+                report_id=report_row.id,
+            )
 
         # Build response
         error_items = []
@@ -308,7 +329,7 @@ async def get_feed_report(feed_id: int, db: AsyncSession = Depends(get_db)):
             "report_id": report_id,
             "started_at": target_report.get("started_at"),
             "finished_at": target_report.get("finished_at") or None,
-            "feed_url": detail.get("feed_url"),
+            "feed_url": (detail.get("feeds_urls") or [{}])[0].get("url") or detail.get("feed_url"),
             "stats": {
                 "total": section_stats.get("count", 0),
                 "applied": applied,
@@ -323,9 +344,9 @@ async def get_feed_report(feed_id: int, db: AsyncSession = Depends(get_db)):
         })
 
     except Exception as e:
-        logger.exception("Failed to fetch report for feed %d", feed_id)
+        logger.exception("Failed to fetch report for feed %d: %s", feed_id, e)
         return JSONResponse(
-            {"ok": False, "error": f"Ошибка получения отчёта: {e}"},
+            {"ok": False, "error": "Внутренняя ошибка при получении отчёта"},
             status_code=502,
         )
     finally:

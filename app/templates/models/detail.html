@@ -3,552 +3,630 @@
 
 {% block content %}
 <style>
-    .tabs { display:flex; gap:0; border-bottom:1px solid var(--border); margin-bottom:16px; }
-    .tab { padding:10px 20px; font-size:14px; color:var(--text-secondary); cursor:pointer; border-bottom:2px solid transparent; transition: color 0.15s, border-color 0.15s; background:none; border-top:none; border-left:none; border-right:none; }
-    .tab:hover { color:var(--text-primary); }
-    .tab.active { color:var(--text-primary); border-bottom-color:var(--accent-blue); }
-    .tab-count { font-size:11px; background:var(--bg-elevated); padding:1px 6px; border-radius:8px; margin-left:4px; }
-    .tab-panel { display:none; }
-    .tab-panel.active { display:block; }
+.m-topbar { margin-bottom:20px; }
+.m-back { font-size:12px; color:#6b7280; text-decoration:none; display:inline-block; margin-bottom:6px; }
+.m-back:hover { color:#374151; }
+.m-title-row { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.m-title-left { display:flex; flex-direction:column; gap:2px; }
+.m-name { font-size:22px; font-weight:500; color:#1e1b4b; margin:0; }
+.m-subtitle { font-size:12px; color:#6b7280; margin-top:2px; }
+.m-pills { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+.m-pill { display:inline-flex; align-items:center; gap:4px; padding:3px 10px; border-radius:10px; font-size:11px; font-weight:500; }
+.m-pill-green { background:#dcfce7; color:#166534; }
+.m-pill-yellow { background:#fef3c7; color:#92400e; }
+.m-pill-red { background:#fef2f2; color:#991b1b; }
+.m-pill-gray { background:#f3f4f6; color:#6b7280; }
+.m-header-actions { display:flex; gap:8px; flex-shrink:0; }
+.btn-outline { background:#fff; color:#374151; border:1px solid #d1d5db; }
+.btn-outline:hover { background:#f9fafb; border-color:#9ca3af; }
+.btn-outline-danger { background:#fff; color:#dc2626; border:1px solid #fca5a5; }
+.btn-outline-danger:hover { background:#fef2f2; }
+.btn-purple { background:#534AB7; color:#fff; border:none; }
+.btn-purple:hover { background:#4338ca; }
+.btn-green { background:#1D9E75; color:#fff; border:none; }
+.btn-green:hover { background:#158a65; }
+
+.edit-form { display:none; background:#fff; border:0.5px solid #e2e4f0; border-radius:12px; padding:20px; margin-bottom:20px; }
+.edit-form.visible { display:block; }
+.edit-form .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.edit-form .full { grid-column:1/-1; }
+
+.two-col { display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:20px; }
+
+.section-card { background:#fff; border:0.5px solid #e2e4f0; border-radius:12px; overflow:hidden; margin-bottom:20px; }
+.section-card-header { padding:14px 16px; display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; }
+.section-card-header h2 { font-size:14px; font-weight:500; color:#1e1b4b; margin:0; }
+.section-card-body { border-top:0.5px solid #e2e4f0; }
+
+.pack-card { background:#fafafa; border:0.5px solid #e2e4f0; border-radius:8px; padding:14px; min-width:260px; flex-shrink:0; }
+.pack-thumbs { display:flex; gap:6px; margin-bottom:8px; }
+.pack-thumbs img { width:48px; height:48px; object-fit:cover; border-radius:6px; border:0.5px solid #e2e4f0; }
+.pack-drop-zone { border:2px dashed #e2e4f0; border-radius:6px; padding:10px; text-align:center; color:#9ca3af; font-size:12px; margin-top:8px; transition:border-color 0.15s; }
+.pack-drop-zone.dragover { border-color:#534AB7; color:#534AB7; }
+
+.listings-table { width:100%; border-collapse:collapse; }
+.listings-table th { font-size:10px; text-transform:uppercase; letter-spacing:0.04em; color:#9ca3af; font-weight:500; padding:8px 10px; text-align:left; white-space:nowrap; }
+.listings-table td { padding:6px 10px; border-top:0.5px solid #f3f4f6; vertical-align:middle; }
+.listings-table tr:hover { background:#f9fafb; }
+.listings-table select, .listings-table input { padding:4px 8px; border:1px solid #e2e4f0; border-radius:6px; font-size:12px; font-family:inherit; background:#fff; }
+.listings-table select:focus, .listings-table input:focus { border-color:#534AB7; outline:none; box-shadow:0 0 0 2px rgba(83,74,183,0.1); }
+.listings-table input[type="number"] { width:80px; }
+.listings-table input[type="text"] { width:70px; }
+
+.status-badge { display:inline-flex; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:500; white-space:nowrap; }
+.status-active { background:#dcfce7; color:#166534; }
+.status-scheduled { background:#dbeafe; color:#1e40af; }
+.status-draft { background:#f3f4f6; color:#6b7280; }
+.status-imported { background:#fef3c7; color:#92400e; }
+
+.add-row { padding:12px 16px; }
+.add-row-btn { background:none; border:1px dashed #d1d5db; border-radius:8px; padding:8px 16px; color:#534AB7; font-size:13px; cursor:pointer; width:100%; text-align:center; }
+.add-row-btn:hover { background:#f9fafb; border-color:#534AB7; }
+
+.marker-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:4px; }
+.marker-alive { background:#22c55e; }
+.marker-weak { background:#eab308; }
+.marker-dead { background:#ef4444; }
+.marker-unknown { background:#9ca3af; }
+
+.saved-indicator { font-size:10px; color:#22c55e; opacity:0; transition:opacity 0.3s; }
+.saved-indicator.visible { opacity:1; }
+
+.link-count-badge { background:#eef2ff; color:#534AB7; font-size:11px; font-weight:500; padding:1px 8px; border-radius:10px; margin-left:6px; }
+
+@media (max-width:768px) {
+    .m-title-row { flex-direction:column; gap:12px; }
+    .two-col { grid-template-columns:1fr; }
+}
 </style>
 
-<div style="margin-bottom:16px;">
-    <a href="/models" style="font-size:13px; color:var(--text-secondary);">&larr; Все модели</a>
-</div>
-
-<div style="display:flex; align-items:center; gap:12px; margin-bottom:20px;">
-    <h1 id="modelName" contenteditable="true" style="margin-bottom:0; outline:none; border-bottom:1px dashed var(--border); padding-bottom:2px; cursor:text;">{{ model.name }}</h1>
-    <button id="saveNameBtn" class="btn btn-sm btn-primary" style="display:none;" onclick="saveName()">Сохранить</button>
-    <button class="btn btn-danger btn-sm" onclick="deleteModel()" style="margin-left:auto;">Удалить модель</button>
-</div>
-
-{% set active_variants = model.products | selectattr('status', 'in', ['active', 'imported', 'published']) | list %}
-{% set draft_variants = model.products | selectattr('status', 'equalto', 'draft') | list %}
-
-<div class="tabs">
-    <button class="tab" onclick="switchTab('active', this)">Активные<span class="tab-count">{{ active_variants|length }}</span></button>
-    <button class="tab active" onclick="switchTab('drafts', this)">Черновики<span class="tab-count">{{ draft_variants|length }}</span></button>
-</div>
-
-<!-- Active Tab -->
-<div id="tab-active" class="tab-panel">
-    <div class="actions">
-        <button class="btn btn-primary" onclick="document.getElementById('addModal').style.display='flex'">Добавить вариант</button>
-        {% if model.products %}
-        <button class="btn btn-secondary" onclick="document.getElementById('copyModal').style.display='flex'">Новый вариант (копия)</button>
-        {% endif %}
-    </div>
-
-    {% if active_variants %}
-    <div class="card" style="padding:0; overflow:hidden;">
-    <table>
-        <thead>
-            <tr>
-                <th style="width:60px;">Фото</th>
-                <th>Название</th>
-                <th>Аккаунт</th>
-                <th>Статус</th>
-                <th>Цена</th>
-                <th></th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for p in active_variants %}
-            <tr>
-                <td>
-                    {% if p.images %}
-                    <img src="{{ p.images[0].url }}" style="width:40px; height:40px; object-fit:cover; border-radius:4px;">
-                    {% elif p.image_url %}
-                    <img src="{{ p.image_url }}" style="width:40px; height:40px; object-fit:cover; border-radius:4px;">
-                    {% else %}
-                    <div style="width:40px; height:40px; background:var(--bg-elevated); border-radius:4px;"></div>
-                    {% endif %}
-                </td>
-                <td><a href="/products/{{ p.id }}">{{ p.title }}</a></td>
-                <td>
-                    {% if p.account %}
-                    <span class="badge badge-blue">{{ p.account.name }}</span>
-                    {% else %}
-                    <span style="color:var(--text-muted);">—</span>
-                    {% endif %}
-                </td>
-                <td>
-                    {% if p.status == 'active' or p.status == 'published' %}
-                    <span class="badge badge-green">{{ p.status }}</span>
-                    {% elif p.status == 'imported' %}
-                    <span class="badge badge-yellow">imported</span>
-                    {% else %}
-                    <span class="badge badge-gray">{{ p.status }}</span>
-                    {% endif %}
-                </td>
-                <td>{{ '{:,}'.format(p.price).replace(',', ' ') if p.price else '—' }}</td>
-                <td style="text-align:right;">
-                    <button class="btn btn-secondary btn-sm" onclick="detachVariant({{ p.id }})">Отвязать</button>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    </div>
-    {% else %}
-    <div class="card" style="text-align:center; color:var(--text-secondary); padding:40px;">
-        Нет активных вариантов. Добавьте существующий товар или создайте копию.
-    </div>
-    {% endif %}
-</div>
-
-<!-- Drafts Tab -->
-<div id="tab-drafts" class="tab-panel active">
-    <div class="actions">
-        <a href="/products/new?model_id={{ model.id }}" class="btn btn-primary">Создать товар</a>
-        <button class="btn btn-secondary" onclick="document.getElementById('addModal').style.display='flex'">Добавить вариант</button>
-        <button class="btn btn-secondary" onclick="document.getElementById('createModal').style.display='flex'">Создать вариант</button>
-    </div>
-
-    {% if draft_variants %}
-    <div class="card" style="padding:0; overflow:hidden;">
-    <table>
-        <thead>
-            <tr>
-                <th style="width:60px;">Фото</th>
-                <th>Название</th>
-                <th>Аккаунт</th>
-                <th>Статус</th>
-                <th>Цена</th>
-                <th></th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for p in draft_variants %}
-            <tr>
-                <td>
-                    {% if p.images %}
-                    <img src="{{ p.images[0].url }}" style="width:40px; height:40px; object-fit:cover; border-radius:4px;">
-                    {% elif p.image_url %}
-                    <img src="{{ p.image_url }}" style="width:40px; height:40px; object-fit:cover; border-radius:4px;">
-                    {% else %}
-                    <div style="width:40px; height:40px; background:var(--bg-elevated); border-radius:4px;"></div>
-                    {% endif %}
-                </td>
-                <td><a href="/products/{{ p.id }}">{{ p.title }}</a></td>
-                <td>
-                    {% if p.account %}
-                    <span class="badge badge-blue">{{ p.account.name }}</span>
-                    {% else %}
-                    <span style="color:var(--text-muted);">—</span>
-                    {% endif %}
-                </td>
-                <td><span class="badge badge-gray">draft</span></td>
-                <td>{{ '{:,}'.format(p.price).replace(',', ' ') if p.price else '—' }}</td>
-                <td style="text-align:right;">
-                    <a href="/products/{{ p.id }}/edit" class="btn btn-secondary btn-sm">Редактировать</a>
-                    <button class="btn btn-secondary btn-sm" onclick="detachVariant({{ p.id }})">Отвязать</button>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    </div>
-    {% else %}
-    <div class="card" style="text-align:center; color:var(--text-secondary); padding:40px;">
-        Нет черновиков. Создайте новый вариант.
-    </div>
-    {% endif %}
-</div>
-
-<!-- Add Variant Modal -->
-<div id="addModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:100; align-items:center; justify-content:center;">
-    <div class="card" style="width:600px; max-width:90vw; max-height:80vh; display:flex; flex-direction:column;">
-        <h2>Добавить варианты</h2>
-        <p style="color:var(--text-secondary); font-size:13px; margin-bottom:12px;">Выберите товары без модели для привязки</p>
-        <input type="text" id="searchUnassigned" placeholder="Поиск по названию..." style="margin-bottom:8px;" oninput="filterUnassigned()">
-        {% if unassigned %}
-        <div style="display:flex; gap:12px; align-items:center; margin-bottom:8px; font-size:13px;">
-            <label style="display:flex; align-items:center; gap:4px; cursor:pointer; color:var(--text-secondary);">
-                <input type="checkbox" id="selectAllCb" onchange="toggleSelectAll(this.checked)" style="width:auto;">
-                Выбрать все
-            </label>
-            <span id="selectedCount" style="color:var(--text-muted);">Выбрано: 0</span>
+<!-- Topbar -->
+<div class="m-topbar">
+    <a href="/models" class="m-back">&larr; Модели</a>
+    <div class="m-title-row">
+        <div class="m-title-left">
+            <h1 class="m-name">{{ model.name }}</h1>
+            {% if model.brand or (model.category and model.goods_type) %}
+            <span class="m-subtitle">
+                {% if model.brand %}{{ model.brand }}{% if model.category and model.goods_type %} &middot; {% endif %}{% endif %}
+                {% if model.category and model.goods_type %}{{ model.category }} &rarr; {{ model.goods_type }}{% if model.subcategory %} &rarr; {{ model.subcategory }}{% endif %}{% if model.goods_subtype %} &rarr; {{ model.goods_subtype }}{% endif %}{% endif %}
+            </span>
+            {% endif %}
+            <div class="m-pills" id="status-pills"></div>
         </div>
-        {% endif %}
-        <div id="unassignedList" style="flex:1; overflow-y:auto; min-height:0;">
-            {% for p in unassigned %}
-            <label class="unassigned-item" data-title="{{ p.title|lower }}" data-id="{{ p.id }}" style="display:flex; align-items:center; gap:10px; padding:8px; border-bottom:1px solid var(--border); cursor:pointer;">
-                <input type="checkbox" class="variant-cb" value="{{ p.id }}" onchange="updateSelectedCount()" style="width:auto; flex-shrink:0;">
-                {% if p.images %}
-                <img src="{{ p.images[0].url }}" style="width:32px; height:32px; object-fit:cover; border-radius:4px;">
-                {% elif p.image_url %}
-                <img src="{{ p.image_url }}" style="width:32px; height:32px; object-fit:cover; border-radius:4px;">
-                {% else %}
-                <div style="width:32px; height:32px; background:var(--bg-elevated); border-radius:4px; flex-shrink:0;"></div>
-                {% endif %}
-                <div style="flex:1; min-width:0;">
-                    <div style="font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ p.title }}</div>
-                    <div style="font-size:11px; color:var(--text-secondary);">
-                        {{ p.account.name if p.account else 'Без аккаунта' }}
-                        {% if p.price %} &middot; {{ '{:,}'.format(p.price).replace(',', ' ') }} ₽{% endif %}
-                    </div>
+        <div class="m-header-actions">
+            <button class="btn btn-sm btn-outline" onclick="toggleEditForm()">Редактировать</button>
+            <button class="btn btn-sm btn-outline-danger" onclick="deleteModel()">Удалить</button>
+        </div>
+    </div>
+</div>
+
+<!-- Edit form -->
+<div id="editForm" class="edit-form">
+    <div class="grid">
+        <div class="field"><label>Бренд</label><input type="text" id="editBrand" value="{{ model.brand or '' }}"></div>
+        <div class="field"><label>Название</label><input type="text" id="editName" value="{{ model.name }}"></div>
+        <div class="field full"><label>Описание</label><textarea id="editDesc" rows="3">{{ model.description or '' }}</textarea></div>
+        <div class="field"><label>Категория</label><select id="editCategory" onchange="onCategoryChange()"><option value="">--</option>{% for c in categories %}<option value="{{ c }}" {{ 'selected' if model.category == c else '' }}>{{ c }}</option>{% endfor %}</select></div>
+        <div class="field"><label>Тип товара</label><select id="editGoodsType" onchange="onGoodsTypeChange()"><option value="">--</option></select></div>
+        <div class="field"><label>Подкатегория</label><select id="editSubcategory" onchange="onSubcategoryChange()"><option value="">--</option></select></div>
+        <div class="field"><label>Подтип</label><select id="editGoodsSubtype"><option value="">--</option></select></div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+        <button class="btn btn-secondary btn-sm" onclick="toggleEditForm()">Отмена</button>
+        <button class="btn btn-primary btn-sm" onclick="saveModel()">Сохранить</button>
+    </div>
+</div>
+
+<!-- Two-column: Фотопаки + Аналитика -->
+<div class="two-col">
+    <!-- Left: Photo packs -->
+    <div class="section-card" style="margin-bottom:0;">
+        <div class="section-card-header">
+            <h2>Фотопаки</h2>
+            <button class="btn btn-primary btn-sm" onclick="document.getElementById('addPackModal').style.display='flex'">+ Добавить пак</button>
+        </div>
+        <div style="display:flex;gap:14px;overflow-x:auto;padding:14px 16px;" id="packsRibbon">
+            {% for pack in model.photo_packs %}
+            <div class="pack-card" id="pack-{{ pack.id }}">
+                <div style="font-weight:500;font-size:13px;color:#1e1b4b;margin-bottom:6px;">{{ pack.name }} <span style="color:#9ca3af;font-weight:400;">({{ pack.images|length }})</span></div>
+                <div class="pack-thumbs">
+                    {% for img in pack.images[:6] %}{% set turl = img.url.rsplit('.', 1) %}<img src="{{ turl[0] }}_thumb.{{ turl[1] }}">{% endfor %}
+                    {% if pack.images|length > 6 %}<span style="font-size:11px;color:#9ca3af;align-self:center;">+{{ pack.images|length - 6 }}</span>{% endif %}
                 </div>
-            </label>
+                <div style="display:flex;gap:6px;">
+                    <label class="btn btn-secondary btn-sm" style="cursor:pointer;">&#x1F4F7; Фото<input type="file" multiple accept="image/*,.heic,.heif" style="display:none;" onchange="uploadToPack({{ pack.id }},this.files)"></label>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deletePack({{ pack.id }})">&#x1F5D1;</button>
+                </div>
+                <div class="pack-drop-zone" ondragover="event.preventDefault();this.classList.add('dragover')" ondragleave="this.classList.remove('dragover')" ondrop="event.preventDefault();this.classList.remove('dragover');uploadToPack({{ pack.id }},event.dataTransfer.files)">Перетащите фото</div>
+            </div>
             {% endfor %}
-            {% if not unassigned %}
-            <div style="padding:20px; text-align:center; color:var(--text-secondary);">Нет свободных товаров</div>
-            {% endif %}
+            {% if not model.photo_packs %}<div style="color:#9ca3af;font-size:13px;padding:20px;">Нет фотопаков.</div>{% endif %}
         </div>
-        <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px; padding-top:12px; border-top:1px solid var(--border);">
-            <button class="btn btn-secondary" onclick="document.getElementById('addModal').style.display='none'">Закрыть</button>
-            {% if unassigned %}
-            <button id="addSelectedBtn" class="btn btn-primary" onclick="addSelected()" disabled>Добавить выбранные</button>
-            {% endif %}
+    </div>
+
+    <!-- Right: Analytics -->
+    <div class="section-card" style="margin-bottom:0;">
+        <div class="section-card-header"><h2>Аналитика модели</h2></div>
+        <div class="section-card-body" id="analyticsBody" style="padding:14px 16px;">
+            <div style="color:#9ca3af;text-align:center;font-size:13px;">Загрузка...</div>
         </div>
     </div>
 </div>
 
-<!-- Copy Variant Modal -->
-<div id="copyModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:100; align-items:center; justify-content:center;">
-    <div class="card" style="width:400px; max-width:90vw;">
-        <h2>Копировать вариант</h2>
-        <div class="field">
-            <label>Источник (товар)</label>
-            <select id="copySource">
-                {% for p in model.products %}
-                <option value="{{ p.id }}">{{ p.title }}{% if p.account %} ({{ p.account.name }}){% endif %}</option>
-                {% endfor %}
+<!-- Listings table -->
+<div class="section-card">
+    <div class="section-card-header">
+        <h2>Объявления</h2>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <input type="datetime-local" id="schedule-time" style="padding:4px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;">
+            <button class="btn btn-sm btn-green" onclick="scheduleAllDrafts()">Запланировать черновики</button>
+            <button class="btn btn-sm btn-purple" onclick="addNewRow()">+ Добавить</button>
+        </div>
+    </div>
+    <div class="section-card-body" style="overflow-x:auto;">
+        <table class="listings-table" id="listings-table">
+            <thead><tr>
+                <th>Аккаунт</th>
+                <th>Фотопак</th>
+                <th>Размер</th>
+                <th>Цена</th>
+                <th>Описание</th>
+                <th>Статус</th>
+                <th></th>
+            </tr></thead>
+            <tbody id="listings-body">
+            {% set active_products = model.products | selectattr('status', 'ne', 'removed') | list %}
+            {% for p in active_products | sort(attribute='id') %}
+            <tr id="row-{{ p.id }}" data-product-id="{{ p.id }}">
+                <td>
+                    <select data-field="account_id" onchange="autoSave({{ p.id }},this)">
+                        <option value="">—</option>
+                        {% for acc in accounts %}<option value="{{ acc.id }}" {{ 'selected' if p.account_id == acc.id else '' }}>{{ acc.name }}</option>{% endfor %}
+                    </select>
+                </td>
+                <td>
+                    <select data-field="pack_id" onchange="changePack({{ p.id }},this.value)">
+                        <option value="">Без пака</option>
+                        {% for pack in model.photo_packs %}<option value="{{ pack.id }}">{{ pack.name }}</option>{% endfor %}
+                    </select>
+                </td>
+                <td><input type="text" value="{{ p.size or '' }}" data-field="size" oninput="debounceSave({{ p.id }},this)"></td>
+                <td><input type="number" value="{{ p.price or '' }}" data-field="price" oninput="debounceSave({{ p.id }},this)"></td>
+                <td>
+                    <select data-field="use_custom_description" onchange="autoSave({{ p.id }},this)">
+                        <option value="false" {{ '' if p.use_custom_description else 'selected' }}>Шаблон{{ ' ' + p.account.name if p.account else '' }}</option>
+                        <option value="true" {{ 'selected' if p.use_custom_description else '' }}>Своё</option>
+                    </select>
+                </td>
+                <td>
+                    {% if p.status in ('active','published') %}<span class="status-badge status-active">активно</span>
+                    {% elif p.status == 'scheduled' %}<span class="status-badge status-scheduled">в расписании</span>
+                    {% elif p.status == 'imported' %}<span class="status-badge status-imported">импортировано</span>
+                    {% else %}<span class="status-badge status-draft">черновик</span>
+                    {% endif %}
+                </td>
+                <td style="white-space:nowrap;">
+                    {% if p.status == 'draft' %}
+                        <a href="/schedule?product_id={{ p.id }}" class="btn btn-sm btn-outline">В расписание</a>
+                        <button class="btn btn-sm btn-outline-danger" onclick="softDelete({{ p.id }},'{{ p.title[:30] }}')">&#x2715;</button>
+                    {% elif p.status == 'scheduled' %}
+                        <button class="btn btn-sm btn-outline-danger" onclick="softDelete({{ p.id }},'{{ p.title[:30] }}')">&#x2715;</button>
+                    {% elif p.status in ('active','published','imported') %}
+                        {% if p.avito_id %}<a href="https://www.avito.ru/items/{{ p.avito_id }}" target="_blank" class="btn btn-sm btn-outline">На Авито</a>{% endif %}
+                        <button class="btn btn-sm btn-purple" onclick="repostProduct({{ p.id }})">Перевыложить</button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="softDelete({{ p.id }},'{{ p.title[:30] }}')">&#x2715;</button>
+                    {% endif %}
+                    <span class="saved-indicator" id="saved-{{ p.id }}">Сохранено</span>
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        <div class="add-row">
+            <button class="add-row-btn" onclick="addNewRow()">+ Добавить объявление</button>
+        </div>
+    </div>
+</div>
+
+<!-- Link existing products (collapsible, at bottom) -->
+<div class="section-card" id="link-section">
+    <div class="section-card-header" style="cursor:pointer;" onclick="toggleLinkSection()">
+        <h2>&#x1F517; Привязать объявления <span id="link-count-badge" class="link-count-badge" style="display:none;"></span></h2>
+        <span id="link-toggle-icon" style="font-size:12px;color:#9ca3af;">&#x25B6;</span>
+    </div>
+    <div class="section-card-body" id="link-body" style="display:none;padding:14px 16px;">
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+            <input type="text" id="link-search" placeholder="Поиск по названию..." style="flex:1;min-width:200px;padding:8px 12px;border:1px solid #e2e4f0;border-radius:6px;font-size:13px;">
+            <select id="link-account-filter" style="padding:8px 12px;border:1px solid #e2e4f0;border-radius:6px;font-size:13px;">
+                <option value="">Все аккаунты</option>
+                {% for acc in accounts %}<option value="{{ acc.id }}">{{ acc.name }}</option>{% endfor %}
             </select>
         </div>
-        <div class="field">
-            <label>Целевой аккаунт</label>
-            <select id="copyAccount">
-                {% for acc in accounts %}
-                <option value="{{ acc.id }}">{{ acc.name }}</option>
-                {% endfor %}
-            </select>
-        </div>
-        <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px;">
-            <button class="btn btn-secondary" onclick="document.getElementById('copyModal').style.display='none'">Отмена</button>
-            <button class="btn btn-primary" onclick="copyVariant()">Создать копию</button>
+        <div id="link-results" style="max-height:400px;overflow-y:auto;"></div>
+        <div id="link-bar" style="display:none;margin-top:12px;padding:10px 14px;background:#f0f2ff;border-radius:8px;align-items:center;gap:12px;">
+            <span id="link-count" style="font-size:13px;font-weight:500;color:#534AB7;">Выбрано: 0</span>
+            <button class="btn btn-sm btn-purple" onclick="linkSelected()">Привязать к модели</button>
         </div>
     </div>
 </div>
 
-<!-- Photo Packs Section (visible only on Drafts tab) -->
-<div id="photo-packs-section">
-<h2 style="margin-top:32px;">Пакеты фото</h2>
-<div class="actions">
-    <button class="btn btn-primary" onclick="document.getElementById('addPackModal').style.display='flex'">Добавить пак</button>
-</div>
-
-{% for pack in model.photo_packs %}
-<div class="card" style="margin-bottom:12px;" id="pack-{{ pack.id }}">
-    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-        <h3 style="margin:0; font-size:15px;">{{ pack.name }} <span style="color:var(--text-secondary); font-size:12px;">({{ pack.images|length }} фото)</span></h3>
-        <div style="display:flex; gap:8px;">
-            <label class="btn btn-secondary btn-sm" style="cursor:pointer;">
-                Добавить фото
-                <input type="file" multiple accept="image/*" style="display:none;" onchange="uploadToExistingPack({{ pack.id }}, this.files)">
-            </label>
-            <button class="btn btn-danger btn-sm" onclick="deletePack({{ pack.id }})">Удалить</button>
-        </div>
-    </div>
-    {% if pack.images %}
-    <div style="display:flex; gap:8px; flex-wrap:wrap;">
-        {% for img in pack.images %}
-        {% set turl = img.url.rsplit('.', 1) %}
-        <img src="{{ turl[0] }}_thumb.{{ turl[1] }}" style="width:80px; height:80px; object-fit:cover; border-radius:4px; border:1px solid var(--border);">
-        {% endfor %}
-    </div>
-    {% else %}
-    <div style="color:var(--text-secondary); font-size:13px;">Нет фото</div>
-    {% endif %}
-</div>
-{% endfor %}
-
-{% if not model.photo_packs %}
-<div class="card" style="text-align:center; color:var(--text-secondary); padding:30px;">
-    Нет пакетов фото. Добавьте первый пак.
-</div>
-{% endif %}
-
-<!-- Add Photo Pack Modal -->
-<div id="addPackModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:100; align-items:center; justify-content:center;">
-    <div class="card" style="width:450px; max-width:90vw;">
-        <h2>Новый пакет фото</h2>
-        <div class="field">
-            <label>Название пака *</label>
-            <input type="text" id="packName" placeholder="Например: Белый фон">
-        </div>
-        <div class="field">
-            <label>Фото (можно несколько)</label>
-            <input type="file" id="packFiles" multiple accept="image/*">
-        </div>
-        <div id="packError" style="color:#fca5a5; font-size:13px; display:none; margin-bottom:8px;"></div>
-        <div id="packProgress" style="color:var(--text-secondary); font-size:13px; display:none; margin-bottom:8px;">Загрузка...</div>
-        <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px;">
+<!-- Add Pack Modal -->
+<div id="addPackModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:100;align-items:center;justify-content:center;">
+    <div class="card" style="width:450px;max-width:90vw;">
+        <h2 style="font-size:16px;font-weight:500;margin-bottom:16px;">Новый фотопак</h2>
+        <div class="field"><label>Название *</label><input type="text" id="packName"></div>
+        <div class="field"><label>Фото</label><input type="file" id="packFiles" multiple accept="image/*,.heic,.heif"></div>
+        <div id="packError" style="color:#dc2626;font-size:13px;display:none;margin-bottom:8px;"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
             <button class="btn btn-secondary" onclick="document.getElementById('addPackModal').style.display='none'">Отмена</button>
             <button class="btn btn-primary" onclick="createPack()">Создать</button>
         </div>
     </div>
 </div>
-</div><!-- /photo-packs-section -->
 
-<!-- Create Variant Modal -->
-<div id="createModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:100; align-items:center; justify-content:center;">
-    <div class="card" style="width:500px; max-width:90vw; max-height:85vh; overflow-y:auto;">
-        <h2>Создать вариант</h2>
-        <form method="post" action="/models/{{ model.id }}/create-variant">
-            <div class="field">
-                <label>Название</label>
-                <input type="text" name="title" required>
-            </div>
-            <div class="grid-2">
-                <div class="field">
-                    <label>Бренд</label>
-                    <input type="text" name="brand">
-                </div>
-                <div class="field">
-                    <label>Цена</label>
-                    <input type="number" name="price" min="0">
-                </div>
-            </div>
-            <div class="grid-2">
-                <div class="field">
-                    <label>Размер</label>
-                    <input type="text" name="size">
-                </div>
-                <div class="field">
-                    <label>Цвет</label>
-                    <input type="text" name="color">
-                </div>
-            </div>
-            <div class="field">
-                <label>Состояние</label>
-                <select name="condition">
-                    {% for c in conditions %}
-                    <option value="{{ c }}" {{ 'selected' if c == default_condition }}>{{ c }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div class="field">
-                <label>Тип товара (GoodsType)</label>
-                <select name="goods_type" id="cv_goods_type" onchange="cvUpdateApparel()">
-                    <option value="">—</option>
-                    {% for cat_name, gt_list in goods_types.items() %}
-                    {% for gt in gt_list %}
-                    <option value="{{ gt }}">{{ gt }}</option>
-                    {% endfor %}
-                    {% endfor %}
-                </select>
-            </div>
-            <div class="field">
-                <label>Подкатегория (Apparel)</label>
-                <select name="subcategory" id="cv_apparel" onchange="cvUpdateSubtype()">
-                    <option value="">—</option>
-                </select>
-            </div>
-            <div class="field">
-                <label>Подтип (GoodsSubType)</label>
-                <select name="goods_subtype" id="cv_subtype">
-                    <option value="">—</option>
-                </select>
-            </div>
-            <div class="field">
-                <label>Аккаунт</label>
-                <select name="account_id">
-                    <option value="">— Без аккаунта —</option>
-                    {% for acc in accounts %}
-                    <option value="{{ acc.id }}">{{ acc.name }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px;">
-                <button type="button" class="btn btn-secondary" onclick="document.getElementById('createModal').style.display='none'">Отмена</button>
-                <button type="submit" class="btn btn-primary">Создать</button>
-            </div>
-        </form>
-    </div>
-</div>
+<div id="toast" style="display:none;position:fixed;bottom:24px;right:24px;padding:12px 18px;border-radius:8px;font-size:13px;max-width:400px;z-index:1001;box-shadow:0 4px 12px rgba(0,0,0,0.15);"></div>
 
 <script>
-const modelId = {{ model.id }};
-const origName = document.getElementById('modelName').textContent.trim();
+const MODEL_ID = {{ model.id }};
+const ACCOUNTS = [{% for acc in accounts %}{id:{{ acc.id }},name:"{{ acc.name }}"},{% endfor %}];
+const PACKS = [{% for pack in model.photo_packs %}{id:{{ pack.id }},name:"{{ pack.name }}"},{% endfor %}];
+const HAS_CATEGORY = {{ 'true' if model.category and model.goods_type else 'false' }};
 
-// Catalog data for cascading dropdowns
+const goodsTypesMap = {{ goods_types | tojson }};
 const apparelsMap = {{ apparels | tojson }};
 const subtypesMap = {{ goods_subtypes | tojson }};
+const modelCategory = {{ (model.category or '') | tojson }};
+const modelGoodsType = {{ (model.goods_type or '') | tojson }};
+const modelSubcategory = {{ (model.subcategory or '') | tojson }};
+const modelGoodsSubtype = {{ (model.goods_subtype or '') | tojson }};
 
-function switchTab(tabId, btn) {
-    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    document.getElementById('tab-' + tabId).classList.add('active');
-    btn.classList.add('active');
-    document.getElementById('photo-packs-section').style.display = tabId === 'drafts' ? '' : 'none';
+function showToast(msg, isError) {
+    const t = document.getElementById('toast');
+    t.textContent = msg; t.style.display = 'block';
+    t.style.background = isError ? '#fef2f2' : '#dcfce7';
+    t.style.color = isError ? '#991b1b' : '#166534';
+    t.style.border = isError ? '0.5px solid #fca5a5' : '0.5px solid #86efac';
+    setTimeout(() => t.style.display = 'none', 4000);
 }
 
-document.getElementById('modelName').addEventListener('input', () => {
-    const cur = document.getElementById('modelName').textContent.trim();
-    document.getElementById('saveNameBtn').style.display = cur !== origName ? '' : 'none';
-});
+// ── Cascading selects ──
+function populateSelect(sel, items, val) {
+    sel.innerHTML = `<option value="">${sel.options[0]?.text||'--'}</option>`;
+    for (const i of (items||[])) { const o = document.createElement('option'); o.value = i; o.textContent = i; if (i === val) o.selected = true; sel.appendChild(o); }
+}
+function onCategoryChange() { populateSelect(document.getElementById('editGoodsType'), goodsTypesMap[document.getElementById('editCategory').value]||[], modelGoodsType); onGoodsTypeChange(); }
+function onGoodsTypeChange() { populateSelect(document.getElementById('editSubcategory'), apparelsMap[document.getElementById('editGoodsType').value]||[], modelSubcategory); onSubcategoryChange(); }
+function onSubcategoryChange() { populateSelect(document.getElementById('editGoodsSubtype'), subtypesMap[document.getElementById('editSubcategory').value]||[], modelGoodsSubtype); }
+onCategoryChange();
 
-async function saveName() {
-    const name = document.getElementById('modelName').textContent.trim();
-    if (!name) return;
-    const resp = await fetch('/models/' + modelId + '/update-name', {
-        method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ name })
-    });
+function toggleEditForm() { document.getElementById('editForm').classList.toggle('visible'); }
+
+async function saveModel() {
+    const body = { brand: document.getElementById('editBrand').value.trim(), name: document.getElementById('editName').value.trim(), description: document.getElementById('editDesc').value.trim(), category: document.getElementById('editCategory').value, goods_type: document.getElementById('editGoodsType').value, subcategory: document.getElementById('editSubcategory').value, goods_subtype: document.getElementById('editGoodsSubtype').value };
+    if (!body.name) { showToast('Название обязательно', true); return; }
+    const resp = await fetch('/models/' + MODEL_ID, { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
     const data = await resp.json();
-    if (data.ok) location.reload();
-    else alert(data.error || 'Ошибка');
-}
-
-function getSelectedIds() {
-    return [...document.querySelectorAll('.variant-cb:checked')].map(cb => parseInt(cb.value));
-}
-
-function updateSelectedCount() {
-    const ids = getSelectedIds();
-    const countEl = document.getElementById('selectedCount');
-    const btn = document.getElementById('addSelectedBtn');
-    if (countEl) countEl.textContent = 'Выбрано: ' + ids.length;
-    if (btn) btn.disabled = ids.length === 0;
-    const selectAll = document.getElementById('selectAllCb');
-    if (selectAll) {
-        const visible = document.querySelectorAll('.unassigned-item:not([style*="display: none"])');
-        const checkedCount = document.querySelectorAll('.variant-cb:checked').length;
-        selectAll.indeterminate = checkedCount > 0 && checkedCount < visible.length;
-    }
-}
-
-function toggleSelectAll(checked) {
-    document.querySelectorAll('.unassigned-item').forEach(el => {
-        if (el.style.display !== 'none') {
-            el.querySelector('.variant-cb').checked = checked;
-        }
-    });
-    updateSelectedCount();
-}
-
-async function addSelected() {
-    const ids = getSelectedIds();
-    if (!ids.length) return;
-    const btn = document.getElementById('addSelectedBtn');
-    btn.disabled = true;
-    btn.textContent = 'Добавляем...';
-    const resp = await fetch('/models/' + modelId + '/add-variant', {
-        method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ product_ids: ids })
-    });
-    const data = await resp.json();
-    if (data.ok) location.reload();
-    else { alert(data.error || 'Ошибка'); btn.disabled = false; btn.textContent = 'Добавить выбранные'; }
-}
-
-async function copyVariant() {
-    const productId = document.getElementById('copySource').value;
-    const accountId = document.getElementById('copyAccount').value;
-    const resp = await fetch('/models/' + modelId + '/copy-variant', {
-        method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ product_id: parseInt(productId), account_id: parseInt(accountId) })
-    });
-    const data = await resp.json();
-    if (data.ok) location.reload();
-    else alert(data.error || 'Ошибка');
-}
-
-async function detachVariant(productId) {
-    if (!confirm('Отвязать товар от модели?')) return;
-    const resp = await fetch('/models/' + modelId + '/detach-variant', {
-        method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ product_id: productId })
-    });
-    const data = await resp.json();
-    if (data.ok) location.reload();
-    else alert(data.error || 'Ошибка');
-}
-
-function filterUnassigned() {
-    const q = document.getElementById('searchUnassigned').value.toLowerCase();
-    document.querySelectorAll('.unassigned-item').forEach(el => {
-        el.style.display = el.dataset.title.includes(q) ? '' : 'none';
-    });
-    updateSelectedCount();
+    if (data.ok) location.reload(); else showToast(data.error, true);
 }
 
 async function deleteModel() {
-    if (!confirm('Удалить модель? Товары не будут удалены, только отвязаны.')) return;
-    const resp = await fetch('/models/' + modelId, { method: 'DELETE' });
-    const data = await resp.json();
-    if (data.ok) location.href = '/models';
-    else alert(data.error || 'Ошибка');
+    if (!confirm('Удалить модель?')) return;
+    const resp = await fetch('/models/' + MODEL_ID, { method: 'DELETE' });
+    if ((await resp.json()).ok) location.href = '/models';
 }
 
-// Cascading dropdowns for create-variant
-function cvUpdateApparel() {
-    const gt = document.getElementById('cv_goods_type').value;
-    const sel = document.getElementById('cv_apparel');
-    sel.innerHTML = '<option value="">—</option>';
-    const list = apparelsMap[gt] || [];
-    list.forEach(a => { const o = document.createElement('option'); o.value = a; o.textContent = a; sel.appendChild(o); });
-    cvUpdateSubtype();
+// ── Status pills ──
+function updateStatusPills() {
+    const el = document.getElementById('status-pills');
+    const rows = document.querySelectorAll('#listings-body tr[data-product-id]');
+    const pills = [];
+
+    if (!HAS_CATEGORY) {
+        pills.push('<span class="m-pill m-pill-red">&#x2717; Нет категории</span>');
+    }
+
+    const hasPrice = [...rows].some(r => { const v = r.querySelector('[data-field="price"]'); return v && parseInt(v.value) > 0; });
+    if (hasPrice) {
+        const firstPrice = [...rows].map(r => parseInt(r.querySelector('[data-field="price"]')?.value)).find(v => v > 0);
+        pills.push(`<span class="m-pill m-pill-gray">Цена: ${firstPrice ? firstPrice.toLocaleString('ru-RU') + ' ₽' : '—'}</span>`);
+    } else if (rows.length) {
+        pills.push('<span class="m-pill m-pill-yellow">&#x26A0; Нет цены</span>');
+    }
+
+    const totalPhotos = PACKS.reduce((s, p) => s + (document.getElementById('pack-' + p.id)?.querySelectorAll('.pack-thumbs img').length || 0), 0);
+    pills.push(`<span class="m-pill m-pill-gray">Фото: ${totalPhotos}</span>`);
+
+    if (HAS_CATEGORY && hasPrice) {
+        pills.unshift('<span class="m-pill m-pill-green">&#x2713; Готово</span>');
+    } else if (!HAS_CATEGORY) {
+        // already added red pill
+    } else {
+        pills.unshift('<span class="m-pill m-pill-yellow">&#x26A0; Частично готово</span>');
+    }
+
+    el.innerHTML = pills.join('');
 }
 
-function cvUpdateSubtype() {
-    const ap = document.getElementById('cv_apparel').value;
-    const sel = document.getElementById('cv_subtype');
-    sel.innerHTML = '<option value="">—</option>';
-    const list = subtypesMap[ap] || [];
-    list.forEach(s => { const o = document.createElement('option'); o.value = s; o.textContent = s; sel.appendChild(o); });
+// ── Auto-save ──
+const _saveTimers = {};
+
+function debounceSave(pid, el) {
+    clearTimeout(_saveTimers[pid]);
+    _saveTimers[pid] = setTimeout(() => autoSave(pid, el), 800);
 }
 
-// --- Photo Packs ---
+async function autoSave(pid, el) {
+    const field = el.dataset.field;
+    let value = el.value;
+    if (field === 'price') value = value ? parseInt(value) : null;
+    if (field === 'account_id') value = value ? parseInt(value) : null;
+    if (field === 'use_custom_description') value = value === 'true';
+
+    try {
+        const resp = await fetch('/products/' + pid, {
+            method: 'PATCH', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ [field]: value }),
+        });
+        const data = await resp.json();
+        if (data.ok) {
+            const ind = document.getElementById('saved-' + pid);
+            if (ind) { ind.classList.add('visible'); setTimeout(() => ind.classList.remove('visible'), 2000); }
+            updateStatusPills();
+        } else showToast(data.error || 'Ошибка', true);
+    } catch(e) { showToast('Ошибка сети', true); }
+}
+
+// ── Pack change ──
+async function changePack(pid, packId) {
+    if (!packId) return;
+    try {
+        const resp = await fetch('/products/' + pid + '/pack', { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ pack_id: parseInt(packId) }) });
+        const data = await resp.json();
+        if (data.ok) showToast('Пак применён', false); else showToast(data.error, true);
+    } catch(e) { showToast('Ошибка сети', true); }
+}
+
+// ── Schedule ──
+function _getScheduleTime() {
+    const v = document.getElementById('schedule-time').value;
+    return v || null;
+}
+
+async function scheduleAllDrafts() {
+    const time = _getScheduleTime();
+    if (!time) { showToast('Укажите время', true); return; }
+    const rows = document.querySelectorAll('#listings-body tr[data-product-id]');
+    let ok = 0, total = 0;
+    for (const row of rows) {
+        const badge = row.querySelector('.status-badge');
+        if (!badge || !badge.classList.contains('status-draft')) continue;
+        const pid = row.dataset.productId;
+        const accId = row.querySelector('[data-field="account_id"]')?.value;
+        if (!accId) continue;
+        total++;
+        try {
+            const resp = await fetch('/products/' + pid + '/schedule', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ account_id: parseInt(accId), scheduled_at: time }) });
+            if ((await resp.json()).ok) ok++;
+        } catch(e) {}
+    }
+    if (total === 0) showToast('Нет черновиков', false);
+    else { showToast(`Запланировано: ${ok}/${total}`, ok < total); if (ok > 0) location.reload(); }
+}
+
+// ── Actions ──
+async function repostProduct(pid) {
+    if (!confirm('Перевыложить?')) return;
+    showToast('Перевыкладка...', false);
+    try {
+        const resp = await fetch('/products/' + pid + '/repost', { method: 'POST' });
+        const data = await resp.json();
+        if (data.ok) { showToast(data.message, false); setTimeout(() => location.reload(), 1500); }
+        else showToast(data.error, true);
+    } catch(e) { showToast('Ошибка сети', true); }
+}
+
+async function softDelete(pid, title) {
+    if (!confirm(`Удалить "${title}"?`)) return;
+    try {
+        const resp = await fetch('/products/' + pid, { method: 'DELETE' });
+        if ((await resp.json()).ok) { document.getElementById('row-' + pid)?.remove(); showToast('Удалено', false); updateStatusPills(); }
+        else showToast('Ошибка', true);
+    } catch(e) { showToast('Ошибка сети', true); }
+}
+
+// ── Add row ──
+async function addNewRow() {
+    // Copy size+price from last row
+    const lastRow = document.querySelector('#listings-body tr:last-child');
+    const lastSize = lastRow?.querySelector('[data-field="size"]')?.value || '';
+    const lastPrice = lastRow?.querySelector('[data-field="price"]')?.value || '';
+
+    // Pick first account (allow duplicates — multiple listings per account)
+    const firstAcc = ACCOUNTS.length ? ACCOUNTS[0].id : null;
+
+    try {
+        const resp = await fetch('/models/' + MODEL_ID + '/products', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ account_id: firstAcc, size: lastSize, price: lastPrice || null }),
+        });
+        const data = await resp.json();
+        if (data.ok) { showToast('Объявление создано', false); location.reload(); }
+        else showToast(data.error, true);
+    } catch(e) { showToast('Ошибка сети', true); }
+}
+
+// ── Photo packs ──
 async function createPack() {
     const name = document.getElementById('packName').value.trim();
-    const errEl = document.getElementById('packError');
-    const progressEl = document.getElementById('packProgress');
-    if (!name) { errEl.textContent = 'Введите название'; errEl.style.display = 'block'; return; }
-    errEl.style.display = 'none';
-    progressEl.style.display = 'block';
-
-    const form = new FormData();
-    form.append('name', name);
-    form.append('model_id', modelId);
+    if (!name) { document.getElementById('packError').textContent = 'Введите название'; document.getElementById('packError').style.display = 'block'; return; }
+    document.getElementById('packError').style.display = 'none';
+    const form = new FormData(); form.append('name', name); form.append('model_id', MODEL_ID);
     try {
         const resp = await fetch('/photo-packs', { method: 'POST', body: form });
         const data = await resp.json();
-        if (!data.ok) { errEl.textContent = data.error || 'Ошибка'; errEl.style.display = 'block'; progressEl.style.display = 'none'; return; }
-
+        if (!data.ok) { document.getElementById('packError').textContent = data.error; document.getElementById('packError').style.display = 'block'; return; }
         const files = document.getElementById('packFiles').files;
-        if (files.length > 0) {
-            const uploadForm = new FormData();
-            for (const f of files) uploadForm.append('files', f);
-            await fetch('/photo-packs/' + data.id + '/upload', { method: 'POST', body: uploadForm });
-        }
+        if (files.length > 0) { const uf = new FormData(); for (const f of files) uf.append('files', f); await fetch('/photo-packs/' + data.id + '/upload', { method: 'POST', body: uf }); }
         location.reload();
-    } catch (e) {
-        errEl.textContent = 'Ошибка сети'; errEl.style.display = 'block'; progressEl.style.display = 'none';
-    }
+    } catch(e) { showToast('Ошибка сети', true); }
 }
 
 async function deletePack(packId) {
-    if (!confirm('Удалить пакет фото?')) return;
+    if (!confirm('Удалить фотопак?')) return;
     const resp = await fetch('/photo-packs/' + packId, { method: 'DELETE' });
-    const data = await resp.json();
-    if (data.ok) {
-        const el = document.getElementById('pack-' + packId);
-        if (el) el.remove();
-    } else {
-        alert(data.error || 'Ошибка');
-    }
+    if ((await resp.json()).ok) { document.getElementById('pack-' + packId)?.remove(); showToast('Удалён', false); }
+    else showToast('Ошибка', true);
 }
 
-async function uploadToExistingPack(packId, files) {
+async function uploadToPack(packId, files) {
     if (!files.length) return;
-    const form = new FormData();
-    for (const f of files) form.append('files', f);
-    const resp = await fetch('/photo-packs/' + packId + '/upload', { method: 'POST', body: form });
-    const data = await resp.json();
-    if (data.ok) location.reload();
-    else alert(data.error || 'Ошибка загрузки');
+    const form = new FormData(); for (const f of files) form.append('files', f);
+    try {
+        const resp = await fetch('/photo-packs/' + packId + '/upload', { method: 'POST', body: form });
+        if ((await resp.json()).ok) location.reload(); else showToast('Ошибка загрузки', true);
+    } catch(e) { showToast('Ошибка сети', true); }
 }
+
+// ── Link products ──
+let _linkTimer;
+const _linkSelected = new Set();
+
+function toggleLinkSection() {
+    const body = document.getElementById('link-body');
+    const icon = document.getElementById('link-toggle-icon');
+    if (body.style.display === 'none') { body.style.display = 'block'; icon.innerHTML = '&#x25BC;'; }
+    else { body.style.display = 'none'; icon.innerHTML = '&#x25B6;'; }
+}
+
+document.getElementById('link-search').addEventListener('input', function() {
+    clearTimeout(_linkTimer);
+    _linkTimer = setTimeout(() => searchUnlinked(), 400);
+});
+document.getElementById('link-account-filter').addEventListener('change', () => searchUnlinked());
+
+async function searchUnlinked() {
+    const q = document.getElementById('link-search').value.trim();
+    const accId = document.getElementById('link-account-filter').value;
+    const container = document.getElementById('link-results');
+    if (!q && !accId) { container.innerHTML = '<div style="color:#9ca3af;font-size:13px;">Введите запрос или выберите аккаунт</div>'; return; }
+
+    let url = '/models/' + MODEL_ID + '/unlinked-products?q=' + encodeURIComponent(q);
+    if (accId) url += '&account_id=' + accId;
+
+    try {
+        const resp = await fetch(url);
+        const data = await resp.json();
+        if (!data.ok) { container.innerHTML = '<div style="color:#fca5a5;">Ошибка</div>'; return; }
+        _linkSelected.clear();
+        updateLinkBar();
+        if (!data.items.length) { container.innerHTML = '<div style="color:#9ca3af;font-size:13px;padding:8px;">Ничего не найдено</div>'; return; }
+
+        let html = '';
+        for (const p of data.items) {
+            const checked = _linkSelected.has(p.id) ? 'checked' : '';
+            const accBadge = p.account_name ? `<span style="background:#eef2ff;color:#4338ca;padding:1px 6px;border-radius:6px;font-size:10px;">${p.account_name}</span>` : '';
+            const statusCls = {active:'status-active',published:'status-active',imported:'status-imported',draft:'status-draft'}[p.status] || 'status-draft';
+            const meta = [p.size, p.price ? p.price.toLocaleString('ru-RU') + ' ₽' : null].filter(Boolean).join(' · ');
+            const thumbHtml = p.image_url
+                ? `<img src="${p.image_url}" style="width:36px;height:36px;object-fit:cover;border-radius:4px;flex-shrink:0;">`
+                : `<div style="width:36px;height:36px;border-radius:4px;background:#f3f4f6;flex-shrink:0;"></div>`;
+            html += `<label style="display:flex;align-items:center;gap:10px;padding:8px 4px;border-bottom:0.5px solid #f3f4f6;cursor:pointer;" onmouseenter="this.style.background='#f9fafb'" onmouseleave="this.style.background=''">
+                <input type="checkbox" value="${p.id}" ${checked} onchange="toggleLinkItem(${p.id},this.checked)" style="width:auto;flex-shrink:0;">
+                ${thumbHtml}
+                <div style="flex:1;min-width:0;">
+                    <div style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${p.title}</div>
+                    <div style="font-size:11px;color:#9ca3af;">${accBadge} <span class="status-badge ${statusCls}" style="font-size:10px;">${p.status}</span> ${meta}</div>
+                </div>
+            </label>`;
+        }
+        container.innerHTML = html;
+    } catch(e) { container.innerHTML = '<div style="color:#fca5a5;">Ошибка сети</div>'; }
+}
+
+function toggleLinkItem(id, checked) {
+    if (checked) _linkSelected.add(id); else _linkSelected.delete(id);
+    updateLinkBar();
+}
+
+function updateLinkBar() {
+    const bar = document.getElementById('link-bar');
+    const count = document.getElementById('link-count');
+    if (_linkSelected.size > 0) { bar.style.display = 'flex'; count.textContent = 'Выбрано: ' + _linkSelected.size; }
+    else { bar.style.display = 'none'; }
+}
+
+async function linkSelected() {
+    if (!_linkSelected.size) return;
+    try {
+        const resp = await fetch('/models/' + MODEL_ID + '/link-products', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ product_ids: [..._linkSelected] }),
+        });
+        const data = await resp.json();
+        if (data.ok) {
+            showToast('Привязано: ' + data.linked + ' объявлений', false);
+            _linkSelected.clear();
+            document.getElementById('link-results').innerHTML = '';
+            updateLinkBar();
+            location.reload();
+        } else showToast(data.error, true);
+    } catch(e) { showToast('Ошибка сети', true); }
+}
+
+// ── Analytics ──
+async function loadAnalytics() {
+    const body = document.getElementById('analyticsBody');
+    try {
+        const resp = await fetch('/models/' + MODEL_ID + '/analytics');
+        const data = await resp.json();
+        if (!data.ok) { body.innerHTML = '<div style="color:#9ca3af;font-size:13px;">Нет данных</div>'; return; }
+
+        const rec = data.recommendations;
+        let html = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">';
+        html += `<span class="m-pill m-pill-green">&#x1F7E2; Живых: ${rec.live_count}</span>`;
+        html += `<span class="m-pill m-pill-yellow">&#x1F7E1; Слабых: ${rec.weak_count}</span>`;
+        html += `<span class="m-pill m-pill-red">&#x1F534; Мёртвых: ${rec.dead_count}</span>`;
+        html += '</div>';
+        html += `<div style="font-size:13px;color:#374151;margin-bottom:14px;">${rec.recommendation}</div>`;
+
+        if (data.items.length) {
+            html += '<div style="overflow-x:auto;"><table class="listings-table"><thead><tr><th>Аккаунт</th><th>Название</th><th>Просмотры</th><th>&Delta; день</th><th>Маркер</th></tr></thead><tbody>';
+            for (const it of data.items) {
+                const markerLabels = {alive:'живое',weak:'слабое',dead:'мёртвое',unknown:'нет данных'};
+                const titleTrunc = it.title && it.title.length > 25 ? it.title.substring(0, 25) + '...' : (it.title || '—');
+                html += `<tr>`;
+                html += `<td style="font-size:12px;">${it.account_name||'—'}</td>`;
+                html += `<td style="font-size:12px;" title="${it.title||''}">${titleTrunc}</td>`;
+                html += `<td style="font-size:12px;">${it.views_total != null ? it.views_total : '—'}</td>`;
+                html += `<td style="font-size:12px;">${it.views_delta != null ? (it.views_delta > 0 ? '+' : '') + it.views_delta : '—'}</td>`;
+                html += `<td style="font-size:12px;"><span class="marker-dot marker-${it.marker}"></span>${markerLabels[it.marker]||'?'}</td>`;
+                html += `</tr>`;
+            }
+            html += '</tbody></table></div>';
+        } else {
+            html += '<div style="color:#9ca3af;font-size:13px;">Нет активных объявлений</div>';
+        }
+        body.innerHTML = html;
+    } catch(e) { body.innerHTML = '<div style="color:#fca5a5;font-size:13px;">Ошибка загрузки аналитики</div>'; }
+}
+
+// ── Unlinked count badge ──
+async function loadUnlinkedCount() {
+    try {
+        const resp = await fetch('/models/' + MODEL_ID + '/unlinked-products?count_only=true');
+        const data = await resp.json();
+        if (data.ok && data.count > 0) {
+            const badge = document.getElementById('link-count-badge');
+            badge.textContent = data.count + ' без модели';
+            badge.style.display = 'inline';
+        }
+    } catch(e) {}
+}
+
+// ── Init ──
+updateStatusPills();
+loadAnalytics();
+loadUnlinkedCount();
 </script>
 {% endblock %}

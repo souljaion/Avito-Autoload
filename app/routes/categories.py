@@ -60,7 +60,7 @@ async def category_list(request: Request, db: AsyncSession = Depends(get_db)):
     accs = await db.execute(select(Account).order_by(Account.name))
     accounts = accs.scalars().all()
 
-    return templates.TemplateResponse("categories/list.html", {
+    return templates.TemplateResponse("categories/list.html", {"page_title": "Категории",
         "request": request,
         "total": total,
         "tree": tree,

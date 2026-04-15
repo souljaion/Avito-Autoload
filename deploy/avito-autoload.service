@@ -6,9 +6,15 @@ After=network.target postgresql.service
 User=claude2
 Group=claude2
 WorkingDirectory=/home/claude2/avito-autoload
-ExecStart=/home/claude2/avito-autoload/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8001
+ExecStart=/home/claude2/avito-autoload/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8001 --workers 2
 Restart=always
 RestartSec=3
+StartLimitBurst=5
+StartLimitIntervalSec=300
+TimeoutStopSec=30
+MemoryMax=1G
+StandardOutput=journal
+StandardError=journal
 Environment="PATH=/home/claude2/avito-autoload/venv/bin:/usr/bin"
 
 [Install]

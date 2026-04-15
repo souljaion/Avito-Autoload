@@ -28,6 +28,16 @@
         <tr><th>Несколько товаров</th><td>{{ product.extra.multi_item if product.extra else "—" }}</td></tr>
         <tr><th>Примерка</th><td>{{ product.extra.try_on if product.extra else "—" }}</td></tr>
         <tr><th>Статус</th><td>{{ product.status }}</td></tr>
+        <tr><th>Авито</th><td>
+            <div id="avito-live-status">
+                <div id="avito-status-badge" style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:500;background:#f0f2ff;color:#666;cursor:pointer" onclick="loadAvitoStatus()" title="Нажмите для обновления">
+                    <span id="avito-status-dot" style="width:8px;height:8px;border-radius:50%;background:#ccc"></span>
+                    <span id="avito-status-text">Проверить статус на Авито</span>
+                </div>
+                <div id="avito-status-messages" style="margin-top:8px;font-size:12px;color:#e53935;display:none"></div>
+                <div id="avito-status-meta" style="margin-top:4px;font-size:11px;color:#999;display:none"></div>
+            </div>
+        </td></tr>
         <tr><th>Аккаунт</th><td>{{ product.account.name if product.account else "—" }}</td></tr>
         <tr><th>Описание</th><td>{{ product.description or "—" }}</td></tr>
     </table>
@@ -285,5 +295,79 @@ async function setMain(imgId) {
         showToast('Ошибка: ' + e.message, true);
     }
 }
+
+// ── Avito live status ──
+const STATUS_MAP = {
+    active:   {color:'#e8f5e9',dot:'#43a047',text:'#2e7d32',label:'Активно на Авито'},
+    old:      {color:'#f5f5f5',dot:'#9e9e9e',text:'#616161',label:'Срок истёк'},
+    blocked:  {color:'#ffebee',dot:'#e53935',text:'#c62828',label:'Заблокировано'},
+    rejected: {color:'#ffebee',dot:'#e53935',text:'#c62828',label:'Отклонено'},
+    archived: {color:'#f5f5f5',dot:'#9e9e9e',text:'#616161',label:'В архиве'},
+    removed:  {color:'#f5f5f5',dot:'#9e9e9e',text:'#616161',label:'Удалено'},
+};
+
+async function loadAvitoStatus() {
+    const badge = document.getElementById('avito-status-badge');
+    const dot   = document.getElementById('avito-status-dot');
+    const txt   = document.getElementById('avito-status-text');
+    const msgs  = document.getElementById('avito-status-messages');
+    const meta  = document.getElementById('avito-status-meta');
+
+    txt.textContent = 'Загрузка...';
+    dot.style.background = '#ccc';
+    badge.style.background = '#f0f2ff';
+    badge.style.color = '#666';
+    msgs.style.display = 'none';
+    meta.style.display = 'none';
+
+    try {
+        const authMeta = document.querySelector('meta[name="auth"]');
+        const headers = authMeta ? {Authorization: 'Basic ' + authMeta.content} : {};
+
+        const res = await fetch('/products/{{ product.id }}/avito-status', {headers});
+
+        if (res.status === 404) {
+            txt.textContent = 'Нет на Авито';
+            dot.style.background = '#ccc';
+            return;
+        }
+
+        const data = await res.json();
+        const s = STATUS_MAP[data.avito_status] || {color:'#fff9c4',dot:'#f9a825',text:'#f57f17',label:'Статус недоступен'};
+
+        badge.style.background = s.color;
+        badge.style.color = s.text;
+        dot.style.background = s.dot;
+        txt.textContent = s.label;
+
+        if (data.url) {
+            txt.innerHTML = '<a href="' + data.url + '" target="_blank" style="color:inherit;text-decoration:none">' + s.label + ' ↗</a>';
+        }
+
+        if (data.messages && data.messages.length > 0) {
+            const errors = data.messages.filter(m => m.type === 'error' || m.type === 'warning');
+            if (errors.length > 0) {
+                msgs.style.display = 'block';
+                msgs.innerHTML = errors.map(m =>
+                    '<div style="margin-bottom:2px">⚠ ' + (m.title || '') + ': ' + (m.description || '') + '</div>'
+                ).join('');
+            }
+        }
+
+        if (data.processing_time) {
+            meta.style.display = 'block';
+            const d = new Date(data.processing_time);
+            meta.textContent = 'Обработано: ' + d.toLocaleString('ru-RU');
+        }
+
+    } catch(e) {
+        txt.textContent = 'Ошибка запроса';
+        dot.style.background = '#ff9800';
+    }
+}
+
+{% if product.avito_id %}
+document.addEventListener('DOMContentLoaded', loadAvitoStatus);
+{% endif %}
 </script>
 {% endblock %}

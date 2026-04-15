@@ -1,0 +1,56 @@
+name: Tests
+
+on:
+  push:
+    branches: [main, master, dev]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: avito_user
+          POSTGRES_PASSWORD: avito_pass
+          POSTGRES_DB: avito_autoload
+        ports:
+          - "5433:5432"
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://avito_user:avito_pass@localhost:5433/avito_autoload
+      SECRET_KEY: test-secret-key-for-ci-only-not-production
+      ENCRYPTION_KEY: 6Ppc46dMCsf_4HmDJRR0KlTKkg4Tn0VcXcS-vHKilf0=
+      BASIC_AUTH_USER: admin
+      BASIC_AUTH_PASSWORD: StrongTestPassword123!
+      BASE_URL: http://localhost:8001
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run migrations
+        run: alembic upgrade head
+
+      - name: Start server
+        run: |
+          uvicorn app.main:app --host 127.0.0.1 --port 8001 &
+          sleep 3
+
+      - name: Run tests
+        run: pytest tests/ -x -q

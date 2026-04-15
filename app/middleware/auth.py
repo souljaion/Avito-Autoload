@@ -1,6 +1,6 @@
 import binascii
 import secrets
-from base64 import b64decode
+from base64 import b64decode, b64encode
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -18,11 +18,15 @@ def _is_public(path: str) -> bool:
     # /feeds/{account_id}.xml — public XML feed for Avito
     if path.startswith("/feeds/") and path.endswith(".xml"):
         return True
+    # /media/ and /static/ — public assets (photos must be accessible by Avito)
+    if path.startswith("/media/") or path.startswith("/static/"):
+        return True
     return False
 
 
 class BasicAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        request.state.auth_b64 = ""
         if _is_public(request.url.path):
             return await call_next(request)
 
@@ -41,6 +45,7 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
                 secrets.compare_digest(username, settings.BASIC_AUTH_USER)
                 and secrets.compare_digest(password, settings.BASIC_AUTH_PASSWORD)
             ):
+                request.state.auth_b64 = b64encode(f"{username}:{password}".encode()).decode()
                 return await call_next(request)
 
         return Response(

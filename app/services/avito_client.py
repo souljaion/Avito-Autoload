@@ -6,6 +6,7 @@ import structlog
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.crypto import decrypt
 from app.models.account import Account
 
 logger = structlog.get_logger(__name__)
@@ -40,13 +41,22 @@ class AvitoClient:
         if not self.account.client_id or not self.account.client_secret:
             raise ValueError("Account missing client_id or client_secret")
 
+        try:
+            plain_secret = decrypt(self.account.client_secret)
+        except Exception:
+            plain_secret = self.account.client_secret
+
         resp = await self._client.post(AVITO_AUTH_URL, data={
             "grant_type": "client_credentials",
             "client_id": self.account.client_id,
-            "client_secret": self.account.client_secret,
+            "client_secret": plain_secret,
         })
         resp.raise_for_status()
         data = resp.json()
+
+        if "access_token" not in data:
+            error_desc = data.get("error_description") or data.get("error") or str(data)
+            raise ValueError(f"Avito token response missing access_token: {error_desc}")
 
         self.account.access_token = data["access_token"]
         expires_in = data.get("expires_in", 86400)
@@ -96,17 +106,17 @@ class AvitoClient:
     async def get_profile(self) -> dict:
         headers = await self._headers()
         resp = await self._request_with_retry(
-            "GET", f"{AVITO_API_BASE}/autoload/v1/profile", headers=headers,
+            "GET", f"{AVITO_API_BASE}/autoload/v2/profile", headers=headers,
         )
         resp.raise_for_status()
         return resp.json()
 
-    async def update_profile(self, feed_url: str) -> dict:
-        """Update autoload profile with new feed URL."""
+    async def update_profile(self, feed_url: str, feed_name: str | None = None) -> dict:
+        """Update autoload profile with new feed URL (v2 API with feeds_data)."""
         current = await self.get_profile()
 
         payload = {
-            "upload_url": feed_url,
+            "feeds_data": [{"feed_name": feed_name or "default", "feed_url": feed_url}],
             "autoload_enabled": current.get("autoload_enabled", True),
             "schedule": current.get("schedule", [{
                 "rate": -1,
@@ -120,7 +130,7 @@ class AvitoClient:
 
         headers = await self._headers()
         resp = await self._request_with_retry(
-            "POST", f"{AVITO_API_BASE}/autoload/v1/profile",
+            "POST", f"{AVITO_API_BASE}/autoload/v2/profile",
             headers=headers, json=payload,
         )
         if resp.status_code == 400:
@@ -233,27 +243,221 @@ class AvitoClient:
 
         return result
 
+    async def delete_ad(self, avito_id: int) -> dict:
+        """Archive (remove) an ad from Avito."""
+        headers = await self._headers()
+        resp = await self._request_with_retry(
+            "POST",
+            f"{AVITO_API_BASE}/core/v1/items/{avito_id}/hide",
+            headers=headers,
+        )
+        if resp.status_code == 404:
+            return {"ok": True, "message": "Объявление уже удалено"}
+        resp.raise_for_status()
+        return resp.json() if resp.text.strip() else {"ok": True}
+
+    async def get_items_info(self, ad_ids: list[str]) -> list[dict]:
+        """Fetch real-time autoload status for items by their ad_id (internal DB id).
+
+        Calls GET /autoload/v2/reports/items with batches of 100 ids max.
+        Returns list of dicts with: ad_id, avito_id, avito_status, url, messages,
+        processing_time, avito_date_end, fee_info.
+        """
+        headers = await self._headers()
+        all_items: list[dict] = []
+        batch_size = 100
+
+        for i in range(0, len(ad_ids), batch_size):
+            batch = ad_ids[i:i + batch_size]
+            query = ",".join(batch)
+            resp = await self._request_with_retry(
+                "GET",
+                f"{AVITO_API_BASE}/autoload/v2/reports/items",
+                headers=headers,
+                params={"query": query},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            items = data.get("items") or []
+            all_items.extend(items)
+
+        return all_items
+
     async def get_reports(self) -> dict:
         headers = await self._headers()
         resp = await self._request_with_retry(
-            "GET", f"{AVITO_API_BASE}/autoload/v2/reports", headers=headers,
+            "GET", f"{AVITO_API_BASE}/autoload/v3/reports", headers=headers,
         )
         resp.raise_for_status()
         return resp.json()
+
+    async def refresh_token(self):
+        """Refresh token if it expires within 10 minutes."""
+        now = datetime.now(timezone.utc)
+        if self.account.access_token and self.account.token_expires_at:
+            expires = self.account.token_expires_at
+            if expires.tzinfo is None:
+                expires = expires.replace(tzinfo=timezone.utc)
+            if expires > now + timedelta(minutes=10):
+                return  # Still fresh enough
+        await self._ensure_token()
 
     async def get_report(self, report_id: int | str) -> dict:
         headers = await self._headers()
         resp = await self._request_with_retry(
-            "GET", f"{AVITO_API_BASE}/autoload/v2/reports/{report_id}", headers=headers,
+            "GET", f"{AVITO_API_BASE}/autoload/v3/reports/{report_id}", headers=headers,
         )
         resp.raise_for_status()
         return resp.json()
 
+    async def get_report_fees(self, report_id: int | str, page: int = 0, per_page: int = 100) -> dict:
+        """Fetch fee data for a report with pagination.
+
+        Returns {"fees": [...], "total": int, "report_id": report_id}.
+        """
+        headers = await self._headers()
+        all_fees: list[dict] = []
+        current_page = page
+        try:
+            while True:
+                resp = await self._request_with_retry(
+                    "GET",
+                    f"{AVITO_API_BASE}/autoload/v2/reports/{report_id}/items/fees",
+                    headers=headers,
+                    params={"page": current_page, "per_page": per_page},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                fees = data.get("fees") or []
+                all_fees.extend(fees)
+                meta = data.get("meta", {})
+                total_pages = meta.get("pages", 1)
+                if current_page + 1 >= total_pages:
+                    break
+                current_page += 1
+        except Exception as e:
+            logger.error("get_report_fees failed", report_id=report_id, error=str(e))
+            if not all_fees:
+                return {"fees": [], "total": 0, "report_id": report_id}
+
+        return {
+            "fees": all_fees,
+            "total": len(all_fees),
+            "report_id": report_id,
+        }
+
+    async def get_ad_ids_by_avito_ids(self, avito_ids: list[int]) -> dict[int, str]:
+        """Map Avito IDs to internal ad_ids. Batches by 200."""
+        headers = await self._headers()
+        result: dict[int, str] = {}
+        batch_size = 200
+        try:
+            for i in range(0, len(avito_ids), batch_size):
+                batch = avito_ids[i:i + batch_size]
+                resp = await self._request_with_retry(
+                    "POST",
+                    f"{AVITO_API_BASE}/autoload/v1/items/avito-ids-to-ad-ids",
+                    headers=headers,
+                    json={"avito_ids": batch},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                items = data.get("items") or []
+                for item in items:
+                    avito_id = item.get("avito_id")
+                    ad_id = item.get("ad_id")
+                    if avito_id is not None and ad_id:
+                        result[int(avito_id)] = str(ad_id)
+        except Exception as e:
+            logger.error("get_ad_ids_by_avito_ids failed", error=str(e))
+        return result
+
+    async def get_avito_ids_by_ad_ids(self, ad_ids: list[str]) -> dict[str, int]:
+        """Map internal ad_ids to Avito IDs. Batches by 200."""
+        headers = await self._headers()
+        result: dict[str, int] = {}
+        batch_size = 200
+        try:
+            for i in range(0, len(ad_ids), batch_size):
+                batch = ad_ids[i:i + batch_size]
+                resp = await self._request_with_retry(
+                    "POST",
+                    f"{AVITO_API_BASE}/autoload/v1/items/ad-ids-to-avito-ids",
+                    headers=headers,
+                    json={"ad_ids": batch},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                items = data.get("items") or []
+                for item in items:
+                    ad_id = item.get("ad_id")
+                    avito_id = item.get("avito_id")
+                    if ad_id and avito_id is not None:
+                        result[str(ad_id)] = int(avito_id)
+        except Exception as e:
+            logger.error("get_avito_ids_by_ad_ids failed", error=str(e))
+        return result
+
     async def get_report_items(self, report_id: int | str, page: int = 0) -> dict:
         headers = await self._headers()
         resp = await self._request_with_retry(
-            "GET", f"{AVITO_API_BASE}/autoload/v2/reports/{report_id}/items",
+            "GET", f"{AVITO_API_BASE}/autoload/v3/reports/{report_id}/items",
             headers=headers, params={"page": page, "per_page": 100},
         )
         resp.raise_for_status()
         return resp.json()
+
+    async def get_report_items_all(self, report_id: int | str, per_page: int = 200) -> list[dict]:
+        """Fetch all items from a report with pagination (v2 API).
+
+        Returns flat list of item dicts with: ad_id, avito_id, url, status, etc.
+        """
+        headers = await self._headers()
+        all_items: list[dict] = []
+        page = 0
+        while True:
+            resp = await self._request_with_retry(
+                "GET",
+                f"{AVITO_API_BASE}/autoload/v2/reports/{report_id}/items",
+                headers=headers,
+                params={"page": page, "per_page": per_page},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            items = data.get("items") or []
+            all_items.extend(items)
+            meta = data.get("meta", {})
+            total_pages = meta.get("pages", 1)
+            if page + 1 >= total_pages:
+                break
+            page += 1
+        return all_items
+
+
+async def refresh_all_tokens(db_session) -> dict:
+    """Refresh OAuth tokens for all accounts with credentials.
+
+    Called by the scheduler every 50 minutes to keep tokens fresh.
+    """
+    from sqlalchemy import select as sa_select
+
+    result = await db_session.execute(
+        sa_select(Account).where(Account.client_id.isnot(None), Account.client_secret.isnot(None))
+    )
+    accounts = result.scalars().all()
+
+    refreshed = 0
+    errors = 0
+    for acc in accounts:
+        client = AvitoClient(acc, db_session)
+        try:
+            await client.refresh_token()
+            refreshed += 1
+        except Exception as e:
+            logger.error("Token refresh failed for %s: %s", acc.name, e)
+            errors += 1
+        finally:
+            await client.close()
+
+    logger.info("Token refresh: %d refreshed, %d errors", refreshed, errors)
+    return {"refreshed": refreshed, "errors": errors}

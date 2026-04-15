@@ -6,6 +6,7 @@ from sqlalchemy.orm import selectinload
 
 from app.db import utc_now
 from app.models.account import Account
+from app.models.account_description_template import AccountDescriptionTemplate
 from app.models.listing import Listing
 from app.models.product import Product
 from app.services.avito_client import AvitoClient
@@ -48,9 +49,19 @@ async def publish_scheduled_products(db: AsyncSession) -> dict:
             skipped += len(acc_listings)
             continue
 
+        # Load account description template
+        tmpl_result = await db.execute(
+            select(AccountDescriptionTemplate).where(
+                AccountDescriptionTemplate.account_id == acc_id
+            )
+        )
+        tmpl = tmpl_result.scalar_one_or_none()
+        account_description = tmpl.description_template if tmpl else None
+        has_template = bool(account_description)
+
         ready = []
         for ls in acc_listings:
-            if not ls.product or not is_ready_for_feed(ls.product):
+            if not ls.product or not is_ready_for_feed(ls.product, has_account_template=has_template):
                 logger.warning("Scheduled listing %d product not ready, skipping", ls.id)
                 skipped += 1
                 continue
@@ -63,7 +74,11 @@ async def publish_scheduled_products(db: AsyncSession) -> dict:
         base_url = settings.BASE_URL
         root = etree.Element("Ads", formatVersion="3", target="Avito.ru")
         for ls in ready:
-            ad = build_ad_element(ls.product, account, base_url)
+            # Resolve effective description
+            effective_desc = ls.product.description
+            if not ls.product.use_custom_description and account_description:
+                effective_desc = account_description
+            ad = build_ad_element(ls.product, account, base_url, description_override=effective_desc)
             root.append(ad)
 
         xml_bytes = etree.tostring(root, xml_declaration=True, encoding="UTF-8", pretty_print=True)
@@ -74,6 +89,9 @@ async def publish_scheduled_products(db: AsyncSession) -> dict:
             for ls in ready:
                 ls.status = "published"
                 ls.published_at = now
+                ls.product.status = "active"
+                ls.product.published_at = now
+                ls.product.scheduled_at = None
                 published += 1
             await db.commit()
             logger.info("Published %d listings for account %s", len(ready), account.name)

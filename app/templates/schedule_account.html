@@ -1,0 +1,414 @@
+{% extends "base.html" %}
+{% block title %}{{ account.name }} — Расписание{% endblock %}
+{% block content %}
+<style>
+.sa-topbar { display:flex; align-items:center; gap:14px; margin-bottom:20px; }
+.sa-avatar { width:44px; height:44px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:18px; font-weight:600; flex-shrink:0; }
+.sa-info .sa-name { font-size:20px; font-weight:600; color:#1e1b4b; }
+.sa-info .sa-sub { font-size:12px; color:#6b7280; display:flex; align-items:center; gap:6px; }
+.sa-info .sa-sub .online-dot { width:6px; height:6px; border-radius:50%; background:#22c55e; display:inline-block; }
+
+.metric-row { display:grid; grid-template-columns:repeat(5,1fr); gap:12px; margin-bottom:20px; }
+.metric-box { background:#f8f9ff; border-radius:10px; padding:12px 14px; text-align:center; }
+.metric-box .mv { font-size:22px; font-weight:600; color:#1e1b4b; }
+.metric-box .ml { font-size:11px; color:#6b7280; }
+.metric-box.amber .mv { color:#92400e; }
+.metric-box.red .mv { color:#dc2626; }
+@media (max-width:700px) { .metric-row { grid-template-columns:repeat(3,1fr); } }
+@media (max-width:500px) { .metric-row { grid-template-columns:repeat(2,1fr); } }
+
+.hourly-chart { display:flex; gap:2px; align-items:flex-end; height:60px; margin-bottom:20px; padding:0 4px; }
+.hourly-bar { flex:1; border-radius:3px 3px 0 0; min-height:4px; position:relative; display:flex; align-items:flex-end; justify-content:center; }
+.hourly-bar .bar-label { font-size:8px; color:#fff; font-weight:600; padding-bottom:2px; }
+.hourly-bar .hour-label { position:absolute; bottom:-14px; font-size:8px; color:#9ca3af; }
+.bar-empty { background:#e5e7eb; }
+.bar-green { background:#c0dd97; }
+.bar-amber { background:#fac775; }
+.bar-red { background:#f09595; }
+
+.tab-pills { display:flex; gap:6px; margin-bottom:16px; }
+.tab-pill { padding:7px 16px; border-radius:20px; border:1px solid #d1d5db; background:#fff; color:#6b7280; cursor:pointer; font-size:13px; }
+.tab-pill.active { background:linear-gradient(135deg,#667eea,#764ba2); color:#fff; border-color:transparent; }
+.tab-panel { display:none; }
+.tab-panel.active { display:block; }
+
+.q-table { width:100%; border-collapse:collapse; }
+.q-table th { font-size:10px; text-transform:uppercase; letter-spacing:0.04em; color:#9ca3af; font-weight:500; padding:8px 10px; text-align:left; white-space:nowrap; }
+.q-table td { padding:8px 10px; border-top:0.5px solid #f3f4f6; vertical-align:middle; font-size:13px; }
+.q-table tr:hover { background:#f9fafb; }
+.q-table .thumb { width:40px; height:40px; object-fit:cover; border-radius:6px; }
+.q-table .no-thumb { width:40px; height:40px; border-radius:6px; background:#f3f4f6; }
+.q-table input[type="datetime-local"] { padding:4px 8px; border:0.5px solid #d1d5db; border-radius:6px; font-size:12px; }
+.q-table input[type="checkbox"] { width:auto; }
+
+.date-group { padding:8px 10px; font-size:11px; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:0.03em; background:#fafafa; }
+
+.marker-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:4px; }
+.marker-alive { background:#22c55e; }
+.marker-weak { background:#eab308; }
+.marker-dead { background:#ef4444; }
+.marker-unknown { background:#9ca3af; }
+
+.status-badge { display:inline-flex; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:500; white-space:nowrap; }
+.status-active { background:#dcfce7; color:#166534; }
+.status-scheduled { background:#dbeafe; color:#1e40af; }
+.status-draft { background:#f3f4f6; color:#6b7280; }
+.status-imported { background:#fef3c7; color:#92400e; }
+
+.bulk-bar { display:none; padding:12px 16px; background:#f0f2ff; border-radius:8px; margin-bottom:12px; align-items:center; gap:12px; }
+.bulk-bar.visible { display:flex; }
+
+.empty-state { text-align:center; padding:24px; color:#9ca3af; font-size:13px; }
+
+.section-card { background:#fff; border:0.5px solid #e2e4f0; border-radius:12px; overflow:hidden; }
+</style>
+
+{% set avatar_map = {'C':'#EEF0FF;#534AB7','К':'#EEF0FF;#534AB7','P':'#FFF0E8;#E8593C','П':'#FFF0E8;#E8593C','Z':'#E6F1FB;#185FA5','З':'#E6F1FB;#185FA5','R':'#E1F5EE;#0F6E56','Р':'#E1F5EE;#0F6E56'} %}
+{% set ch = account.name[0]|upper %}
+{% set colors = avatar_map.get(ch, '#F1EFE8;#5F5E5A').split(';') %}
+
+<div style="margin-bottom:8px;">
+    <a href="/schedule" style="font-size:13px; color:#6b7280;">&larr; Расписание</a>
+</div>
+
+<div class="sa-topbar">
+    <div class="sa-avatar" style="background:{{ colors[0] }};color:{{ colors[1] }};">{{ ch }}</div>
+    <div class="sa-info">
+        <div class="sa-name">{{ account.name }}</div>
+        <div class="sa-sub">
+            <span class="online-dot"></span> Онлайн
+            {% if account.avito_sync_minute is not none %} &middot; Фид в XX:{{ '%02d' % account.avito_sync_minute }}{% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="metric-row" id="metrics">
+    <div class="metric-box"><div class="mv" id="m-active">—</div><div class="ml">Активных</div></div>
+    <div class="metric-box"><div class="mv" id="m-sched">—</div><div class="ml">Запланировано сегодня</div></div>
+    <div class="metric-box"><div class="mv" id="m-pub">—</div><div class="ml">Опубликовано сегодня</div></div>
+    <div class="metric-box amber"><div class="mv" id="m-draft">—</div><div class="ml">Черновиков</div></div>
+    <div class="metric-box red"><div class="mv" id="m-dead">—</div><div class="ml">Мёртвых</div></div>
+</div>
+
+<div id="hourly-section" style="margin-bottom:20px;">
+    <div style="font-size:12px;color:#6b7280;margin-bottom:6px;font-weight:500;">Нагрузка по часам</div>
+    <div class="hourly-chart" id="hourly-chart"></div>
+</div>
+
+<div class="tab-pills">
+    <div class="tab-pill active" data-tab="queue" onclick="switchTab('queue', this)">Очередь (<span id="tab-q-count">0</span>)</div>
+    <div class="tab-pill" data-tab="drafts" onclick="switchTab('drafts', this)">Черновики (<span id="tab-d-count">0</span>)</div>
+    <div class="tab-pill" data-tab="active" onclick="switchTab('active', this)">Активные (<span id="tab-a-count">0</span>)</div>
+</div>
+
+<div class="tab-panel active" id="panel-queue">
+    <div class="section-card">
+        <div id="queue-content"><div class="empty-state">Загрузка...</div></div>
+    </div>
+</div>
+
+<div class="tab-panel" id="panel-drafts">
+    <div class="bulk-bar" id="bulk-bar">
+        <span id="bulk-count" style="font-size:13px;font-weight:500;color:#534AB7;">Выбрано: 0</span>
+        <input type="datetime-local" id="bulk-dt" style="padding:4px 8px;border:0.5px solid #d1d5db;border-radius:6px;font-size:12px;">
+        <button class="btn btn-primary btn-sm" onclick="scheduleBulk()">Запланировать выбранные</button>
+    </div>
+    <div class="section-card">
+        <div id="drafts-content"><div class="empty-state">Загрузка...</div></div>
+    </div>
+</div>
+
+<div class="tab-panel" id="panel-active">
+    <div class="section-card">
+        <div id="active-content"><div class="empty-state">Загрузка...</div></div>
+    </div>
+</div>
+
+<div id="toast" style="display:none;position:fixed;bottom:24px;right:24px;padding:14px 20px;border-radius:8px;font-size:14px;max-width:500px;z-index:1000;box-shadow:0 4px 12px rgba(0,0,0,0.15);"></div>
+
+<script>
+const ACCOUNT_ID = {{ account.id }};
+const _selectedDrafts = new Set();
+
+function showToast(msg, isError) {
+    const t = document.getElementById('toast');
+    t.textContent = msg; t.style.display = 'block';
+    t.style.background = isError ? '#fee2e2' : '#dcfce7';
+    t.style.color = isError ? '#991b1b' : '#166534';
+    setTimeout(() => t.style.display = 'none', 5000);
+}
+
+function switchTab(tab, btn) {
+    document.querySelectorAll('.tab-pill').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.getElementById('panel-' + tab).classList.add('active');
+}
+
+function renderHourlyChart(hourly, containerId) {
+    const el = document.getElementById(containerId);
+    const max = Math.max(1, ...hourly);
+    let html = '';
+    for (let h = 0; h < 24; h++) {
+        const v = hourly[h] || 0;
+        const pct = Math.max(5, (v / max) * 100);
+        let cls = 'bar-empty';
+        if (v >= 5) cls = 'bar-red';
+        else if (v >= 3) cls = 'bar-amber';
+        else if (v >= 1) cls = 'bar-green';
+        const label = v > 0 ? `<span class="bar-label">${v}</span>` : '';
+        const hourLabel = h % 3 === 0 ? `<span class="hour-label">${h}</span>` : '';
+        html += `<div class="hourly-bar ${cls}" style="height:${v > 0 ? pct : 5}%;">${label}${hourLabel}</div>`;
+    }
+    el.innerHTML = html;
+}
+
+function thumbHtml(img) {
+    return img
+        ? `<img class="thumb" src="${img}" loading="lazy">`
+        : `<div class="no-thumb"></div>`;
+}
+
+async function loadData() {
+    try {
+        const resp = await fetch('/api/schedule/' + ACCOUNT_ID);
+        const data = await resp.json();
+
+        // Metrics
+        const me = data.metrics || {};
+        document.getElementById('m-active').textContent = me.active_count ?? '—';
+        document.getElementById('m-sched').textContent = me.scheduled_today ?? '—';
+        document.getElementById('m-pub').textContent = me.published_today ?? '—';
+        document.getElementById('m-draft').textContent = me.draft_count ?? '—';
+        document.getElementById('m-dead').textContent = me.dead_count ?? '—';
+
+        // Color amber/red only if > 0
+        if ((me.draft_count || 0) === 0) document.getElementById('m-draft').closest('.metric-box').classList.remove('amber');
+        if ((me.dead_count || 0) === 0) document.getElementById('m-dead').closest('.metric-box').classList.remove('red');
+
+        // Hourly chart
+        renderHourlyChart(data.hourly_load || new Array(24).fill(0), 'hourly-chart');
+
+        // Tab counts
+        const sched = data.scheduled || [];
+        const drafts = data.drafts || [];
+        const active = data.active || [];
+        document.getElementById('tab-q-count').textContent = sched.length;
+        document.getElementById('tab-d-count').textContent = drafts.length;
+        document.getElementById('tab-a-count').textContent = active.length;
+
+        renderQueue(sched);
+        renderDrafts(drafts);
+        renderActive(active);
+
+        // Handle ?highlight= param
+        const highlightId = new URLSearchParams(window.location.search).get('highlight');
+        if (highlightId) {
+            const el = document.getElementById('draft-' + highlightId) || document.getElementById('sched-' + highlightId);
+            if (el) {
+                if (el.id.startsWith('draft-')) {
+                    switchTab('drafts', document.querySelector('[data-tab="drafts"]'));
+                }
+                el.style.background = '#fef3c7';
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                setTimeout(() => { el.style.transition = 'background 2s'; el.style.background = ''; }, 2000);
+            }
+        }
+    } catch(e) {
+        document.getElementById('queue-content').innerHTML = '<div class="empty-state" style="color:#dc2626;">Ошибка загрузки</div>';
+    }
+}
+
+function renderQueue(items) {
+    const el = document.getElementById('queue-content');
+    if (!items.length) {
+        el.innerHTML = '<div class="empty-state">Нет товаров в очереди. <a href="/models" style="color:#667eea;">Добавьте через Модели</a>.</div>';
+        return;
+    }
+    let html = '<table class="q-table"><thead><tr><th>Время</th><th>Фото</th><th>Название</th><th>Размер</th><th>Цена</th><th>Статус</th><th></th></tr></thead><tbody>';
+    let lastGroup = null;
+    for (const p of items) {
+        if (p.date_group && p.date_group !== lastGroup) {
+            lastGroup = p.date_group;
+            html += `<tr><td colspan="7" class="date-group">${p.date_group}</td></tr>`;
+        }
+        const timeStr = p.scheduled_at ? p.scheduled_at.split(' ').pop() : '—';
+        const dtVal = p.scheduled_at_iso ? p.scheduled_at_iso.slice(0, 16) : '';
+        const priceStr = p.price ? p.price.toLocaleString('ru-RU') + ' \u20BD' : '—';
+        html += `<tr id="sched-${p.product_id}">
+            <td style="font-weight:500;">${timeStr}</td>
+            <td>${thumbHtml(p.image)}</td>
+            <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><a href="/products/${p.product_id}" style="color:#1e1b4b;text-decoration:none;">${p.title}</a></td>
+            <td>${p.size || '—'}</td>
+            <td>${priceStr}</td>
+            <td><span class="status-badge status-scheduled">в очереди</span></td>
+            <td style="white-space:nowrap;">
+                <input type="datetime-local" id="dt-${p.product_id}" value="${dtVal}" onchange="updateTime(${p.product_id})" style="width:170px;">
+                <button class="btn btn-secondary btn-sm" onclick="cancelScheduled(${p.product_id})">Отменить</button>
+            </td>
+        </tr>`;
+    }
+    html += '</tbody></table>';
+    el.innerHTML = html;
+}
+
+function renderDrafts(items) {
+    const el = document.getElementById('drafts-content');
+    if (!items.length) {
+        el.innerHTML = '<div class="empty-state">Нет черновиков.</div>';
+        return;
+    }
+    let html = '<table class="q-table"><thead><tr><th style="width:30px;"><input type="checkbox" onchange="toggleAllDrafts(this.checked)"></th><th>Фото</th><th>Название</th><th>Размер</th><th>Цена</th><th>Модель</th><th></th></tr></thead><tbody>';
+    for (const p of items) {
+        const priceStr = p.price ? p.price.toLocaleString('ru-RU') + ' \u20BD' : '—';
+        html += `<tr id="draft-${p.product_id}">
+            <td><input type="checkbox" value="${p.product_id}" onchange="toggleDraftSelect(${p.product_id}, this.checked)"></td>
+            <td>${thumbHtml(p.image)}</td>
+            <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><a href="/products/${p.product_id}" style="color:#1e1b4b;text-decoration:none;">${p.title}</a></td>
+            <td>${p.size || '—'}</td>
+            <td>${priceStr}</td>
+            <td style="font-size:12px;color:#6b7280;">${p.model_name || '—'}</td>
+            <td style="white-space:nowrap;">
+                <input type="datetime-local" id="draft-dt-${p.product_id}" style="width:170px;">
+                <button class="btn btn-primary btn-sm" onclick="scheduleDraft(${p.product_id})">В расписание</button>
+            </td>
+        </tr>`;
+    }
+    html += '</tbody></table>';
+    el.innerHTML = html;
+}
+
+function renderActive(items) {
+    const el = document.getElementById('active-content');
+    if (!items.length) {
+        el.innerHTML = '<div class="empty-state">Нет активных объявлений.</div>';
+        return;
+    }
+    const markerLabels = {alive:'живое',weak:'слабое',dead:'мёртвое',unknown:'—'};
+    let html = '<table class="q-table"><thead><tr><th>Фото</th><th>Название</th><th>Выложено</th><th>Просмотры</th><th>&Delta; день</th><th>Маркер</th><th></th></tr></thead><tbody>';
+    for (const p of items) {
+        const deltaStr = p.views_delta != null ? (p.views_delta > 0 ? '+' : '') + p.views_delta : '—';
+        html += `<tr>
+            <td>${thumbHtml(p.image)}</td>
+            <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><a href="/products/${p.product_id}" style="color:#1e1b4b;text-decoration:none;">${p.title}</a></td>
+            <td style="font-size:12px;">${p.published_at || '—'}</td>
+            <td>${p.views_total ?? '—'}</td>
+            <td>${deltaStr}</td>
+            <td><span class="marker-dot marker-${p.marker}"></span>${markerLabels[p.marker]||'—'}</td>
+            <td style="white-space:nowrap;">
+                <button class="btn btn-sm btn-purple" onclick="repostProduct(${p.product_id})" style="background:#534AB7;color:#fff;border:none;">Перевыложить</button>
+                <button class="btn btn-secondary btn-sm" onclick="deactivateProduct(${p.product_id})">Снять</button>
+            </td>
+        </tr>`;
+    }
+    html += '</tbody></table>';
+    el.innerHTML = html;
+}
+
+// ── Actions ──
+async function updateTime(productId) {
+    const dt = document.getElementById('dt-' + productId).value;
+    if (!dt) return;
+    try {
+        const resp = await fetch('/products/' + productId + '/schedule', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ account_id: ACCOUNT_ID, scheduled_at: dt }),
+        });
+        const data = await resp.json();
+        if (data.ok) showToast('Время обновлено', false);
+        else showToast(data.error, true);
+    } catch(e) { showToast('Ошибка сети', true); }
+}
+
+async function cancelScheduled(productId) {
+    try {
+        const resp = await fetch('/api/schedule/' + productId + '/cancel', { method: 'POST' });
+        const data = await resp.json();
+        if (data.ok) { showToast('Отменено', false); loadData(); }
+        else showToast(data.error, true);
+    } catch(e) { showToast('Ошибка сети', true); }
+}
+
+async function scheduleDraft(productId) {
+    const dt = document.getElementById('draft-dt-' + productId)?.value;
+    if (!dt) { showToast('Укажите дату и время', true); return; }
+    try {
+        const resp = await fetch('/products/' + productId + '/schedule', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ account_id: ACCOUNT_ID, scheduled_at: dt }),
+        });
+        const data = await resp.json();
+        if (data.ok) { showToast('Запланировано', false); loadData(); }
+        else showToast(data.error || (data.problems||[]).join(', '), true);
+    } catch(e) { showToast('Ошибка сети', true); }
+}
+
+function toggleDraftSelect(id, checked) {
+    if (checked) _selectedDrafts.add(id); else _selectedDrafts.delete(id);
+    updateBulkBar();
+}
+
+function toggleAllDrafts(checked) {
+    document.querySelectorAll('#panel-drafts input[type="checkbox"][value]').forEach(cb => {
+        cb.checked = checked;
+        const id = parseInt(cb.value);
+        if (id) { if (checked) _selectedDrafts.add(id); else _selectedDrafts.delete(id); }
+    });
+    updateBulkBar();
+}
+
+function updateBulkBar() {
+    const bar = document.getElementById('bulk-bar');
+    if (_selectedDrafts.size > 0) {
+        bar.classList.add('visible');
+        document.getElementById('bulk-count').textContent = 'Выбрано: ' + _selectedDrafts.size;
+    } else {
+        bar.classList.remove('visible');
+    }
+}
+
+async function scheduleBulk() {
+    const dt = document.getElementById('bulk-dt').value;
+    if (!dt) { showToast('Укажите дату и время', true); return; }
+    let ok = 0;
+    for (const pid of _selectedDrafts) {
+        try {
+            const resp = await fetch('/products/' + pid + '/schedule', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ account_id: ACCOUNT_ID, scheduled_at: dt }),
+            });
+            if ((await resp.json()).ok) ok++;
+        } catch(e) {}
+    }
+    showToast(`Запланировано: ${ok}/${_selectedDrafts.size}`, ok < _selectedDrafts.size);
+    _selectedDrafts.clear();
+    updateBulkBar();
+    loadData();
+}
+
+async function repostProduct(pid) {
+    if (!confirm('Перевыложить?')) return;
+    try {
+        const resp = await fetch('/products/' + pid + '/repost', { method: 'POST' });
+        const data = await resp.json();
+        if (data.ok) { showToast(data.message || 'Перевыложено', false); setTimeout(() => loadData(), 1500); }
+        else showToast(data.error, true);
+    } catch(e) { showToast('Ошибка сети', true); }
+}
+
+async function deactivateProduct(pid) {
+    if (!confirm('Снять объявление?')) return;
+    try {
+        const resp = await fetch('/products/' + pid, {
+            method: 'PATCH', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ status: 'draft' }),
+        });
+        const data = await resp.json();
+        if (data.ok) { showToast('Снято', false); loadData(); }
+        else showToast(data.error, true);
+    } catch(e) { showToast('Ошибка сети', true); }
+}
+
+document.addEventListener('DOMContentLoaded', loadData);
+</script>
+{% endblock %}

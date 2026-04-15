@@ -102,6 +102,40 @@ GET /feeds/{account_id}.xml
 6. Настройте reverse proxy (nginx) для проксирования на порт 8000
 7. Убедитесь, что URL фида доступен извне
 
+## Тесты
+
+```bash
+pytest tests/ -v
+```
+
+Тесты включают:
+- `test_feed_generator.py` — unit-тесты генерации XML и валидации
+- `test_avito_client.py` — mock-тесты OAuth2, retry, upload
+- `test_health.py` — healthcheck endpoint
+- `test_products_api.py` — CRUD товаров через API
+
+## CI/CD (GitHub Actions)
+
+Автодеплой настроен в `.github/workflows/deploy.yml`:
+1. **test** — запуск тестов на каждый push в `main`
+2. **deploy** — SSH на сервер, pull, миграции, рестарт
+
+### Настройка GitHub Secrets
+
+В репозитории Settings > Secrets and variables > Actions добавьте:
+
+| Secret | Описание | Пример |
+|--------|----------|--------|
+| `SERVER_HOST` | IP или домен сервера | `autoload.souljaion.ru` |
+| `SERVER_USER` | SSH пользователь | `claude2` |
+| `SSH_KEY` | Приватный SSH ключ | Содержимое `~/.ssh/id_ed25519` |
+
+### Ручной деплой
+
+```bash
+bash deploy/deploy.sh
+```
+
 ## Структура проекта
 
 ```
@@ -114,6 +148,10 @@ app/
   services/          — бизнес-логика (feed_generator, avito_client)
   templates/         — Jinja2 HTML-шаблоны
   static/            — статические файлы
-  utils/             — утилиты
+  middleware/        — HTTP Basic Auth
+  logging_config.py  — structlog + RotatingFileHandler
 alembic/             — миграции
+tests/               — pytest тесты
+deploy/              — nginx, systemd, deploy.sh
+.github/workflows/   — CI/CD
 ```

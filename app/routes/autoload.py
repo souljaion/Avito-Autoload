@@ -11,6 +11,7 @@ from app.config import settings
 from app.db import get_db
 from app.models.account import Account
 from app.services.avito_client import AvitoClient
+from app.services.autoload_sync import sync_ads_from_avito
 
 router = APIRouter(prefix="/accounts/{account_id}/autoload", tags=["autoload"])
 templates = Jinja2Templates(directory="app/templates")
@@ -44,19 +45,22 @@ async def update_profile(
             status_code=400,
         )
 
-    feed_url = f"{settings.BASE_URL}/feeds/{account_id}.xml"
+    feed_url = f"{settings.BASE_URL}/feeds/{account.feed_token}.xml"
     client = AvitoClient(account, db)
     try:
-        result = await client.update_profile(feed_url)
+        result = await client.update_profile(feed_url, feed_name=account.name)
         logger.info("Profile updated for account %s: %s", account_id, result)
+        # v2 API returns feeds_data array instead of upload_url
+        feeds_data = result.get("feeds_data") or []
+        active_feed_url = feeds_data[0]["feed_url"] if feeds_data else feed_url
         return JSONResponse({
             "ok": True,
-            "feed_url": result.get("upload_url", feed_url),
+            "feed_url": active_feed_url,
             "profile": result,
         })
     except Exception as e:
-        logger.error("Profile update failed for account %s: %s", account_id, e)
-        return JSONResponse({"ok": False, "error": str(e)}, status_code=502)
+        logger.exception("Profile update failed for account %s: %s", account_id, e)
+        return JSONResponse({"ok": False, "error": "Ошибка обновления профиля Avito"}, status_code=502)
     finally:
         await client.close()
 
@@ -75,7 +79,32 @@ async def trigger_upload(
         logger.info("Upload triggered for account %s: %s", account_id, result)
         return _redirect_account(account_id, success="Upload запущен")
     except Exception as e:
-        logger.error("Upload failed for account %s: %s", account_id, e)
-        return _redirect_account(account_id, error=f"Ошибка upload: {e}")
+        logger.exception("Upload failed for account %s: %s", account_id, e)
+        return _redirect_account(account_id, error="Ошибка загрузки фида")
     finally:
         await client.close()
+
+
+@router.post("/sync-ads")
+async def sync_ads(account_id: int, db: AsyncSession = Depends(get_db)):
+    """Sync existing autoload ads from Avito into products table."""
+    account = await db.get(Account, account_id)
+    if not account:
+        return JSONResponse({"ok": False, "error": "Аккаунт не найден"}, status_code=404)
+
+    if not account.client_id or not account.client_secret:
+        return JSONResponse(
+            {"ok": False, "error": f"Не заполнены credentials для аккаунта {account.name}"},
+            status_code=400,
+        )
+
+    result = await sync_ads_from_avito(account.id, db)
+    if result.get("error"):
+        return JSONResponse({"ok": False, "error": result["error"]}, status_code=502)
+
+    return JSONResponse({
+        "ok": True,
+        "created": result["created"],
+        "synced": result["synced"],
+        "skipped": result["skipped"],
+    })

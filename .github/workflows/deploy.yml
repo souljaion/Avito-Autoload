@@ -1,0 +1,77 @@
+name: Test & Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: avito_user
+          POSTGRES_PASSWORD: avito_pass
+          POSTGRES_DB: avito_autoload
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://avito_user:avito_pass@localhost:5433/avito_autoload
+      SECRET_KEY: test-secret-key-for-ci-only-not-production
+      BASE_URL: http://localhost:8001
+      BASIC_AUTH_USER: admin
+      BASIC_AUTH_PASSWORD: testpass
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run migrations
+        run: |
+          alembic upgrade head
+
+      - name: Start server
+        run: |
+          uvicorn app.main:app --host 127.0.0.1 --port 8001 &
+          sleep 3
+
+      - name: Run tests
+        run: |
+          pytest tests/ -v
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            cd /home/claude2/avito-autoload
+            git pull origin main
+            ./venv/bin/pip install -r requirements.txt
+            ./venv/bin/alembic upgrade head
+            sudo systemctl restart avito-autoload
+            sleep 3
+            curl -f http://localhost:8001/health && echo "Deploy OK" || echo "Deploy FAILED"

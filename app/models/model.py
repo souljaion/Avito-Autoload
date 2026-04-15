@@ -11,7 +11,12 @@ class Model(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(255))
+    brand: Mapped[str | None] = mapped_column(String(100), default=None)
     description: Mapped[str | None] = mapped_column(Text)
+    category: Mapped[str | None] = mapped_column(String(100), default=None)
+    subcategory: Mapped[str | None] = mapped_column(String(100), default=None)
+    goods_type: Mapped[str | None] = mapped_column(String(100), default=None)
+    goods_subtype: Mapped[str | None] = mapped_column(String(100), default=None)
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=utc_now,
@@ -21,4 +26,8 @@ class Model(Base):
     photo_packs: Mapped[list["PhotoPack"]] = relationship(
         back_populates="model", cascade="all, delete-orphan",
         order_by="PhotoPack.id.desc()",
+    )
+    variants: Mapped[list["ModelVariant"]] = relationship(
+        back_populates="model", cascade="all, delete-orphan",
+        order_by="ModelVariant.id",
     )

@@ -1,0 +1,376 @@
+================================================================================
+  AVITO CRM — ПОЛНЫЙ КОНТЕКСТ ПРОЕКТА (v1.0, 2026-04-07)
+================================================================================
+
+## 1. ЦЕЛЬ ПРОЕКТА И БИЗНЕС-КОНТЕКСТ
+
+Avito CRM — веб-приложение для управления коммуникациями на Avito.
+Система позволяет:
+
+- Подключать несколько аккаунтов Avito (OAuth2 Client Credentials)
+- Синхронизировать чаты и сообщения из Avito Messenger API
+- Отправлять текстовые и фото-сообщения покупателям
+- AI-бот: автоматические подсказки ответов + автоотправка
+- Обучение бота через обратную связь (accepted/edited/rejected)
+- Уведомления в Telegram о новых сообщениях
+- Аналитика: статистика чатов, сообщений, эффективности бота
+- Финансы: P&L из Google Sheets
+- Вебхуки Avito для real-time обновлений
+
+Бизнес-модель: ресейл одежды/обуви/аксессуаров через несколько аккаунтов Avito.
+CRM объединяет мессенджеры всех аккаунтов в единый интерфейс.
+Доступ через Telegram Mini App.
+
+
+## 2. ИНФРАСТРУКТУРА
+
+Сервер:       VPS Linux (Ubuntu)
+Домен:        souljaion.ru (HTTPS)
+Стек:         Python 3.11 / FastAPI 0.115.8 / SQLAlchemy 2.0 / PostgreSQL 16
+ORM:          SQLAlchemy 2.0 с psycopg3 (синхронный)
+Миграции:     Alembic (8 миграций)
+HTTP-клиент:  httpx 0.28.1
+Планировщик:  APScheduler (BackgroundScheduler, Europe/Moscow)
+Шифрование:   cryptography (Fernet) — OAuth секреты и токены
+Auth:         Telegram WebApp + JWT (HS256, 72ч)
+Деплой:       Docker + Docker Compose + nginx reverse proxy
+Тесты:        нет
+
+UI:           SPA (vanilla JS), Telegram Mini App
+              Sidebar (список чатов) + Main (переписка)
+
+Контейнеры:
+  - avito_crm_backend: FastAPI (порт 8000)
+  - avito_crm_db: PostgreSQL 16 (порт 5432, только localhost)
+  - nginx: 80/443 (proxy_pass -> 8000)
+
+Запуск: docker-compose up -d
+БД: postgresql+psycopg://postgres:postgres@db:5432/avito_crm
+
+
+## 3. БАЗА ДАННЫХ — ВСЕ ТАБЛИЦЫ
+
+11 таблиц. Подключение: postgresql+psycopg://postgres:postgres@db:5432/avito_crm
+
+### avito_accounts
+  Аккаунты Avito с OAuth2 credentials.
+  Поля: id, name, avito_user_id (BigInt, unique),
+        avito_name, avito_email, avito_phone, avito_profile_url,
+        auth_type (default "client_credentials"),
+        client_id, client_secret_encrypted,
+        is_active (Boolean), created_at, updated_at
+  Связи: tokens (1:N), chats (1:N), items (1:N), managers (M:N)
+
+### avito_tokens
+  OAuth токены (зашифрованы Fernet).
+  Поля: id, account_id (FK CASCADE), access_token_encrypted,
+        refresh_token_encrypted, token_type, scope,
+        expires_at, created_at, updated_at
+
+### chats
+  Чаты Avito Messenger.
+  Поля: id, account_id (FK CASCADE), avito_chat_id (indexed),
+        chat_type, item_id (BigInt),
+        created_ts, updated_ts (Unix timestamps),
+        last_message_id, last_message_text, last_message_type, last_message_at,
+        unread_count, is_read,
+        status ("new"/"in_progress"/"ordered"/"done"),
+        note (Text), bot_suggestion (Text), bot_suggestion_at,
+        raw_json (JSON), created_at, updated_at
+  Связи: messages (1:N), users (1:N)
+
+### chat_users
+  Участники чата (покупатель и продавец).
+  Поля: id, chat_id (FK CASCADE), avito_user_id (BigInt),
+        name, avatar_url, profile_url, raw_json, created_at, updated_at
+
+### messages
+  Сообщения в чатах.
+  Поля: id, chat_id (FK CASCADE), avito_message_id (indexed),
+        author_id (BigInt), direction ("in"/"out"),
+        type ("text"/"image"/"system"/...),
+        text, content_json, quote_json,
+        is_read, read_ts, created_ts, published_at,
+        raw_json, created_at, updated_at
+
+### items
+  Объявления Avito.
+  Поля: id, account_id (FK CASCADE), avito_item_id (BigInt, indexed),
+        title, price (Integer), price_string,
+        status ("active"/"old"/"removed"/"blocked"/"rejected"),
+        url, image_url, category_id, category_name, address,
+        raw_json, created_at, updated_at
+
+### webhook_events
+  Входящие вебхуки Avito (для аудита).
+  Поля: id, account_id (FK SET NULL), event_id (indexed),
+        payload_type, payload_json,
+        status ("received"/"processed"/"error"/"ignored"),
+        received_at, processed_at
+
+### managers
+  Менеджеры CRM (пользователи Telegram).
+  Поля: id, telegram_id (BigInt, unique), username,
+        first_name, last_name, is_active, created_at, updated_at
+  Связи: accounts (M:N через manager_accounts)
+
+### manager_accounts
+  Связь менеджер-аккаунт (M:N junction).
+  Поля: manager_id (FK CASCADE), account_id (FK CASCADE) — составной PK
+
+### telegram_subscribers
+  Подписчики Telegram-уведомлений.
+  Поля: id, telegram_id (BigInt, unique), username,
+        first_name, is_active, created_at
+
+### bot_training_examples
+  Обучающие примеры для AI-бота.
+  Поля: id, chat_id (FK CASCADE), buyer_message (Text),
+        bot_suggestion (Text), action ("accepted"/"edited"/"rejected"),
+        final_answer (Text), created_at
+
+
+## 4. ЭНДПОИНТЫ API
+
+### Аутентификация
+  POST /api/auth/telegram          — логин через Telegram WebApp (initData -> JWT)
+  GET  /api/auth/me                — проверка JWT токена
+
+### Аккаунты (/api/accounts)
+  POST /api/accounts/connect       — подключить аккаунт Avito (client_id, client_secret)
+  GET  /api/accounts               — список аккаунтов
+  POST /api/accounts/{id}/sync     — ручная синхронизация чатов
+  POST /api/accounts/{id}/subscribe-webhook — подписка на вебхуки Avito
+
+### Чаты (/api/chats)
+  GET  /api/chats                  — список чатов (фильтр по account_id)
+  POST /api/chats/sync             — синхронизация чатов (account_id, unread_only)
+  GET  /api/chats/{id}/messages    — сообщения чата
+  POST /api/chats/{id}/messages/sync — синхронизация сообщений чата
+  POST /api/chats/{id}/send        — отправить сообщение (text или image_id)
+  POST /api/chats/{id}/upload-image — загрузить фото для отправки
+  POST /api/chats/{id}/read        — пометить прочитанным в Avito
+  PATCH /api/chats/{id}            — обновить статус/заметку/подсказку бота
+  POST /api/chats/{id}/bot-suggest — получить AI-подсказку ответа
+  POST /api/chats/{id}/bot-feedback — обратная связь по подсказке бота
+
+### Объявления (/api/items)
+  GET  /api/items                  — список объявлений (фильтр по account_id)
+  POST /api/items/sync             — синхронизация объявлений
+
+### Вебхуки
+  POST /api/webhooks/avito         — приём вебхуков от Avito
+
+### Telegram-бот
+  POST /api/telegram/bot           — вебхук Telegram бота
+  Команды: /start (подписка), /stop (отписка), /stats (статистика)
+
+### Статистика
+  GET  /api/stats                  — сводная статистика (period: today/week/month)
+    Возвращает: chats (total, by_account, by_status, new_today, new_7days),
+    messages (sent/received today/7days), bot (total, accepted, edited, rejected, acceptance_rate),
+    avg_response_seconds, top_items, weekday_activity, daytime_activity
+
+### Обучение бота
+  GET  /api/bot-training           — примеры обучения (фильтр по action, пагинация)
+
+### Финансы
+  GET  /api/finance                — P&L из Google Sheets (months, years)
+
+### Статические страницы
+  GET  /                           — главная SPA (CRM)
+  GET  /tg                         — точка входа Telegram Mini App
+  GET  /stats                      — страница статистики
+  GET  /training                   — страница обучения бота
+  GET  /finance                    — страница финансов
+  GET  /health                     — healthcheck (без авторизации)
+
+
+## 5. СЕРВИСЫ (БИЗНЕС-ЛОГИКА)
+
+### AvitoAuthService (avito_auth.py)
+  OAuth2 Client Credentials: получение и обновление токенов.
+  Токены хранятся зашифрованными (Fernet). Авто-рефреш при истечении.
+
+### AvitoUserService (avito_user.py)
+  Получение профиля текущего пользователя Avito (имя, email, телефон).
+
+### AvitoItemsService (avito_items.py)
+  Синхронизация объявлений: пагинация, upsert в БД.
+
+### AvitoMessengerService (avito_messenger.py)
+  Основной сервис чатов: получение чатов/сообщений, отправка текста/фото,
+  загрузка изображений, подписка на вебхуки, upsert чатов/сообщений.
+  Retry: 3 попытки с exponential backoff.
+
+### WebhookService (webhook_service.py)
+  Обработка вебхуков Avito: сохранение события, обновление чата,
+  сохранение сообщения, Telegram-уведомление, вызов AI-бота.
+
+### BotService (bot_service.py)
+  Вызов внешнего AI-сервиса для подсказок ответов.
+  POST на bot_service_url, timeout 60с. Ответ: reply, auto_send_requested, category.
+
+### TelegramNotifyService (telegram_notify.py)
+  Отправка уведомлений подписчикам через Telegram Bot API.
+
+
+## 6. APScheduler — 3 ФОНОВЫХ ЗАДАЧИ
+
+  job_sync_chats   — каждую 1 минуту (синхронизация чатов всех аккаунтов)
+  job_sync_items   — каждые 30 минут (синхронизация объявлений)
+  job_sync_unread  — каждые 30 секунд (сверка непрочитанных с Avito API)
+
+job_sync_unread компенсирует пропущенные вебхуки:
+  - Если в Avito unread, а в CRM нет → ставит unread_count=1
+  - Если в CRM unread, а в Avito нет → обнуляет unread_count
+
+
+## 7. АУТЕНТИФИКАЦИЯ И БЕЗОПАСНОСТЬ
+
+### Telegram WebApp Auth
+  1. Пользователь открывает Mini App в Telegram
+  2. Telegram передаёт initData (HMAC-подписанные данные)
+  3. Backend проверяет HMAC-SHA256 подпись через bot token
+  4. Проверка telegram_id в whitelist (allowed_telegram_ids)
+  5. Создание/обновление Manager в БД
+  6. Генерация JWT (HS256, 72ч)
+
+### Шифрование
+  OAuth секреты и токены зашифрованы Fernet (AES-128-CBC).
+  Ключ: SHA256 от encryption_key из .env.
+
+### Доступ без авторизации
+  /health, /api/auth/telegram, /api/webhooks/avito, /api/telegram/bot
+
+
+## 8. UI (FRONTEND)
+
+SPA на vanilla JS, 4 HTML-страницы:
+
+### index.html — Главная CRM
+  Sidebar: список чатов с поиском и фильтрами по статусу
+  Main: переписка, отправка текста/фото, панель AI-бота
+  Модальное окно подключения аккаунта
+  Бейджи непрочитанных, селектор аккаунтов
+
+### stats.html — Статистика
+  Дашборд с графиками (bar, line, pie)
+  Метрики: чаты, сообщения, acceptance rate бота
+  Активность по дням недели и времени суток, топ товаров
+
+### training.html — Обучение бота
+  Список примеров с обратной связью (accepted/edited/rejected)
+  Статистика эффективности бота
+
+### finance.html — Финансы
+  P&L из Google Sheets: выручка, расходы, прибыль, маржа
+
+CSS: 5 файлов (index, chat-list, chat-view, bot-panel, mobile)
+JS:  8 модулей (app, chat-view, chat-list, bot-panel, api, utils, filters, mobile)
+
+
+## 9. СТАТУСЫ
+
+### Статусы чатов
+  new         — новый чат
+  in_progress — в работе
+  ordered     — заказ оформлен
+  done        — завершён
+
+### Статусы объявлений (items)
+  active   — активно на Avito
+  old      — снято
+  removed  — удалено
+  blocked  — заблокировано
+  rejected — отклонено
+
+### Действия по подсказке бота
+  accepted — принята как есть
+  edited   — отредактирована и отправлена
+  rejected — отклонена
+
+
+## 10. ОБРАБОТКА ВЕБХУКОВ AVITO
+
+  Avito POST -> /api/webhooks/avito
+    ↓
+  WebhookService.store_event() — сохранение в webhook_events
+    ↓
+  WebhookService.process_event()
+    ├→ Обновление чата (unread_count, last_message)
+    ├→ Сохранение сообщения (upsert_message)
+    ├→ Telegram-уведомление подписчикам
+    └→ Вызов AI-бота для подсказки ответа
+
+
+## 11. ДЕПЛОЙ
+
+Docker Compose: 2 контейнера (backend + PostgreSQL 16).
+entrypoint.sh: ожидание БД (30 попыток) → alembic upgrade head → uvicorn.
+nginx на хосте проксирует 443 → 8000.
+
+Google Sheets API ключ монтируется как volume:
+  /root/avito-bot/google_sheets_api.json → /app/google_sheets_api.json
+
+Порты: backend 8000 (только localhost), PostgreSQL 5432 (только localhost).
+
+
+## 12. СТАРТОВАЯ ФРАЗА ДЛЯ НОВОГО ЧАТА
+
+---
+Я работаю над проектом Avito CRM.
+Путь: /home/claude2/avito-crm-new/avito_crm_mvp
+Контекст: cat /home/claude2/avito-crm-context.txt
+
+Стек: FastAPI + SQLAlchemy 2.0 + PostgreSQL 16 (psycopg3) + httpx + APScheduler
+Домен: souljaion.ru (HTTPS), Docker Compose (backend 8000 + PostgreSQL 5432)
+БД: postgresql+psycopg://postgres:postgres@db:5432/avito_crm
+
+11 таблиц, 9 роутеров, 7 сервисов, 3 фоновых задачи (APScheduler).
+Auth: Telegram WebApp + JWT, шифрование: Fernet.
+UI: SPA (vanilla JS), Telegram Mini App.
+
+Прочитай файл контекста и начнём.
+---
+
+
+================================================================================
+  СПРАВОЧНИК ФАЙЛОВ
+================================================================================
+
+backend/app/main.py              — FastAPI app, lifespan, static mount
+backend/app/scheduler.py         — APScheduler: 3 джоба
+backend/app/core/config.py       — Pydantic Settings
+backend/app/core/db.py           — SQLAlchemy engine/session
+backend/app/core/security.py     — Fernet encrypt/decrypt
+backend/app/core/auth.py         — Telegram WebApp auth + JWT
+
+backend/app/models/              — 11 моделей SQLAlchemy
+  account.py                     — AvitoAccount
+  token.py                       — AvitoToken
+  chat.py                        — Chat, ChatUser
+  message.py                     — Message
+  item.py                        — Item
+  webhook_event.py               — WebhookEvent
+  manager.py                     — Manager, ManagerAccount
+  telegram_subscriber.py         — TelegramSubscriber
+  bot_training_example.py        — BotTrainingExample
+
+backend/app/api/routes/          — 9 роутеров
+  health.py, auth.py, accounts.py, chats.py, items.py,
+  webhooks.py, telegram.py, stats.py, finance.py
+
+backend/app/services/            — 7 сервисов
+  avito_auth.py, avito_user.py, avito_items.py,
+  avito_messenger.py, webhook_service.py,
+  bot_service.py, telegram_notify.py
+
+backend/app/static/              — Frontend SPA
+  index.html, stats.html, training.html, finance.html
+  css/ (5 файлов), js/ (8 модулей)
+
+backend/alembic/                 — 8 миграций
+backend/Dockerfile               — Python 3.11-slim
+backend/docker-compose.yml       — backend + PostgreSQL 16
+backend/entrypoint.sh            — wait for DB + migrate + start

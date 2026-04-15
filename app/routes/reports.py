@@ -29,7 +29,7 @@ async def reports_list(request: Request, db: AsyncSession = Depends(get_db)):
         .limit(50)
     )
     reports = result.scalars().all()
-    return templates.TemplateResponse("reports/list.html", {"request": request, "reports": reports})
+    return templates.TemplateResponse("reports/list.html", {"request": request, "reports": reports, "page_title": "Отчёты"})
 
 
 @router.get("/{report_id}", response_class=HTMLResponse)
@@ -42,7 +42,7 @@ async def report_detail(request: Request, report_id: int, db: AsyncSession = Dep
     report = result.scalar_one_or_none()
     if not report:
         return HTMLResponse("Отчет не найден", status_code=404)
-    return templates.TemplateResponse("reports/detail.html", {"request": request, "report": report})
+    return templates.TemplateResponse("reports/detail.html", {"request": request, "report": report, "page_title": "Отчёты"})
 
 
 @router.post("/fetch/{account_id}")
