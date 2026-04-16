@@ -12,6 +12,7 @@ from app.db import get_db
 from app.models.account import Account
 from app.services.avito_client import AvitoClient
 from app.services.autoload_sync import sync_ads_from_avito
+from app.services.feed_importer import sync_avito_ids_from_feed
 
 router = APIRouter(prefix="/accounts/{account_id}/autoload", tags=["autoload"])
 templates = Jinja2Templates(directory="app/templates")
@@ -107,4 +108,41 @@ async def sync_ads(account_id: int, db: AsyncSession = Depends(get_db)):
         "created": result["created"],
         "synced": result["synced"],
         "skipped": result["skipped"],
+        "avito_ids_filled": result.get("avito_ids_filled", 0),
+        "pass3_matched": result.get("pass3_matched", 0),
+        "pass3_created": result.get("pass3_created", 0),
+    })
+
+
+@router.post("/sync-from-feed")
+async def sync_from_feed(account_id: int, db: AsyncSession = Depends(get_db)):
+    """Download Avito's current XML feed and import avito_ids into our DB."""
+    account = await db.get(Account, account_id)
+    if not account:
+        return JSONResponse({"ok": False, "error": "Аккаунт не найден"}, status_code=404)
+
+    if not account.client_id or not account.client_secret:
+        return JSONResponse(
+            {"ok": False, "error": f"Не заполнены credentials для аккаунта {account.name}"},
+            status_code=400,
+        )
+
+    result = await sync_avito_ids_from_feed(account.id, db)
+    if result.get("error"):
+        return JSONResponse({
+            "ok": False,
+            "error": result["error"],
+            "matched": result.get("matched", 0),
+            "created": result.get("created", 0),
+            "skipped": result.get("skipped", 0),
+            "total_in_feed": result.get("total_in_feed", 0),
+        }, status_code=502)
+
+    return JSONResponse({
+        "ok": True,
+        "matched": result["matched"],
+        "created": result["created"],
+        "skipped": result["skipped"],
+        "total_in_feed": result["total_in_feed"],
+        "error": None,
     })

@@ -380,6 +380,53 @@ class TestDeleteProduct:
         assert product.removed_at is not None
         assert listing.status == "draft"
 
+    @pytest.mark.asyncio
+    async def test_delete_with_avito_id(self):
+        """DELETE product with avito_id returns avito_id in response."""
+        product = _make_product(id=10, status="active", avito_id=12345, account_id=1)
+
+        listing_result = MagicMock()
+        listing_result.scalars.return_value.all.return_value = []
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=product)
+        mock_db.execute = AsyncMock(return_value=listing_result)
+        mock_db.commit = AsyncMock()
+        app = _make_app(mock_db)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.delete("/products/10")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        assert data["avito_id"] == 12345
+        assert data["status"] == "removed"
+        assert product.status == "removed"
+
+    @pytest.mark.asyncio
+    async def test_delete_without_avito_id(self):
+        """DELETE product without avito_id — simple local removal."""
+        product = _make_product(id=12, status="draft", avito_id=None, account_id=1)
+
+        listing_result = MagicMock()
+        listing_result.scalars.return_value.all.return_value = []
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=product)
+        mock_db.execute = AsyncMock(return_value=listing_result)
+        mock_db.commit = AsyncMock()
+        app = _make_app(mock_db)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.delete("/products/12")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        assert data["avito_id"] is None
+        assert product.status == "removed"
+
 
 # ── POST /products/{id}/duplicate ───────────────────────────────────
 
@@ -1408,7 +1455,7 @@ class TestDeleteFromAvito:
 
     @pytest.mark.asyncio
     async def test_delete_avito_with_avito_id(self):
-        """DELETE /products/1/avito calls Avito API and sets status removed."""
+        """DELETE /products/1/avito with avito_id sets removed, mentions feed."""
         product = _make_product(id=1, avito_id=12345, account=_make_account())
         listing = MagicMock()
         listing.status = "published"
@@ -1430,31 +1477,21 @@ class TestDeleteFromAvito:
         mock_db.commit = AsyncMock()
         app = _make_app(mock_db)
 
-        with patch("app.routes.products.AvitoClient") as MockClient, \
-             patch("app.services.avito_client.AvitoClient", MockClient):
-            instance = AsyncMock()
-            instance.delete_ad = AsyncMock()
-            instance.close = AsyncMock()
-            MockClient.return_value = instance
-
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                resp = await client.delete("/products/1/avito")
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.delete("/products/1/avito")
 
         assert resp.status_code == 200
         data = resp.json()
         assert data["ok"] is True
-        assert "Удалено" in data["message"]
+        assert "фида" in data["message"]
         assert product.status == "removed"
         assert listing.status == "draft"
 
     @pytest.mark.asyncio
     async def test_delete_avito_no_avito_id(self):
-        """DELETE /products/1/avito without avito_id just resets status."""
+        """DELETE /products/1/avito without avito_id — removed from program only."""
         product = _make_product(id=1, avito_id=None)
         product.account = None
-
-        listing_result = MagicMock()
-        listing_result.scalars.return_value.all.return_value = []
 
         call_count = [0]
 
@@ -1476,32 +1513,7 @@ class TestDeleteFromAvito:
             resp = await client.delete("/products/1/avito")
 
         assert resp.status_code == 200
-        assert "сброшен" in resp.json()["message"]
-
-    @pytest.mark.asyncio
-    async def test_delete_avito_api_error(self):
-        """DELETE /products/1/avito returns 502 on Avito API error."""
-        product = _make_product(id=1, avito_id=12345, account=_make_account())
-
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = product
-
-        mock_db = AsyncMock()
-        mock_db.execute = AsyncMock(return_value=mock_result)
-        mock_db.commit = AsyncMock()
-        app = _make_app(mock_db)
-
-        with patch("app.routes.products.AvitoClient") as MockClient, \
-             patch("app.services.avito_client.AvitoClient", MockClient):
-            instance = AsyncMock()
-            instance.delete_ad = AsyncMock(side_effect=Exception("Avito down"))
-            instance.close = AsyncMock()
-            MockClient.return_value = instance
-
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                resp = await client.delete("/products/1/avito")
-
-        assert resp.status_code == 502
+        assert "программы" in resp.json()["message"]
 
 
 # ── POST /products/{id}/apply-pack ─────────────────────────────────

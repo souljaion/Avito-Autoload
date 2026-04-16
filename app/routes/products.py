@@ -708,7 +708,27 @@ async def delete_product(product_id: int, db: AsyncSession = Depends(get_db)):
         ls.status = "draft"
 
     await db.commit()
-    return JSONResponse({"ok": True, "message": "Товар будет снят с Авито при следующей выгрузке фида"})
+
+    # Diagnostic: which account's feed will carry the Status=Removed entry.
+    # If avito_id is NULL the item won't be in any feed (nothing for Avito to remove);
+    # if account_id is NULL the item is orphaned and also won't be in any feed.
+    feed_account_id = product.account_id if product.avito_id else None
+    if not feed_account_id and product.avito_id:
+        logger.warning(
+            "delete_product.no_feed_account",
+            product_id=product.id,
+            avito_id=product.avito_id,
+            reason="avito_id present but account_id is NULL — feed will not include this product",
+        )
+
+    return JSONResponse({
+        "ok": True,
+        "status": "removed",
+        "avito_id": product.avito_id,
+        "account_id": product.account_id,
+        "feed_account_id": feed_account_id,
+        "in_feed": feed_account_id is not None,
+    })
 
 
 async def _apply_pack_to_product(db: AsyncSession, product_id: int, pack_id: int, do_uniquify: bool) -> int:
@@ -909,28 +929,13 @@ async def schedule_product(product_id: int, request: Request, db: AsyncSession =
 
 @router.delete("/{product_id}/avito")
 async def delete_from_avito(product_id: int, db: AsyncSession = Depends(get_db)):
-    """Remove ad from Avito and set product status to draft."""
-    from app.services.avito_client import AvitoClient
-
+    """Mark product as removed. Avito will deactivate the ad on next feed upload."""
     result = await db.execute(
         select(Product).options(selectinload(Product.account)).where(Product.id == product_id)
     )
     product = result.scalar_one_or_none()
     if not product:
         return JSONResponse({"ok": False, "error": "Товар не найден"}, status_code=404)
-
-    # Try to delete from Avito if we have avito_id and account
-    avito_deleted = False
-    if product.avito_id and product.account:
-        try:
-            client = AvitoClient(product.account, db)
-            try:
-                await client.delete_ad(product.avito_id)
-                avito_deleted = True
-            finally:
-                await client.close()
-        except Exception as e:
-            return JSONResponse({"ok": False, "error": f"Ошибка Avito API: {e}"}, status_code=502)
 
     product.status = "removed"
     product.removed_at = dt.utcnow()
@@ -945,7 +950,7 @@ async def delete_from_avito(product_id: int, db: AsyncSession = Depends(get_db))
             ls.avito_id = None
 
     await db.commit()
-    msg = "Удалено с Авито" if avito_deleted else "Статус сброшен"
+    msg = "Удалено. Авито снимет при следующей выгрузке фида (~1 час)" if product.avito_id else "Удалено из программы"
     return JSONResponse({"ok": True, "message": msg})
 
 
@@ -975,16 +980,7 @@ async def repost_product(product_id: int, db: AsyncSession = Depends(get_db)):
 
     account = product.account
 
-    # 1. Hide old ad on Avito
-    if product.avito_id:
-        try:
-            client = AvitoClient(account, db)
-            try:
-                await client.delete_ad(product.avito_id)
-            finally:
-                await client.close()
-        except Exception:
-            pass  # Continue even if hide fails
+    # 1. Old ad will be deactivated by Avito when new feed is uploaded (no direct API exists)
 
     # 2. Find last used pack for this account
     usage_result = await db.execute(

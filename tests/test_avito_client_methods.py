@@ -448,42 +448,6 @@ class TestUploadFeed:
 
 
 # ---------------------------------------------------------------------------
-# delete_ad
-# ---------------------------------------------------------------------------
-
-class TestDeleteAd:
-    @pytest.mark.asyncio
-    async def test_delete_ad_404_returns_ok(self, client_pair):
-        c, _ = client_pair
-        resp_404 = MagicMock()
-        resp_404.status_code = 404
-        resp_404.raise_for_status = MagicMock()
-
-        try:
-            with patch.object(c, "_request_with_retry", new_callable=AsyncMock, return_value=resp_404):
-                result = await c.delete_ad(123)
-                assert result["ok"] is True
-        finally:
-            await c.close()
-
-    @pytest.mark.asyncio
-    async def test_delete_ad_success(self, client_pair):
-        c, _ = client_pair
-        resp = MagicMock()
-        resp.status_code = 200
-        resp.text = '{"ok": true}'
-        resp.json.return_value = {"ok": True}
-        resp.raise_for_status = MagicMock()
-
-        try:
-            with patch.object(c, "_request_with_retry", new_callable=AsyncMock, return_value=resp):
-                result = await c.delete_ad(123)
-                assert result == {"ok": True}
-        finally:
-            await c.close()
-
-
-# ---------------------------------------------------------------------------
 # refresh_token
 # ---------------------------------------------------------------------------
 
@@ -622,5 +586,49 @@ class TestGetReportFees:
                               side_effect=Exception("network")):
                 result = await c.get_report_fees(42)
                 assert result == {"fees": [], "total": 0, "report_id": 42}
+        finally:
+            await c.close()
+
+
+# ---------------------------------------------------------------------------
+# get_all_items
+# ---------------------------------------------------------------------------
+
+class TestGetAllItems:
+    @pytest.mark.asyncio
+    async def test_paginates_two_pages(self, client_pair):
+        c, account = client_pair
+        try:
+            page1 = _make_response(json_data={
+                "resources": [
+                    {"id": 1, "title": "Item 1", "price": 100, "status": "active"},
+                    {"id": 2, "title": "Item 2", "price": 200, "status": "active"},
+                ]
+            })
+            page2 = _make_response(json_data={
+                "resources": [
+                    {"id": 3, "title": "Item 3", "price": 300, "status": "active"},
+                ]
+            })
+            with patch.object(c, "_request_with_retry", new_callable=AsyncMock) as mock_req:
+                mock_req.side_effect = [page1, page2]
+                result = await c.get_all_items(per_page=2)
+
+            assert len(result) == 3
+            assert result[0] == {"id": 1, "title": "Item 1", "price": 100, "status": "active"}
+            assert result[2] == {"id": 3, "title": "Item 3", "price": 300, "status": "active"}
+            assert mock_req.call_count == 2
+        finally:
+            await c.close()
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_on_error(self, client_pair):
+        c, account = client_pair
+        try:
+            with patch.object(c, "_request_with_retry", new_callable=AsyncMock) as mock_req:
+                mock_req.side_effect = Exception("Connection refused")
+                result = await c.get_all_items()
+
+            assert result == []
         finally:
             await c.close()

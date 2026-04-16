@@ -430,8 +430,15 @@ async function softDelete(pid, title) {
     if (!confirm(`Удалить "${title}"?`)) return;
     try {
         const resp = await fetch('/products/' + pid, { method: 'DELETE' });
-        if ((await resp.json()).ok) { document.getElementById('row-' + pid)?.remove(); showToast('Удалено', false); updateStatusPills(); }
-        else showToast('Ошибка', true);
+        const data = await resp.json();
+        if (data.ok) {
+            document.getElementById('row-' + pid)?.remove();
+            let msg;
+            if (data.avito_id) msg = 'Удалено. Авито снимет при следующей выгрузке фида (~1 час)';
+            else msg = 'Удалено';
+            showToast(msg, false);
+            updateStatusPills();
+        } else showToast('Ошибка', true);
     } catch(e) { showToast('Ошибка сети', true); }
 }
 

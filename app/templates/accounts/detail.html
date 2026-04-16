@@ -49,6 +49,10 @@
                 onclick="syncAds({{ account.id }})">
             Синхронизировать объявления
         </button>
+        <button id="btn-sync-from-feed" class="btn btn-secondary"
+                onclick="syncFromFeed({{ account.id }})">
+            Получить ID с Авито
+        </button>
     </div>
     <div id="profile-status" style="margin-top:12px;display:none;"></div>
 </div>
@@ -136,7 +140,15 @@ async function syncAds(accountId) {
         const resp = await fetch('/accounts/' + accountId + '/autoload/sync-ads', { method: 'POST' });
         const data = await resp.json();
         if (data.ok) {
-            showToast('Синхронизировано: ' + data.created + ' новых, ' + data.synced + ' обновлено', false);
+            const synced = data.synced || 0;
+            const matched = (data.avito_ids_filled || 0) + (data.pass3_matched || 0);
+            const newOnes = (data.created || 0) + (data.pass3_created || 0);
+            const parts = [
+                'Синхронизировано: ' + synced,
+                'Сопоставлено: ' + matched,
+                'Добавлено новых: ' + newOnes,
+            ];
+            showToast(parts.join(' | '), false);
         } else {
             showToast(data.error || 'Ошибка синхронизации', true);
         }
@@ -144,6 +156,32 @@ async function syncAds(accountId) {
         showToast('Ошибка сети: ' + e.message, true);
     }
     btn.textContent = 'Синхронизировать объявления';
+    btn.disabled = false;
+}
+
+async function syncFromFeed(accountId) {
+    const btn = document.getElementById('btn-sync-from-feed');
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Скачиваю фид...';
+    try {
+        const resp = await fetch('/accounts/' + accountId + '/autoload/sync-from-feed', { method: 'POST' });
+        const data = await resp.json();
+        if (data.ok) {
+            const matched = data.matched || 0;
+            const created = data.created || 0;
+            showToast(
+                'Сопоставлено: ' + matched + ', Создано: ' + created +
+                ' — теперь объявления можно удалять через программу',
+                false
+            );
+        } else {
+            showToast(data.error || 'Ошибка получения ID с Авито', true);
+        }
+    } catch (e) {
+        showToast('Ошибка сети: ' + e.message, true);
+    }
+    btn.textContent = originalText;
     btn.disabled = false;
 }
 </script>
