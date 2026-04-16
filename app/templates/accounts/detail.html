@@ -53,6 +53,15 @@
                 onclick="syncFromFeed({{ account.id }})">
             Получить ID с Авито
         </button>
+        <button id="btn-import-excel" class="btn btn-secondary"
+                onclick="document.getElementById('excel-file-input').click()">
+            Загрузить Excel с Авито
+        </button>
+        <input type="file" id="excel-file-input" accept=".xlsx" style="display:none;"
+               onchange="importExcel({{ account.id }}, this)">
+    </div>
+    <div style="margin-top:8px;font-size:11px;color:#9ca3af;">
+        Скачайте файл в Авито → Автозагрузка → ••• → Скачать файл
     </div>
     <div id="profile-status" style="margin-top:12px;display:none;"></div>
 </div>
@@ -183,6 +192,46 @@ async function syncFromFeed(accountId) {
     }
     btn.textContent = originalText;
     btn.disabled = false;
+}
+
+async function importExcel(accountId, input) {
+    const file = input.files[0];
+    if (!file) return;
+    const btn = document.getElementById('btn-import-excel');
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Импортирую...';
+
+    const fd = new FormData();
+    fd.append('file', file);
+
+    try {
+        const resp = await fetch('/accounts/' + accountId + '/import-excel', {
+            method: 'POST',
+            body: fd,
+        });
+        const data = await resp.json();
+        if (data.ok) {
+            const updated = data.updated || 0;
+            const created = data.created || 0;
+            const photos = data.photos || 0;
+            const errors = data.errors || 0;
+            const parts = [
+                'Обновлено: ' + updated,
+            ];
+            if (created) parts.push('Создано: ' + created);
+            parts.push('Фото: ' + photos);
+            if (errors) parts.push('Ошибок: ' + errors);
+            showToast(parts.join(', ') + ' — данные товаров обновлены', false);
+        } else {
+            showToast(data.error || 'Ошибка импорта', true);
+        }
+    } catch (e) {
+        showToast('Ошибка сети: ' + e.message, true);
+    }
+    btn.textContent = originalText;
+    btn.disabled = false;
+    input.value = '';
 }
 </script>
 {% endblock %}

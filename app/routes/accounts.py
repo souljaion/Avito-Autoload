@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request, Form
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
@@ -10,6 +10,7 @@ from app.db import get_db
 from app.models.account import Account
 from app.models.account_description_template import AccountDescriptionTemplate
 from app.services.avito_client import AvitoClient
+from app.services.excel_importer import import_avito_excel, InvalidExcelError
 
 router = APIRouter(prefix="/accounts", tags=["accounts"])
 templates = Jinja2Templates(directory="app/templates")
@@ -164,3 +165,42 @@ async def update_description_template(account_id: int, request: Request, db: Asy
         db.add(tpl)
     await db.commit()
     return JSONResponse({"ok": True})
+
+
+_MAX_EXCEL_BYTES = 20 * 1024 * 1024  # 20 MB
+
+
+@router.post("/{account_id}/import-excel")
+async def import_excel_endpoint(
+    account_id: int,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Upload an Avito Excel export — match products by avito_id/title and
+    backfill brand/goods_type/photos."""
+    account = await db.get(Account, account_id)
+    if not account:
+        return JSONResponse({"ok": False, "error": "Аккаунт не найден"}, status_code=404)
+
+    fname = (file.filename or "").lower()
+    if not fname.endswith(".xlsx"):
+        return JSONResponse(
+            {"ok": False, "error": "Принимаются только .xlsx файлы"},
+            status_code=400,
+        )
+
+    content = await file.read()
+    if len(content) == 0:
+        return JSONResponse({"ok": False, "error": "Пустой файл"}, status_code=400)
+    if len(content) > _MAX_EXCEL_BYTES:
+        return JSONResponse(
+            {"ok": False, "error": f"Файл слишком большой: {len(content)} > {_MAX_EXCEL_BYTES} байт"},
+            status_code=413,
+        )
+
+    try:
+        counters = await import_avito_excel(account_id, content, db)
+    except InvalidExcelError as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+
+    return JSONResponse({"ok": True, **counters})
