@@ -13,6 +13,7 @@ from app.routes.autoload import router as autoload_router
 from app.services.feed_importer import (
     sync_avito_ids_from_feed,
     _extract_feed_url,
+    _is_own_feed_url,
     _parse_feed_xml,
 )
 
@@ -367,20 +368,45 @@ class TestErrorHandling:
         assert result["error"] == "no feed url"
 
     @pytest.mark.asyncio
-    async def test_network_error_on_download(self):
+    async def test_rejects_own_feed_url(self):
+        """When the profile points back to our own feed (Avito polling our XML),
+        the importer must refuse rather than silently downloading nothing useful."""
+        from app.config import settings
+
         account = _make_account()
         db = AsyncMock()
         db.get = AsyncMock(return_value=account)
+
+        own_url = settings.BASE_URL.rstrip("/") + "/feeds/3.xml"
         client = _build_client(profile={
-            "feeds_data": [{"name": "x", "url": "https://example.com/feed.xml"}],
+            "feeds_data": [],
+            "upload_url": own_url,
         })
 
-        with _patch_httpx_get(exc=httpx.ConnectError("dns fail")):
-            result = await sync_avito_ids_from_feed(1, db, client=client)
-
-        assert result["error"].startswith("feed download failed")
+        result = await sync_avito_ids_from_feed(1, db, client=client)
+        assert result["error"] is not None
+        assert "собственный фид" in result["error"]
         assert result["matched"] == 0
         assert result["created"] == 0
+
+
+# ---------------------------------------------------------------------------
+# _is_own_feed_url helper
+# ---------------------------------------------------------------------------
+
+class TestIsOwnFeedUrl:
+    def test_detects_own_host(self):
+        from app.config import settings
+        own = settings.BASE_URL.rstrip("/") + "/feeds/3.xml"
+        assert _is_own_feed_url(own) is True
+
+    def test_external_host_is_not_own(self):
+        assert _is_own_feed_url("https://monitoring.b2b-help.ru/foo.xml") is False
+        assert _is_own_feed_url("https://example.com/feed.xml") is False
+
+    def test_invalid_url_is_safe(self):
+        assert _is_own_feed_url("") is False
+        assert _is_own_feed_url("not-a-url") is False
 
 
 # ---------------------------------------------------------------------------

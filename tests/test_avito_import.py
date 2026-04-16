@@ -144,10 +144,11 @@ class TestAvitoImport:
         assert existing.price == 6000
 
     @pytest.mark.asyncio
-    async def test_marks_missing_product_as_sold(self):
-        """Product in DB but not in Avito API response should be marked as sold."""
+    async def test_marks_missing_product_as_removed(self):
+        """Product in DB but not in Avito API response → status=removed + removed_at."""
         account = _make_account()
         stale = _make_product(1, avito_id=99999, status="active")
+        stale.removed_at = None
         avito_items = []  # nothing active on Avito
 
         mock_db = _mock_db_for_import(
@@ -164,9 +165,9 @@ class TestAvitoImport:
 
             result = await import_account_items(account, mock_db)
 
-        assert result["marked_sold"] == 1
-        assert stale.status == "sold"
-        assert "sold_at" in stale.extra
+        assert result["marked_removed"] == 1
+        assert stale.status == "removed"
+        assert stale.removed_at is not None
 
     @pytest.mark.asyncio
     async def test_skips_restore_for_manually_removed(self):

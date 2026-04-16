@@ -348,6 +348,7 @@ class TestSyncAdsFromAvito:
         mock_client = AsyncMock()
         mock_client.get_reports = AsyncMock(return_value={"reports": [{"id": 100}]})
         mock_client.get_report_items_all = AsyncMock(return_value=[])
+        mock_client.get_item_details = AsyncMock(return_value={})
         mock_client.get_all_items = AsyncMock(return_value=[
             {"id": 77777, "title": "Adidas Yeezy 350", "price": 8000, "status": "active"},
         ])
@@ -443,6 +444,7 @@ class TestSyncAdsFromAvito:
         mock_client = AsyncMock()
         mock_client.get_reports = AsyncMock(return_value={"reports": [{"id": 100}]})
         mock_client.get_report_items_all = AsyncMock(return_value=[])
+        mock_client.get_item_details = AsyncMock(return_value={})
         mock_client.get_all_items = AsyncMock(return_value=[
             {"id": 555001, "title": "Brand New Sneakers", "price": 7500, "status": "active"},
             {"id": 555002, "title": "Another Pair", "price": 4200, "status": "active"},
@@ -478,6 +480,7 @@ class TestSyncAdsFromAvito:
         mock_client = AsyncMock()
         mock_client.get_reports = AsyncMock(return_value={"reports": [{"id": 100}]})
         mock_client.get_report_items_all = AsyncMock(return_value=[])
+        mock_client.get_item_details = AsyncMock(return_value={})
         mock_client.get_all_items = AsyncMock(return_value=[
             {"id": 999111, "title": "Already Tracked", "price": 3000, "status": "active"},
         ])
@@ -505,6 +508,7 @@ class TestSyncAdsFromAvito:
         mock_client = AsyncMock()
         mock_client.get_reports = AsyncMock(return_value={"reports": [{"id": 100}]})
         mock_client.get_report_items_all = AsyncMock(return_value=[])
+        mock_client.get_item_details = AsyncMock(return_value={})
         mock_client.get_all_items = AsyncMock(return_value=[
             {"id": 700001, "title": "Globally Dup", "price": 1000, "status": "active"},
             {"id": 700002, "title": "Fresh One",    "price": 2000, "status": "active"},
@@ -545,6 +549,7 @@ class TestSyncAdsFromAvito:
         mock_client = AsyncMock()
         mock_client.get_reports = AsyncMock(return_value={"reports": [{"id": 100}]})
         mock_client.get_report_items_all = AsyncMock(return_value=[])
+        mock_client.get_item_details = AsyncMock(return_value={})
         mock_client.get_all_items = AsyncMock(return_value=[
             {"id": 333111, "title": "Nike Pegasus 40", "price": 6500, "status": "active"},
         ])
@@ -579,6 +584,7 @@ class TestSyncAdsFromAvito:
         mock_client = AsyncMock()
         mock_client.get_reports = AsyncMock(return_value={"reports": [{"id": 100}]})
         mock_client.get_report_items_all = AsyncMock(return_value=[])
+        mock_client.get_item_details = AsyncMock(return_value={})
         mock_client.get_all_items = AsyncMock(return_value=[
             # Different case + double spaces → normalized exact match
             {"id": 444222, "title": "  ADIDAS  yeezy 350   boost  ", "price": 9000, "status": "active"},
@@ -616,6 +622,7 @@ class TestSyncAdsFromAvito:
         mock_client = AsyncMock()
         mock_client.get_reports = AsyncMock(return_value={"reports": [{"id": 100}]})
         mock_client.get_report_items_all = AsyncMock(return_value=[])
+        mock_client.get_item_details = AsyncMock(return_value={})
         mock_client.get_all_items = AsyncMock(return_value=[
             # Same first 50 normalized chars; trailing differs → prefix match
             {"id": 555333, "title": "Brooks Glycerin 21 Premium Running Shoes Mens Running White 41",
@@ -652,6 +659,7 @@ class TestSyncAdsFromAvito:
         mock_client = AsyncMock()
         mock_client.get_reports = AsyncMock(return_value={"reports": [{"id": 100}]})
         mock_client.get_report_items_all = AsyncMock(return_value=[])
+        mock_client.get_item_details = AsyncMock(return_value={})
         mock_client.get_all_items = AsyncMock(return_value=[
             {"id": 800001, "title": "new balance 990v6", "price": 17000, "status": "active"},  # match
             {"id": 800002, "title": "Some Brand New Item", "price": 4200, "status": "active"},  # create

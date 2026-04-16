@@ -304,12 +304,33 @@ class TestAddImages:
 
 
 class TestIsReadyImported:
-    def test_imported_with_avito_id_always_ready(self):
-        p = _make_product(status="imported", avito_id=12345, title=None, description=None, price=None, images=[])
+    def test_imported_full_data_is_ready(self):
+        """imported with avito_id + image + brand + goods_type → ready."""
+        p = _make_product(status="imported", avito_id=12345)
+        assert is_ready_for_feed(p) is True
+
+    def test_imported_with_image_url_only_is_ready(self):
+        """image_url alone (no product_images rows) satisfies the image requirement."""
+        p = _make_product(
+            status="imported", avito_id=12345,
+            images=[], image_url="https://cdn.example.com/x.jpg",
+        )
         assert is_ready_for_feed(p) is True
 
     def test_imported_without_avito_id_not_ready(self):
-        p = _make_product(status="imported", avito_id=None, title=None)
+        p = _make_product(status="imported", avito_id=None)
+        assert is_ready_for_feed(p) is False
+
+    def test_imported_without_image_not_ready(self):
+        p = _make_product(status="imported", avito_id=12345, images=[], image_url=None)
+        assert is_ready_for_feed(p) is False
+
+    def test_imported_without_brand_not_ready(self):
+        p = _make_product(status="imported", avito_id=12345, brand=None)
+        assert is_ready_for_feed(p) is False
+
+    def test_imported_without_goods_type_not_ready(self):
+        p = _make_product(status="imported", avito_id=12345, goods_type=None)
         assert is_ready_for_feed(p) is False
 
 

@@ -85,6 +85,8 @@ def _make_efficiency_db(products_data):
         pm.account = acc_mock
         pm.image_url = None
         pm.images = [MagicMock(url="http://img.jpg", is_main=True, sort_order=0)]
+        pm.brand = p.get("brand", "Nike")
+        pm.goods_type = p.get("goods_type", "Мужская обувь")
         pm.extra = p.get("extra") or {}
         pm.published_at = None
         product_mocks.append(pm)
