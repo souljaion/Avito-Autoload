@@ -30,17 +30,29 @@ def _add_element(parent: etree._Element, tag: str, text: str | None, cdata: bool
         el.text = text_str
 
 
-def _add_images(ad: etree._Element, images, base_url: str):
-    if not images:
+def _add_images(ad: etree._Element, images, base_url: str, fallback_url: str | None = None):
+    """Render <Images> block.
+
+    Primary source: product.images relation (sorted by is_main desc, sort_order).
+    Fallback: a single fallback_url (product.image_url) — used for imported
+    items that have an Avito CDN URL but no rows in product_images yet.
+    """
+    if images:
+        imgs_el = etree.SubElement(ad, "Images")
+        sorted_images = sorted(images, key=lambda x: (not x.is_main, x.sort_order))[:10]
+        for img in sorted_images:
+            url = img.url
+            if url.startswith("/"):
+                url = base_url.rstrip("/") + url
+            img_el = etree.SubElement(imgs_el, "Image")
+            img_el.set("url", url)
         return
-    imgs_el = etree.SubElement(ad, "Images")
-    sorted_images = sorted(images, key=lambda x: (not x.is_main, x.sort_order))[:10]
-    for img in sorted_images:
-        url = img.url
-        if url.startswith("/"):
-            url = base_url.rstrip("/") + url
+
+    # Fallback: use product.image_url (typically an Avito CDN URL on imported items)
+    if fallback_url and isinstance(fallback_url, str) and fallback_url.startswith("http"):
+        imgs_el = etree.SubElement(ad, "Images")
         img_el = etree.SubElement(imgs_el, "Image")
-        img_el.set("url", url)
+        img_el.set("url", fallback_url)
 
 
 _SHOE_GOODS_TYPES = {"Мужская обувь", "Женская обувь"}
@@ -63,11 +75,20 @@ def is_ready_for_feed(product: Product, has_account_template: bool = False) -> b
     If has_account_template=True and use_custom_description=False,
     description is considered filled (comes from account template at feed time).
 
-    Imported products with avito_id are always ready — Avito already has all
-    the data, we just need to include them in the feed to take them under management.
+    Imported products require avito_id + at least one image source + brand +
+    goods_type. Avito validates the full <Ad> block in the feed regardless of
+    <AvitoId>, so missing required fields cause Avito to reject the whole feed.
     """
-    # Imported products with avito_id are always feed-ready
-    if product.status == "imported" and product.avito_id:
+    # Imported products: minimal viable Ad — Avito won't accept feed entries
+    # without GoodsType / Brand / Images even if AvitoId is present.
+    if product.status == "imported":
+        if not product.avito_id:
+            return False
+        has_image = bool(product.images) or bool(product.image_url)
+        if not has_image:
+            return False
+        if not product.brand or not product.goods_type:
+            return False
         return True
 
     if not product.title:
@@ -128,7 +149,7 @@ def build_ad_element(product: Product, account: Account, base_url: str, descript
     if product.goods_type not in _SHOE_GOODS_TYPES:
         _add_element(ad, "MaterialsOdezhda", product.material)
 
-    _add_images(ad, product.images, base_url)
+    _add_images(ad, product.images, base_url, fallback_url=product.image_url)
 
     # Delivery
     delivery_val = extra.get("delivery")
@@ -199,8 +220,10 @@ async def generate_feed(account_id: int, db: AsyncSession) -> tuple[str, int]:
     root = etree.Element("Ads", formatVersion="3", target="Avito.ru")
 
     included = 0
+    skipped_invalid = 0
     for product in products:
         if not is_ready_for_feed(product, has_account_template=bool(account_description)):
+            skipped_invalid += 1
             continue
         # If product doesn't use custom description, substitute account template
         effective_description = product.description
@@ -210,7 +233,10 @@ async def generate_feed(account_id: int, db: AsyncSession) -> tuple[str, int]:
         root.append(ad)
         included += 1
 
-    logger.info("feed_build", account=account.name, active=included, removed=len(removed_products))
+    if skipped_invalid:
+        logger.info("feed_build.skipped_invalid", account=account.name, count=skipped_invalid)
+    logger.info("feed_build", account=account.name, active=included,
+                removed=len(removed_products), skipped_invalid=skipped_invalid)
 
     # Add removed products with <Status>Removed</Status>
     for product in removed_products:

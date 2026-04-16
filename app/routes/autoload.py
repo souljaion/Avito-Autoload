@@ -70,6 +70,7 @@ async def update_profile(
 async def trigger_upload(
     request: Request, account_id: int, db: AsyncSession = Depends(get_db)
 ):
+    import httpx
     account = await db.get(Account, account_id)
     if not account:
         return HTMLResponse("Аккаунт не найден", status_code=404)
@@ -79,6 +80,16 @@ async def trigger_upload(
         result = await client.upload()
         logger.info("Upload triggered for account %s: %s", account_id, result)
         return _redirect_account(account_id, success="Upload запущен")
+    except httpx.HTTPStatusError as e:
+        code = e.response.status_code
+        if code == 429:
+            msg = "Avito лимит: выгрузка уже запущена, повторите через 1 час."
+        elif code == 404:
+            msg = "Avito API endpoint /autoload/v1/upload недоступен."
+        else:
+            msg = f"Avito API: HTTP {code}"
+        logger.warning("Upload failed for account %s: %s", account_id, msg)
+        return _redirect_account(account_id, error=msg)
     except Exception as e:
         logger.exception("Upload failed for account %s: %s", account_id, e)
         return _redirect_account(account_id, error="Ошибка загрузки фида")

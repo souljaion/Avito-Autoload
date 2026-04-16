@@ -128,17 +128,20 @@ class AvitoClient:
     async def update_profile(self, feed_url: str, feed_name: str | None = None) -> dict:
         """Update autoload profile with new feed URL (v2 API with feeds_data).
 
-        Preserves all fields from the current profile so Avito-managed keys
-        like uploadMode and allow_pay_over_limit aren't dropped (Avito returns
-        400 "Запрос сформирован неправильно" if they're missing).
+        Strategy: take the current profile as a base, override only feeds_data,
+        and POST the merged payload. This preserves Avito-managed fields like
+        uploadMode and allow_pay_over_limit that, if omitted, cause a 400
+        "Запрос сформирован неправильно".
         """
         current = await self.get_profile()
 
+        # Start from current state so we don't drop unknown fields
         payload = dict(current)
         payload["feeds_data"] = [{
             "feed_name": feed_name or "default",
             "feed_url": feed_url,
         }]
+        # Ensure required defaults if Avito returned nulls
         if not payload.get("schedule"):
             payload["schedule"] = [{
                 "rate": -1,
@@ -147,6 +150,7 @@ class AvitoClient:
             }]
         if "autoload_enabled" not in payload or payload["autoload_enabled"] is None:
             payload["autoload_enabled"] = True
+        # Drop nulls — Avito sometimes rejects null fields
         payload = {k: v for k, v in payload.items() if v is not None}
 
         headers = await self._headers()
@@ -158,19 +162,26 @@ class AvitoClient:
             data = resp.json()
             error = data.get("error", {})
             msg = error.get("message", str(data)) if isinstance(error, dict) else str(error)
-            logger.warning("update_profile.400", account_id=self.account.id,
-                           payload_keys=list(payload.keys()), avito_error=msg)
+            logger.warning("update_profile.400", account_id=self.account.id, payload_keys=list(payload.keys()), avito_error=msg)
             raise ValueError(f"Avito отклонил запрос: {msg}")
         resp.raise_for_status()
         return await self.get_profile()
 
     async def upload(self) -> dict:
+        """Trigger Avito to download our feed from the URL stored in profile.
+
+        Uses v1/upload — v2/upload was removed by Avito (returns 404).
+        """
         headers = await self._headers()
         resp = await self._request_with_retry(
-            "POST", f"{AVITO_API_BASE}/autoload/v2/upload", headers=headers,
+            "POST", f"{AVITO_API_BASE}/autoload/v1/upload", headers=headers,
         )
         resp.raise_for_status()
-        return resp.json()
+        try:
+            return resp.json()
+        except Exception:
+            # v1/upload returns empty body on success
+            return {"ok": True}
 
     async def upload_feed(self, xml_bytes: bytes, filename: str = "feed.xml") -> dict:
         """Upload XML feed file to Avito Autoload API via multipart/form-data."""
