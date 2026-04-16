@@ -344,6 +344,15 @@ async def analytics_efficiency(db: AsyncSession = Depends(get_db)):
             published_at_str = None
             days_ago = None
 
+        # Can the user delete via the feed (Status=Removed) → Avito will deactivate?
+        # Mirrors is_ready_for_feed() requirements: Avito only accepts ad blocks
+        # with avito_id + image + brand + goods_type. Without these the entry
+        # would fail validation and the deletion never reaches Avito.
+        has_image_for_feed = bool(p.images) or bool(p.image_url)
+        can_delete_via_feed = bool(
+            p.avito_id and has_image_for_feed and p.brand and p.goods_type
+        )
+
         items.append({
             "product_id": p.id,
             "title": p.title,
@@ -361,6 +370,9 @@ async def analytics_efficiency(db: AsyncSession = Depends(get_db)):
             "published_at": published_at_str,
             "days_ago": days_ago,
             "avito_messages": (p.extra or {}).get("avito_messages") or None,
+            "can_delete_via_feed": can_delete_via_feed,
+            "brand": p.brand,
+            "goods_type": p.goods_type,
         })
 
     last_sync_result = await db.execute(select(func.max(ItemStats.captured_at)))

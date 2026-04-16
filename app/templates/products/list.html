@@ -221,10 +221,13 @@ function renderTable(items) {
             }
         }
 
+        const avitoLinkSmall = ls.avito_id
+            ? ` <a href="https://www.avito.ru/items/${ls.avito_id}" target="_blank" rel="noopener" style="color:#9ca3af;font-size:11px;text-decoration:none;margin-left:4px;" title="Открыть на Авито" onclick="event.stopPropagation();">↗</a>`
+            : '';
         html += `<tr data-product-id="${ls.product_id}">
             <td><input type="checkbox" class="row-cb" value="${ls.product_id}" onchange="onRowCheck()" style="width:auto;"></td>
             <td>${img}</td>
-            <td><a href="/products/${ls.product_id}">${ls.title}</a>
+            <td><a href="/products/${ls.product_id}">${ls.title}</a>${avitoLinkSmall}
                 ${ls.price ? `<span style="color:var(--text-muted);font-size:12px;margin-left:6px;">${ls.price.toLocaleString('ru-RU')} &#8381;</span>` : ''}</td>
             <td><span class="badge badge-blue" style="font-size:10px;">${ls.account}</span></td>
             <td style="text-align:center;">${ls.avito_id ? `<span title="avito_id: ${ls.avito_id}" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${pStatus==='active'||pStatus==='published'?'#43a047':pStatus==='paused'?'#e53935':'#9e9e9e'};"></span>` : ''}</td>

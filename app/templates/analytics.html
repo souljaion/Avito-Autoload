@@ -370,18 +370,40 @@ function renderEffTable() {
             ? `<img src="${p.image}" style="width:48px;height:48px;object-fit:cover;border-radius:6px;border:1px solid var(--border);" onerror="this.style.display='none'">`
             : `<div class="no-thumb" style="width:48px;height:48px;">?</div>`;
         const daysAgoText = p.days_ago !== null ? `<div style="font-size:10px;color:#9ca3af;">${p.days_ago} дн. назад</div>` : '';
+        const avitoLink = p.avito_id
+            ? `<a href="https://www.avito.ru/items/${p.avito_id}" target="_blank" rel="noopener" style="font-size:11px;color:#9ca3af;text-decoration:none;margin-left:6px;" title="Открыть на Авито">↗</a>`
+            : '';
+        const escTitle = p.title.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+        let actionHtml;
+        if (p.can_delete_via_feed) {
+            actionHtml = `<button class="btn btn-danger btn-sm" onclick="softDeleteProduct(${p.product_id}, '${escTitle}', this)" title="Удалить через программу">&#x1F5D1;</button>`;
+        } else {
+            const missing = [];
+            if (!p.avito_id) missing.push('avito_id');
+            if (!p.image) missing.push('фото');
+            if (!p.brand) missing.push('бренд');
+            if (!p.goods_type) missing.push('вид товара');
+            const tooltip = p.avito_id
+                ? `Нельзя удалить через программу: нет ${missing.join(', ')}. Удалите объявление вручную на Авито.`
+                : 'Объявление не синхронизировано с Авито.';
+            const cantBtn = `<button class="btn btn-sm" disabled style="background:#fef3c7;color:#92400e;border:1px solid #fbbf24;cursor:not-allowed;" title="${tooltip}">&#x26A0;</button>`;
+            const openLink = p.avito_id
+                ? ` <a href="https://www.avito.ru/items/${p.avito_id}" target="_blank" rel="noopener" style="font-size:11px;color:#667eea;text-decoration:none;margin-left:4px;" title="Открыть на Авито">Открыть на Авито →</a>`
+                : '';
+            actionHtml = cantBtn + openLink;
+        }
         html += `<tr>
             <td><input type="checkbox" class="eff-cb" value="${p.product_id}" data-marker="${p.marker}" onchange="updateEffBulk()" style="width:auto;cursor:pointer;"></td>
             <td>${markerHtml}</td>
             <td>${imgHtml}</td>
-            <td style="max-width:250px;"><div>${p.title}</div><span class="badge badge-blue" style="font-size:10px;">${p.account_name||'—'}</span></td>
+            <td style="max-width:250px;"><div>${p.title}${avitoLink}</div><span class="badge badge-blue" style="font-size:10px;">${p.account_name||'—'}</span></td>
             <td style="font-weight:600;">${p.views_total !== null && p.views_total !== undefined ? p.views_total : '—'}</td>
             <td>${_todayCell(p.views_today)}</td>
             <td style="font-weight:600;">${p.contacts_total !== null && p.contacts_total !== undefined ? p.contacts_total : '—'}</td>
             <td>${_todayCell(p.contacts_today)}</td>
             <td style="white-space:nowrap;">${p.published_at || '—'}${daysAgoText}</td>
             <td style="text-align:right;white-space:nowrap;">
-                <button class="btn btn-danger btn-sm" onclick="softDeleteProduct(${p.product_id}, '${p.title.replace(/'/g,"\\'")}', this)" title="Удалить">&#x1F5D1;</button>
+                ${actionHtml}
             </td></tr>`;
     }
     html += '</tbody></table>';
