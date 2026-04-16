@@ -17,11 +17,11 @@
 @media (max-width:700px) { .metric-row { grid-template-columns:repeat(3,1fr); } }
 @media (max-width:500px) { .metric-row { grid-template-columns:repeat(2,1fr); } }
 
-.hourly-chart { display:flex; gap:2px; align-items:flex-end; height:60px; margin-bottom:20px; padding:0 4px; }
-.hourly-bar { flex:1; border-radius:3px 3px 0 0; min-height:4px; position:relative; display:flex; align-items:flex-end; justify-content:center; }
+.hourly-chart { display:flex; gap:2px; align-items:flex-end; height:60px; margin-bottom:20px; padding:6px 4px 18px; background:#fafbff; border-radius:6px; }
+.hourly-bar { flex:1; border-radius:3px 3px 0 0; min-height:6px; position:relative; display:flex; align-items:flex-end; justify-content:center; }
 .hourly-bar .bar-label { font-size:8px; color:#fff; font-weight:600; padding-bottom:2px; }
 .hourly-bar .hour-label { position:absolute; bottom:-14px; font-size:8px; color:#9ca3af; }
-.bar-empty { background:#e5e7eb; }
+.bar-empty { background:#eef0f5; }
 .bar-green { background:#c0dd97; }
 .bar-amber { background:#fac775; }
 .bar-red { background:#f09595; }
@@ -147,18 +147,22 @@ function switchTab(tab, btn) {
 
 function renderHourlyChart(hourly, containerId) {
     const el = document.getElementById(containerId);
+    if (!el) return;
+    if (!Array.isArray(hourly) || hourly.length !== 24) {
+        hourly = new Array(24).fill(0);
+    }
     const max = Math.max(1, ...hourly);
     let html = '';
     for (let h = 0; h < 24; h++) {
-        const v = hourly[h] || 0;
-        const pct = Math.max(5, (v / max) * 100);
+        const v = Number(hourly[h]) || 0;
+        const pct = v > 0 ? Math.max(15, (v / max) * 100) : 25;
         let cls = 'bar-empty';
         if (v >= 5) cls = 'bar-red';
         else if (v >= 3) cls = 'bar-amber';
         else if (v >= 1) cls = 'bar-green';
         const label = v > 0 ? `<span class="bar-label">${v}</span>` : '';
         const hourLabel = h % 3 === 0 ? `<span class="hour-label">${h}</span>` : '';
-        html += `<div class="hourly-bar ${cls}" style="height:${v > 0 ? pct : 5}%;">${label}${hourLabel}</div>`;
+        html += `<div class="hourly-bar ${cls}" style="height:${pct}%;" title="${h}:00 — ${v}">${label}${hourLabel}</div>`;
     }
     el.innerHTML = html;
 }

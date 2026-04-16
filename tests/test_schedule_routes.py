@@ -123,6 +123,38 @@ class TestScheduleOverview:
         assert "hourly_load" in data
 
 
+class TestHourlyLoadShape:
+    """Hourly load chart consumer requires exactly 24 numeric elements."""
+
+    @pytest.mark.asyncio
+    async def test_overview_hourly_load_is_24_numbers(self):
+        mock_db = _empty_db()
+        app = _make_app(mock_db)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get("/api/schedule/overview")
+        assert resp.status_code == 200
+        hl = resp.json()["hourly_load"]
+        assert isinstance(hl, list)
+        assert len(hl) == 24
+        for v in hl:
+            assert isinstance(v, int)
+            assert v >= 0
+
+    @pytest.mark.asyncio
+    async def test_account_hourly_load_is_24_numbers(self):
+        mock_db = _empty_db()
+        app = _make_app(mock_db)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get("/api/schedule/1")
+        assert resp.status_code == 200
+        hl = resp.json()["hourly_load"]
+        assert isinstance(hl, list)
+        assert len(hl) == 24
+        for v in hl:
+            assert isinstance(v, int)
+            assert v >= 0
+
+
 class TestScheduleAccountData:
     @pytest.mark.asyncio
     async def test_scheduled_products_for_account(self):
