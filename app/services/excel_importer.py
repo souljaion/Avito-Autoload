@@ -73,12 +73,21 @@ def _int(val) -> int | None:
         return None
 
 
+def _upgrade_to_https(url: str) -> str:
+    """Avito Excel exports use http:// for photo URLs. Our /analytics page is
+    served over HTTPS, so http:// images get blocked as mixed content. Force
+    https:// — Avito's image servers accept both schemes."""
+    if url.startswith("http://"):
+        return "https://" + url[len("http://"):]
+    return url
+
+
 def _split_photos(raw: str | None) -> list[str]:
-    """Split "|"-separated photo URLs, filter to http(s)."""
+    """Split "|"-separated photo URLs, filter to http(s), upgrade to https."""
     if not raw:
         return []
     parts = [p.strip() for p in raw.split("|")]
-    return [p for p in parts if p.startswith("http")]
+    return [_upgrade_to_https(p) for p in parts if p.startswith("http")]
 
 
 def _parse_workbook_bytes(file_bytes: bytes) -> list[dict]:

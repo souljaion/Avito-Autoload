@@ -73,13 +73,15 @@ class TestInt:
 
 
 class TestSplitPhotos:
-    def test_pipe_separated(self):
+    def test_pipe_separated_upgrades_http_to_https(self):
+        # http:// is upgraded to https:// to avoid mixed-content blocking on
+        # our HTTPS pages. https:// stays as-is.
         raw = "http://a/1 | http://b/2 | https://c/3"
-        assert _split_photos(raw) == ["http://a/1", "http://b/2", "https://c/3"]
+        assert _split_photos(raw) == ["https://a/1", "https://b/2", "https://c/3"]
 
     def test_filter_non_http(self):
         raw = "http://a | not-a-url | https://b"
-        assert _split_photos(raw) == ["http://a", "https://b"]
+        assert _split_photos(raw) == ["https://a", "https://b"]
 
     def test_empty(self):
         assert _split_photos(None) == []
@@ -87,7 +89,7 @@ class TestSplitPhotos:
 
     def test_trailing_pipe(self):
         # Avito exports often have trailing " | " with empty last segment
-        assert _split_photos("http://a | http://b | ") == ["http://a", "http://b"]
+        assert _split_photos("http://a | http://b | ") == ["https://a", "https://b"]
 
 
 # ---------------------------------------------------------------------------
@@ -241,8 +243,8 @@ class TestRowToUpdates:
         assert out["goods_subtype"] == "Кроссовки"
         assert out["size"] == "42"
         assert out["color"] == "Белый"
-        assert out["image_url"] == "http://a/1.jpg"
-        assert out["_photos"] == ["http://a/1.jpg", "http://b/2.jpg"]
+        assert out["image_url"] == "https://a/1.jpg"
+        assert out["_photos"] == ["https://a/1.jpg", "https://b/2.jpg"]
         assert out["description"] == "Кроссовки оригинал"
 
     def test_empty_fields_omitted(self):
