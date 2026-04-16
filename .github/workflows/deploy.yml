@@ -1,4 +1,4 @@
-name: Test & Deploy
+name: Deploy
 
 on:
   push:
@@ -6,7 +6,9 @@ on:
 
 jobs:
   test:
+    name: Run tests
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     services:
       postgres:
@@ -16,35 +18,34 @@ jobs:
           POSTGRES_PASSWORD: avito_pass
           POSTGRES_DB: avito_autoload
         ports:
-          - 5433:5432
+          - "5433:5432"
         options: >-
           --health-cmd pg_isready
-          --health-interval 5s
+          --health-interval 10s
           --health-timeout 5s
           --health-retries 5
 
     env:
       DATABASE_URL: postgresql+asyncpg://avito_user:avito_pass@localhost:5433/avito_autoload
       SECRET_KEY: test-secret-key-for-ci-only-not-production
-      BASE_URL: http://localhost:8001
+      ENCRYPTION_KEY: 6Ppc46dMCsf_4HmDJRR0KlTKkg4Tn0VcXcS-vHKilf0=
       BASIC_AUTH_USER: admin
-      BASIC_AUTH_PASSWORD: testpass
+      BASIC_AUTH_PASSWORD: StrongTestPassword123!
+      BASE_URL: http://localhost:8001
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
 
       - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
+        run: pip install -r requirements.txt
 
       - name: Run migrations
-        run: |
-          alembic upgrade head
+        run: alembic upgrade head
 
       - name: Start server
         run: |
@@ -52,26 +53,43 @@ jobs:
           sleep 3
 
       - name: Run tests
-        run: |
-          pytest tests/ -v
+        run: pytest tests/ -x -q
 
   deploy:
+    name: Deploy to production
     needs: test
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
+    timeout-minutes: 10
 
     steps:
-      - name: Deploy to server
-        uses: appleboy/ssh-action@v1
+      - name: SSH deploy
+        uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SSH_KEY }}
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          command_timeout: 8m
           script: |
+            set -e
+            echo "==> Deploying avito-autoload..."
             cd /home/claude2/avito-autoload
+            echo "==> git pull"
             git pull origin main
-            ./venv/bin/pip install -r requirements.txt
+            echo "==> pip install"
+            ./venv/bin/pip install -r requirements.txt --quiet
+            echo "==> alembic upgrade"
             ./venv/bin/alembic upgrade head
+            echo "==> systemctl restart"
             sudo systemctl restart avito-autoload
             sleep 3
-            curl -f http://localhost:8001/health && echo "Deploy OK" || echo "Deploy FAILED"
+            echo "==> healthcheck"
+            curl -fsS http://localhost:8001/health > /dev/null || { echo "ERROR: healthcheck failed after deploy"; exit 1; }
+            echo "==> Deploy successful"
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::Deploy to production failed. Check the SSH deploy step output above."
+          exit 1
