@@ -73,21 +73,38 @@ def _int(val) -> int | None:
         return None
 
 
-def _upgrade_to_https(url: str) -> str:
-    """Avito Excel exports use http:// for photo URLs. Our /analytics page is
-    served over HTTPS, so http:// images get blocked as mixed content. Force
-    https:// — Avito's image servers accept both schemes."""
+def _normalize_avito_image_url(url: str) -> str:
+    """Convert Avito-internal autoload-feed image URLs into public CDN URLs.
+
+    Avito Excel exports list photo URLs as
+        http(s)://avito.ru/autoload/N/items-to-feed/images?imageSlug=/image/...
+    These are rate-limited and 301-redirect to the autoload admin area,
+    not viewable in a browser. The actual public CDN URL is
+        https://NN.img.avito.st/image/...
+    where NN is any 2-digit shard (00-99 all work). We pick "00".
+
+    Plain HTTP URLs are upgraded to HTTPS to avoid mixed-content blocking
+    on our HTTPS pages.
+    """
+    if not url:
+        return url
+    # Translate the autoload-feed wrapper URL to a CDN URL
+    if "/autoload/" in url and "imageSlug=" in url:
+        slug = url.split("imageSlug=", 1)[1]
+        if slug.startswith("/"):
+            return "https://00.img.avito.st" + slug
+    # Otherwise just upgrade scheme
     if url.startswith("http://"):
         return "https://" + url[len("http://"):]
     return url
 
 
 def _split_photos(raw: str | None) -> list[str]:
-    """Split "|"-separated photo URLs, filter to http(s), upgrade to https."""
+    """Split "|"-separated photo URLs, filter to http(s), normalize to public CDN."""
     if not raw:
         return []
     parts = [p.strip() for p in raw.split("|")]
-    return [_upgrade_to_https(p) for p in parts if p.startswith("http")]
+    return [_normalize_avito_image_url(p) for p in parts if p.startswith("http")]
 
 
 def _parse_workbook_bytes(file_bytes: bytes) -> list[dict]:

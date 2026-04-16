@@ -91,6 +91,18 @@ class TestSplitPhotos:
         # Avito exports often have trailing " | " with empty last segment
         assert _split_photos("http://a | http://b | ") == ["https://a", "https://b"]
 
+    def test_translates_avito_autoload_url_to_cdn(self):
+        # Avito Excel uses an internal autoload-feed wrapper URL that 429's in
+        # the browser. We translate it to a public CDN URL.
+        raw = ("https://avito.ru/autoload/1/items-to-feed/images"
+               "?imageSlug=/image/1/1.HASH | "
+               "http://avito.ru/autoload/1/items-to-feed/images"
+               "?imageSlug=/image/1/2.OTHER")
+        assert _split_photos(raw) == [
+            "https://00.img.avito.st/image/1/1.HASH",
+            "https://00.img.avito.st/image/1/2.OTHER",
+        ]
+
 
 # ---------------------------------------------------------------------------
 # Fixture: build minimal Avito-shaped workbook in-memory
@@ -243,6 +255,7 @@ class TestRowToUpdates:
         assert out["goods_subtype"] == "Кроссовки"
         assert out["size"] == "42"
         assert out["color"] == "Белый"
+        # Generic non-avito URLs still get https-upgrade (no autoload wrapper)
         assert out["image_url"] == "https://a/1.jpg"
         assert out["_photos"] == ["https://a/1.jpg", "https://b/2.jpg"]
         assert out["description"] == "Кроссовки оригинал"
