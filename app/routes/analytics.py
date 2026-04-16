@@ -173,7 +173,7 @@ async def trigger_stats_sync(db: AsyncSession = Depends(get_db)):
         # Import new items first
         import_results = await import_all_accounts(db)
         total_imported = sum(r.get("imported", 0) for r in import_results)
-        total_marked_sold = sum(r.get("marked_sold", 0) for r in import_results)
+        total_marked_removed = sum(r.get("marked_removed", 0) for r in import_results)
 
         # Then sync stats
         summaries = await sync_all_stats(db)
@@ -184,7 +184,7 @@ async def trigger_stats_sync(db: AsyncSession = Depends(get_db)):
             "ok": True,
             "results": summaries,
             "imported": total_imported,
-            "marked_sold": total_marked_sold,
+            "marked_removed": total_marked_removed,
             "stats_updated": total_synced,
             "duration_seconds": duration,
         })

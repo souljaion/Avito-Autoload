@@ -108,7 +108,7 @@ async def _job_import_items():
                     "avito_import.done",
                     account=r["account"],
                     imported=r["imported"],
-                    marked_sold=r.get("marked_sold", 0),
+                    marked_removed=r.get("marked_removed", 0),
                     total=r["total"],
                 )
     if await _run_with_retry("avito_import", run) is not False:

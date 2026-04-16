@@ -176,22 +176,25 @@ async def import_account_items(account: Account, db: AsyncSession) -> dict:
                         api_avito_id_type=type(sample_api).__name__,
                         api_avito_id_sample=sample_api)
 
-        marked_sold = 0
+        # --- Mark stale items as REMOVED (was: sold) ---
+        # status=removed + removed_at → товар уйдёт из всех списков и через 48ч
+        # будет физически удалён джобом cleanup_removed. Если есть avito_id —
+        # попадёт в фид как Status=Removed, но это безвредно: на Авито он уже снят.
+        now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+        marked_removed = 0
         for p in stale_products:
             avito_id_int = int(p.avito_id) if p.avito_id is not None else None
             if avito_id_int not in active_avito_ids:
-                p.status = "sold"
-                extra = dict(p.extra) if p.extra else {}
-                extra["sold_at"] = datetime.now(timezone.utc).isoformat()
-                p.extra = extra
-                marked_sold += 1
+                p.status = "removed"
+                p.removed_at = now_naive
+                marked_removed += 1
 
         logger.info("avito_import.cleanup",
                     account=account.name,
                     account_id=account.id,
                     avito_count=len(active_avito_ids),
                     db_active_imported=len(stale_products),
-                    marked_sold=marked_sold,
+                    marked_removed=marked_removed,
                     new_imported=imported,
                     updated=updated)
 
@@ -201,7 +204,7 @@ async def import_account_items(account: Account, db: AsyncSession) -> dict:
             "account": account.name,
             "imported": imported,
             "updated": updated,
-            "marked_sold": marked_sold,
+            "marked_removed": marked_removed,
             "reconciled": reconciled,
             "total": len(avito_items),
         }
