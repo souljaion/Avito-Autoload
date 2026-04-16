@@ -45,3 +45,12 @@ async def client(auth_headers):
         timeout=10.0,
     ) as c:
         yield c
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _clear_in_memory_cache():
+    """Reset the in-memory TTL cache between tests to avoid cross-test pollution."""
+    from app.cache import cache
+    await cache.clear()
+    yield
+    await cache.clear()
