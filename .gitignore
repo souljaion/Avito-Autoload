@@ -1,5 +1,6 @@
 # Environment
 .env
+*.env
 venv/
 .venv/
 
@@ -7,6 +8,7 @@ venv/
 feeds/
 logs/
 media/
+*.log
 
 # Python
 __pycache__/
