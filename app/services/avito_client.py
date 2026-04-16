@@ -111,6 +111,20 @@ class AvitoClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def get_autoload_profile(self) -> dict:
+        """Fetch autoload profile via v1 endpoint.
+
+        Returns the full payload, including feeds_data (since 2024-12-23) and
+        the legacy upload_url (deprecated). Useful to discover the actual feed
+        URL Avito is polling — we then download that XML to extract avito_ids.
+        """
+        headers = await self._headers()
+        resp = await self._request_with_retry(
+            "GET", f"{AVITO_API_BASE}/autoload/v1/profile", headers=headers,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     async def update_profile(self, feed_url: str, feed_name: str | None = None) -> dict:
         """Update autoload profile with new feed URL (v2 API with feeds_data)."""
         current = await self.get_profile()
@@ -195,6 +209,40 @@ class AvitoClient:
             page += 1
         return all_items
 
+    async def get_all_items(self, per_page: int = 100) -> list[dict]:
+        """Fetch all active items from Avito Items API with pagination.
+
+        Returns flat list of dicts: {id, title, price, status}.
+        Returns [] on any error.
+        """
+        try:
+            headers = await self._headers()
+            all_items: list[dict] = []
+            page = 1
+            while True:
+                resp = await self._request_with_retry(
+                    "GET", f"{AVITO_API_BASE}/core/v1/items",
+                    headers=headers,
+                    params={"status": "active", "per_page": per_page, "page": page},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                resources = data.get("resources") or []
+                for r in resources:
+                    all_items.append({
+                        "id": r.get("id"),
+                        "title": r.get("title", ""),
+                        "price": r.get("price"),
+                        "status": r.get("status", ""),
+                    })
+                if len(resources) < per_page:
+                    break
+                page += 1
+            return all_items
+        except Exception as e:
+            logger.warning("get_all_items failed", account_id=self.account.id, error=str(e))
+            return []
+
     async def get_user_id(self) -> int:
         """Fetch Avito user ID from /core/v1/accounts/self."""
         headers = await self._headers()
@@ -242,19 +290,6 @@ class AvitoClient:
                 result[avito_id] = {"views": views, "contacts": contacts, "favorites": favorites}
 
         return result
-
-    async def delete_ad(self, avito_id: int) -> dict:
-        """Archive (remove) an ad from Avito."""
-        headers = await self._headers()
-        resp = await self._request_with_retry(
-            "POST",
-            f"{AVITO_API_BASE}/core/v1/items/{avito_id}/hide",
-            headers=headers,
-        )
-        if resp.status_code == 404:
-            return {"ok": True, "message": "Объявление уже удалено"}
-        resp.raise_for_status()
-        return resp.json() if resp.text.strip() else {"ok": True}
 
     async def get_items_info(self, ad_ids: list[str]) -> list[dict]:
         """Fetch real-time autoload status for items by their ad_id (internal DB id).
@@ -310,11 +345,36 @@ class AvitoClient:
         resp.raise_for_status()
         return resp.json()
 
-    async def get_report_fees(self, report_id: int | str, page: int = 0, per_page: int = 100) -> dict:
+    # Statuses that mean the report is finalized — fees won't change anymore
+    _TERMINAL_REPORT_STATUSES = {"completed", "closed", "finished", "done"}
+
+    async def get_report_fees(
+        self,
+        report_id: int | str,
+        page: int = 0,
+        per_page: int = 100,
+        report_status: str | None = None,
+    ) -> dict:
         """Fetch fee data for a report with pagination.
+
+        Cached in-memory by (account_id, report_id). Terminal reports
+        (completed/closed/finished/done) get a 24h TTL; otherwise 5min.
 
         Returns {"fees": [...], "total": int, "report_id": report_id}.
         """
+        from app.cache import cache
+
+        cache_key = f"report_fees:{self.account.id}:{report_id}"
+
+        # Cache only the canonical full-report request (no custom paging window)
+        cacheable = page == 0 and per_page == 100
+        if cacheable:
+            hit = await cache.get(cache_key)
+            if hit is not None:
+                logger.info("get_report_fees cache hit", account_id=self.account.id, report_id=report_id)
+                return hit
+            logger.info("get_report_fees cache miss", account_id=self.account.id, report_id=report_id)
+
         headers = await self._headers()
         all_fees: list[dict] = []
         current_page = page
@@ -338,13 +398,24 @@ class AvitoClient:
         except Exception as e:
             logger.error("get_report_fees failed", report_id=report_id, error=str(e))
             if not all_fees:
+                # Don't cache failures — caller may retry
                 return {"fees": [], "total": 0, "report_id": report_id}
 
-        return {
+        result = {
             "fees": all_fees,
             "total": len(all_fees),
             "report_id": report_id,
         }
+
+        if cacheable:
+            is_terminal = (
+                report_status is not None
+                and report_status.lower() in self._TERMINAL_REPORT_STATUSES
+            )
+            ttl = 24 * 3600 if is_terminal else 5 * 60
+            await cache.set(cache_key, result, ttl_seconds=ttl)
+
+        return result
 
     async def get_ad_ids_by_avito_ids(self, avito_ids: list[int]) -> dict[int, str]:
         """Map Avito IDs to internal ad_ids. Batches by 200."""

@@ -20,6 +20,7 @@ from app.models.product import Product
 from app.models.product_image import ProductImage
 from app.models.model import Model
 from app.models.photo_pack_image import PhotoPackImage
+from app.rate_limit import limiter
 from app.services.feed_generator import is_ready_for_feed
 
 MSK = ZoneInfo("Europe/Moscow")
@@ -457,7 +458,12 @@ async def product_detail(request: Request, product_id: int, db: AsyncSession = D
 
 
 @router.get("/{product_id}/avito-status")
-async def product_avito_status(product_id: int, db: AsyncSession = Depends(get_db)):
+@limiter.limit("30/minute")
+async def product_avito_status(
+    request: Request,
+    product_id: int,
+    db: AsyncSession = Depends(get_db),
+):
     """Fetch real-time Avito autoload status for a single product."""
     result = await db.execute(
         select(Product).options(selectinload(Product.account)).where(Product.id == product_id)

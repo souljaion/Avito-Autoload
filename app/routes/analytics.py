@@ -12,6 +12,7 @@ from app.db import get_db
 from app.models.item_stats import ItemStats
 from app.models.product import Product
 from app.models.account import Account
+from app.rate_limit import limiter
 from app.services.avito_import import import_all_accounts
 from app.services.image_sync import sync_images_from_crm
 from app.services.stats_sync import sync_all_stats
@@ -409,7 +410,9 @@ async def analytics_efficiency(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/api/analytics/fees")
+@limiter.limit("10/minute")
 async def analytics_fees(
+    request: Request,
     account_id: int,
     report_id: int | None = None,
     db: AsyncSession = Depends(get_db),
@@ -422,6 +425,7 @@ async def analytics_fees(
     if not account:
         return JSONResponse({"ok": False, "error": "Аккаунт не найден"}, status_code=404)
 
+    report_status: str | None = None
     if report_id is None:
         result = await db.execute(
             select(AutoloadReport)
@@ -433,10 +437,22 @@ async def analytics_fees(
         if not report or not report.avito_report_id:
             return JSONResponse({"ok": False, "error": "Нет отчётов для этого аккаунта"}, status_code=404)
         report_id = int(report.avito_report_id)
+        report_status = report.status
+    else:
+        # User-supplied report_id — try to find status in DB for cache TTL hint
+        result = await db.execute(
+            select(AutoloadReport).where(
+                AutoloadReport.account_id == account_id,
+                AutoloadReport.avito_report_id == str(report_id),
+            )
+        )
+        report = result.scalars().first()
+        if report:
+            report_status = report.status
 
     client = AvitoClient(account, db)
     try:
-        fees_data = await client.get_report_fees(report_id)
+        fees_data = await client.get_report_fees(report_id, report_status=report_status)
     except Exception as e:
         logger.exception("Fees fetch failed", account_id=account_id, report_id=report_id)
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
