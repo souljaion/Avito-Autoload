@@ -126,21 +126,28 @@ class AvitoClient:
         return resp.json()
 
     async def update_profile(self, feed_url: str, feed_name: str | None = None) -> dict:
-        """Update autoload profile with new feed URL (v2 API with feeds_data)."""
+        """Update autoload profile with new feed URL (v2 API with feeds_data).
+
+        Preserves all fields from the current profile so Avito-managed keys
+        like uploadMode and allow_pay_over_limit aren't dropped (Avito returns
+        400 "Запрос сформирован неправильно" if they're missing).
+        """
         current = await self.get_profile()
 
-        payload = {
-            "feeds_data": [{"feed_name": feed_name or "default", "feed_url": feed_url}],
-            "autoload_enabled": current.get("autoload_enabled", True),
-            "schedule": current.get("schedule", [{
+        payload = dict(current)
+        payload["feeds_data"] = [{
+            "feed_name": feed_name or "default",
+            "feed_url": feed_url,
+        }]
+        if not payload.get("schedule"):
+            payload["schedule"] = [{
                 "rate": -1,
                 "weekdays": [0, 1, 2, 3, 4, 5, 6],
                 "time_slots": list(range(24)),
-            }]),
-        }
-        report_email = current.get("report_email")
-        if report_email:
-            payload["report_email"] = report_email
+            }]
+        if "autoload_enabled" not in payload or payload["autoload_enabled"] is None:
+            payload["autoload_enabled"] = True
+        payload = {k: v for k, v in payload.items() if v is not None}
 
         headers = await self._headers()
         resp = await self._request_with_retry(
@@ -151,6 +158,8 @@ class AvitoClient:
             data = resp.json()
             error = data.get("error", {})
             msg = error.get("message", str(data)) if isinstance(error, dict) else str(error)
+            logger.warning("update_profile.400", account_id=self.account.id,
+                           payload_keys=list(payload.keys()), avito_error=msg)
             raise ValueError(f"Avito отклонил запрос: {msg}")
         resp.raise_for_status()
         return await self.get_profile()
@@ -290,6 +299,37 @@ class AvitoClient:
                 result[avito_id] = {"views": views, "contacts": contacts, "favorites": favorites}
 
         return result
+
+    async def get_item_details(self, item_id: int | str) -> dict:
+        """Fetch details for a single Avito item via GET /core/v1/items?ids=N.
+
+        NOTE: the autoload OAuth scope only exposes the listing endpoint
+        (`/core/v1/items?ids=...`), not the single-item detail endpoint
+        (`/core/v1/items/{id}` returns 404). Returned fields are LIMITED to:
+        address, category{id,name}, id, price, status, title, url.
+        Brand, params, and images are NOT available through this scope.
+
+        Returns the first matching resource dict or {} on error / no match.
+        """
+        try:
+            headers = await self._headers()
+            resp = await self._request_with_retry(
+                "GET", f"{AVITO_API_BASE}/core/v1/items",
+                headers=headers, params={"ids": str(item_id)},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            resources = (data or {}).get("resources") or []
+            for r in resources:
+                if str(r.get("id")) == str(item_id):
+                    return r if isinstance(r, dict) else {}
+            return {}
+        except Exception as e:
+            logger.warning(
+                "get_item_details failed",
+                account_id=self.account.id, item_id=item_id, error=str(e),
+            )
+            return {}
 
     async def get_items_info(self, ad_ids: list[str]) -> list[dict]:
         """Fetch real-time autoload status for items by their ad_id (internal DB id).

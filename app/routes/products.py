@@ -679,6 +679,14 @@ async def patch_product(product_id: int, request: Request, db: AsyncSession = De
     if "condition" in body:
         product.condition = body["condition"].strip() or None
 
+    if "brand" in body:
+        v = body["brand"]
+        product.brand = v.strip()[:255] if isinstance(v, str) and v.strip() else None
+
+    if "goods_type" in body:
+        v = body["goods_type"]
+        product.goods_type = v.strip()[:255] if isinstance(v, str) and v.strip() else None
+
     if "model_id" in body:
         val = body["model_id"]
         product.model_id = int(val) if val is not None else None

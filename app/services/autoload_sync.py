@@ -13,6 +13,91 @@ from app.services.avito_client import AvitoClient
 logger = structlog.get_logger(__name__)
 
 
+# Map Avito param names → product columns. Match by case-insensitive substring
+# because Avito's params labels vary slightly across categories.
+_PARAM_PATTERNS = {
+    "goods_type":     ["вид товара", "вид одежды", "вид обуви"],
+    "goods_subtype":  ["подвид"],
+    "size":           ["размер"],
+    "color":          ["цвет"],
+    "brand":          ["бренд", "производитель"],
+}
+
+
+def _match_param(param_name: str, patterns: list[str]) -> bool:
+    n = (param_name or "").lower()
+    return any(p in n for p in patterns)
+
+
+async def _extract_item_details(client: AvitoClient, avito_id: int) -> dict:
+    """Best-effort backfill: pull item from Items API and map available fields.
+
+    NOTE: under the autoload OAuth scope, `/core/v1/items?ids=N` returns a
+    LIMITED set of fields: {address, category{id,name}, id, price, status,
+    title, url}. Brand, params and images are NOT available — those columns
+    can only be filled by other means (web scraping public ad URL or manual
+    data entry).
+
+    Returns a dict with whichever known columns could be filled.
+    """
+    try:
+        details = await client.get_item_details(avito_id)
+    except Exception as e:
+        logger.warning("autoload_sync.pass3_details_failed",
+                       avito_id=avito_id, error=str(e))
+        return {}
+    if not details:
+        return {}
+
+    out: dict = {}
+
+    # category.name → product.category (top-level Avito category)
+    cat = details.get("category")
+    if isinstance(cat, dict):
+        cat_name = cat.get("name")
+        if isinstance(cat_name, str) and cat_name.strip():
+            out["category"] = cat_name.strip()[:255]
+
+    # If the API ever starts exposing more fields (params/images/brand),
+    # the helpers below will pick them up automatically.
+    brand = details.get("brand")
+    if isinstance(brand, str) and brand.strip():
+        out["brand"] = brand.strip()[:255]
+
+    params = details.get("params") or []
+    if isinstance(params, dict):
+        params = [{"name": k, "value": v} for k, v in params.items()]
+    for p in params:
+        if not isinstance(p, dict):
+            continue
+        pname = p.get("name") or ""
+        pval = p.get("value")
+        if pval is None or pval == "":
+            continue
+        pval_s = str(pval).strip()
+        if not pval_s:
+            continue
+        for col, patterns in _PARAM_PATTERNS.items():
+            if col in out:
+                continue
+            if _match_param(pname, patterns):
+                out[col] = pval_s[:255]
+                break
+
+    images = details.get("images") or []
+    if isinstance(images, list) and images:
+        first = images[0]
+        if isinstance(first, dict):
+            url = first.get("url") or first.get("href")
+            if isinstance(url, str) and url.startswith("http"):
+                out["image_url"] = url[:500]
+
+    if out:
+        logger.info("autoload_sync.pass3_details_fetched",
+                    avito_id=avito_id, filled=list(out.keys()))
+    return out
+
+
 async def sync_ads_from_avito(
     account_id: int, db: AsyncSession, client: AvitoClient | None = None,
 ) -> dict:
@@ -272,13 +357,17 @@ async def sync_ads_from_avito(
                         )
                         continue
 
-                    # Step 2 — create new imported product
+                    # Step 2 — create new imported product, enrich via item details
                     title = raw_title or f"[Авито] {avito_id}"
                     price = api_item.get("price")
                     try:
                         price_val = int(price) if price is not None else None
                     except (TypeError, ValueError):
                         price_val = None
+
+                    # Best-effort backfill: pull full item from Items API.
+                    # Only for NEW products in Pass 3 — keeps API call count bounded.
+                    extra_fields = await _extract_item_details(client, avito_id)
 
                     product = Product(
                         avito_id=avito_id,
@@ -287,6 +376,12 @@ async def sync_ads_from_avito(
                         price=price_val,
                         status="imported",
                         published_at=now,
+                        brand=extra_fields.get("brand"),
+                        goods_type=extra_fields.get("goods_type"),
+                        goods_subtype=extra_fields.get("goods_subtype"),
+                        size=extra_fields.get("size"),
+                        color=extra_fields.get("color"),
+                        image_url=extra_fields.get("image_url"),
                     )
                     db.add(product)
                     all_avito_ids.add(avito_id)
@@ -297,6 +392,7 @@ async def sync_ads_from_avito(
                         account_id=account_id,
                         avito_id=avito_id,
                         title=title[:80],
+                        details_filled=sum(1 for v in extra_fields.values() if v),
                     )
 
                 if pass3_matched or pass3_created:

@@ -15,6 +15,7 @@ source of truth for what Avito has under our autoload.
 """
 
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 import httpx
 import structlog
@@ -22,6 +23,7 @@ from lxml import etree
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.models.account import Account
 from app.models.product import Product
 from app.services.avito_client import AvitoClient
@@ -44,6 +46,22 @@ def _extract_feed_url(profile: dict) -> str | None:
             if url:
                 return url
     return profile.get("upload_url") or None
+
+
+def _is_own_feed_url(url: str) -> bool:
+    """True if url points to our own host — we'd just be downloading our own feed.
+
+    For accounts where Avito is configured to poll OUR feed, the feed contents
+    are exactly what's in our DB; there are no new avito_ids to discover.
+    """
+    try:
+        own_host = urlparse(settings.BASE_URL).hostname
+        url_host = urlparse(url).hostname
+    except Exception:
+        return False
+    if not own_host or not url_host:
+        return False
+    return own_host.lower() == url_host.lower()
 
 
 def _parse_feed_xml(xml_bytes: bytes) -> list[dict]:
@@ -117,6 +135,21 @@ async def sync_avito_ids_from_feed(
             return {
                 "matched": 0, "created": 0, "skipped": 0, "total_in_feed": 0,
                 "error": "no feed url",
+            }
+
+        # If Avito is polling OUR feed, this approach can't discover new avito_ids —
+        # the feed at that URL is what we ourselves generated from our own DB.
+        if _is_own_feed_url(feed_url):
+            logger.warning(
+                "feed_importer.own_feed_url",
+                account_id=account_id, feed_url=feed_url,
+            )
+            return {
+                "matched": 0, "created": 0, "skipped": 0, "total_in_feed": 0,
+                "error": (
+                    "Avito настроен на наш собственный фид — скачивать его бессмысленно. "
+                    "Используйте «Синхронизировать объявления» (Pass 3 через Items API)."
+                ),
             }
 
         # 2. Download XML — use Bearer token in case the URL is behind Avito auth
