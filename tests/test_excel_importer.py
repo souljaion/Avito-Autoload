@@ -19,6 +19,7 @@ from app.services.excel_importer import (
     InvalidExcelError,
     _int,
     _norm,
+    _parse_avito_date_end,
     _parse_workbook_bytes,
     _row_to_updates,
     _split_photos,
@@ -104,6 +105,32 @@ class TestSplitPhotos:
         ]
 
 
+class TestParseAvitoDateEnd:
+    def test_iso_with_msk_offset(self):
+        # "2026-05-11T20:43:59+03:00" → UTC 17:43:59 → minus 30 days
+        from datetime import datetime
+        out = _parse_avito_date_end("2026-05-11T20:43:59+03:00")
+        assert out == datetime(2026, 4, 11, 17, 43, 59)
+        assert out.tzinfo is None  # tz-naive
+
+    def test_none_returns_none(self):
+        assert _parse_avito_date_end(None) is None
+
+    def test_empty_returns_none(self):
+        assert _parse_avito_date_end("") is None
+        assert _parse_avito_date_end("   ") is None
+
+    def test_invalid_returns_none(self):
+        assert _parse_avito_date_end("not-a-date") is None
+
+    def test_accepts_datetime_instance(self):
+        # openpyxl may hand us a datetime if the cell is date-typed
+        from datetime import datetime, timezone, timedelta
+        msk = timezone(timedelta(hours=3))
+        out = _parse_avito_date_end(datetime(2026, 5, 11, 20, 43, 59, tzinfo=msk))
+        assert out == datetime(2026, 4, 11, 17, 43, 59)
+
+
 # ---------------------------------------------------------------------------
 # Fixture: build minimal Avito-shaped workbook in-memory
 # ---------------------------------------------------------------------------
@@ -125,7 +152,8 @@ HINTS_ROW = ["Подробнее"] * len(HEADERS)
 def _data_row(avito_id, title, brand="Nike", price="5000",
               photos="http://avito.ru/img1.jpg | http://avito.ru/img2.jpg",
               goods_type="Мужская обувь", goods_subtype="Кроссовки",
-              size="42", color="Белый"):
+              size="42", color="Белый",
+              avito_date_end=None, avito_status=None):
     row = [None] * len(HEADERS)
     row[0] = str(avito_id)
     row[2] = str(avito_id)
@@ -137,6 +165,8 @@ def _data_row(avito_id, title, brand="Nike", price="5000",
     row[15] = color
     row[20] = goods_subtype
     row[21] = size
+    row[23] = avito_date_end
+    row[24] = avito_status
     return row
 
 
@@ -478,6 +508,101 @@ class TestImportAvitoExcel:
         db = _build_db(account)
         with pytest.raises(InvalidExcelError):
             await import_avito_excel(3, b"not an xlsx file", db)
+
+    @pytest.mark.asyncio
+    async def test_published_at_backfilled_from_avito_date_end(self):
+        """AvitoDateEnd '2026-05-11T20:43:59+03:00' on a product without
+        published_at → set to 2026-04-11 17:43:59 UTC (minus 30 days, minus 3h tz)."""
+        from datetime import datetime
+        account = _make_account(id=3)
+        existing = _make_product(id=42, avito_id=600, title="Old")
+        existing.published_at = None  # currently no value
+        db = _build_db(account, existing=[existing], global_avito_ids=[600])
+
+        xb = _build_xlsx_bytes(dict([
+            _full_sheet("Кроссовки", _data_row(
+                600, "Has date",
+                avito_date_end="2026-05-11T20:43:59+03:00",
+            )),
+        ]))
+        await import_avito_excel(3, xb, db)
+
+        assert existing.published_at == datetime(2026, 4, 11, 17, 43, 59)
+
+    @pytest.mark.asyncio
+    async def test_published_at_unchanged_when_avito_date_end_missing(self):
+        """No AvitoDateEnd in the row → product.published_at stays None."""
+        account = _make_account(id=3)
+        existing = _make_product(id=42, avito_id=601, title="Old")
+        existing.published_at = None
+        db = _build_db(account, existing=[existing], global_avito_ids=[601])
+
+        xb = _build_xlsx_bytes(dict([
+            _full_sheet("Кроссовки", _data_row(601, "No date")),  # avito_date_end=None
+        ]))
+        await import_avito_excel(3, xb, db)
+
+        assert existing.published_at is None
+
+    @pytest.mark.asyncio
+    async def test_published_at_overwritten_when_avito_date_end_present(self):
+        """Existing published_at IS overwritten when AvitoDateEnd is present —
+        AvitoDateEnd is treated as authoritative (existing values are usually
+        placeholder 'now' from a prior import)."""
+        from datetime import datetime
+        account = _make_account(id=3)
+        existing = _make_product(id=42, avito_id=602, title="Old")
+        existing.published_at = datetime(2025, 1, 15, 10, 0, 0)  # stale placeholder
+        db = _build_db(account, existing=[existing], global_avito_ids=[602])
+
+        xb = _build_xlsx_bytes(dict([
+            _full_sheet("Кроссовки", _data_row(
+                602, "Has date",
+                avito_date_end="2026-05-11T20:43:59+03:00",
+            )),
+        ]))
+        await import_avito_excel(3, xb, db)
+
+        # Overwritten with AvitoDateEnd - 30 days, in UTC
+        assert existing.published_at == datetime(2026, 4, 11, 17, 43, 59)
+
+    @pytest.mark.asyncio
+    async def test_avito_status_mirrored_into_extra(self):
+        """AvitoStatus value should land in product.extra['avito_status_excel']."""
+        account = _make_account(id=3)
+        existing = _make_product(id=42, avito_id=603, title="Has status")
+        existing.published_at = None
+        existing.extra = None
+        db = _build_db(account, existing=[existing], global_avito_ids=[603])
+
+        xb = _build_xlsx_bytes(dict([
+            _full_sheet("Кроссовки", _data_row(
+                603, "Has status", avito_status="Активно",
+            )),
+        ]))
+        await import_avito_excel(3, xb, db)
+
+        assert existing.extra == {"avito_status_excel": "Активно"}
+
+    @pytest.mark.asyncio
+    async def test_new_product_uses_avito_date_end_for_published_at(self):
+        """Newly-created products take published_at from AvitoDateEnd when present
+        (instead of the placeholder 'now')."""
+        from datetime import datetime
+        account = _make_account(id=3)
+        db = _build_db(account, existing=[], global_avito_ids=[])
+
+        xb = _build_xlsx_bytes(dict([
+            _full_sheet("Кроссовки", _data_row(
+                604, "Brand new",
+                avito_date_end="2026-05-11T20:43:59+03:00",
+            )),
+        ]))
+        await import_avito_excel(3, xb, db)
+
+        new_products = [o for o in db.added if isinstance(o, Product)]
+        assert len(new_products) == 1
+        assert new_products[0].published_at == datetime(2026, 4, 11, 17, 43, 59)
 
 
 # ---------------------------------------------------------------------------

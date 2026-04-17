@@ -523,3 +523,231 @@ class TestPerAccountMetrics:
         assert len(hourly) == 24
         assert all(isinstance(v, int) for v in hourly)
         assert all(v >= 0 for v in hourly)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# GET /api/schedule/{account_id}/dashboard
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _make_draft_product(id, account_id=1, title="Nike Dunk", price=5000,
+                        brand="Nike", category="Обувь", goods_type="Мужская обувь",
+                        model_id=None, model_name="Nike Dunk Low",
+                        has_image=True, image_url=None):
+    """Build a Product mock shaped for the dashboard endpoint."""
+    p = MagicMock()
+    p.id = id
+    p.account_id = account_id
+    p.status = "draft"
+    p.title = title
+    p.price = price
+    p.brand = brand
+    p.category = category
+    p.goods_type = goods_type
+    p.model_id = model_id
+    p.image_url = image_url
+    if has_image:
+        img = MagicMock(url="http://x/img.jpg", is_main=True, sort_order=0)
+        p.images = [img]
+    else:
+        p.images = []
+    if model_id is not None:
+        mr = MagicMock()
+        mr.name = model_name
+        p.model_ref = mr
+    else:
+        p.model_ref = None
+    return p
+
+
+def _build_dashboard_db(drafts=None, active_pids=None,
+                       active_window_rows=None, active_baseline_rows=None,
+                       same_model_products=None,
+                       other_window_rows=None, other_baseline_rows=None,
+                       active_count=0, scheduled_count=0, drafts_count=None):
+    """Build a mock DB driving the dashboard endpoint's execute() sequence.
+
+    The endpoint runs these queries in order:
+      1. counts (.one())
+      2. drafts (.scalars().all())
+      3. active_pids (.all() returning (id,) rows)
+      4. [if active_pids] window (.all())
+      5. [if active_pids] baseline (.all())
+      6. [if any draft has model_id] same_model products (.scalars().all())
+      7. [if same_model returned any] window (.all())
+      8. [if same_model returned any] baseline (.all())
+    """
+    drafts = drafts or []
+    active_pids = active_pids or []
+    active_window_rows = active_window_rows or []
+    active_baseline_rows = active_baseline_rows or []
+    same_model_products = same_model_products or []
+    other_window_rows = other_window_rows or []
+    other_baseline_rows = other_baseline_rows or []
+
+    if drafts_count is None:
+        drafts_count = len(drafts)
+
+    seq: list = []
+
+    # 1. counts
+    counts_row = MagicMock()
+    counts_row.active_count = active_count
+    counts_row.scheduled_count = scheduled_count
+    counts_row.drafts_count = drafts_count
+    r1 = MagicMock()
+    r1.one.return_value = counts_row
+    seq.append(r1)
+
+    # 2. drafts
+    r2_scalars = MagicMock()
+    r2_scalars.all.return_value = drafts
+    r2 = MagicMock()
+    r2.scalars.return_value = r2_scalars
+    seq.append(r2)
+
+    # 3. active_pids (.all() on the cursor directly)
+    r3 = MagicMock()
+    r3.all.return_value = [(pid,) for pid in active_pids]
+    seq.append(r3)
+
+    # 4+5. window/baseline for active pids (only if any)
+    if active_pids:
+        rw = MagicMock()
+        rw.all.return_value = active_window_rows
+        seq.append(rw)
+        rb = MagicMock()
+        rb.all.return_value = active_baseline_rows
+        seq.append(rb)
+
+    # 6. same_model products (only if any draft has model_id)
+    has_model_id = any(getattr(d, "model_id", None) for d in drafts)
+    if has_model_id:
+        r6_scalars = MagicMock()
+        r6_scalars.all.return_value = same_model_products
+        r6 = MagicMock()
+        r6.scalars.return_value = r6_scalars
+        seq.append(r6)
+        # 7+8. window/baseline for other pids (only if same_model returned any)
+        if same_model_products:
+            rw2 = MagicMock()
+            rw2.all.return_value = other_window_rows
+            seq.append(rw2)
+            rb2 = MagicMock()
+            rb2.all.return_value = other_baseline_rows
+            seq.append(rb2)
+
+    mock_db = AsyncMock()
+    mock_db.execute = AsyncMock(side_effect=seq)
+    return mock_db
+
+
+class TestScheduleDashboard:
+    @pytest.mark.asyncio
+    async def test_dashboard_endpoint_returns_correct_structure(self):
+        """Top-level response contains all expected keys with correct types."""
+        mock_db = _build_dashboard_db(
+            drafts=[], active_pids=[],
+            active_count=10, scheduled_count=3, drafts_count=5,
+        )
+        app = _make_app(mock_db)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get("/api/schedule/1/dashboard")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        for key in ("active_count", "scheduled_count", "drafts_count",
+                    "drafts_ready", "dead_count", "weak_count", "drafts"):
+            assert key in data, f"missing key {key}"
+        assert isinstance(data["drafts"], list)
+        assert data["active_count"] == 10
+        assert data["scheduled_count"] == 3
+        assert data["drafts_count"] == 5
+        assert data["drafts_ready"] == 0
+        assert data["dead_count"] == 0
+        assert data["weak_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_dashboard_drafts_ready_count(self):
+        """A draft with image + brand + goods_type + title + price → ready.
+        Missing the image → not ready, reported under 'missing'."""
+        ready_p = _make_draft_product(
+            id=1, title="Nike Dunk", price=5000,
+            brand="Nike", goods_type="Мужская обувь", has_image=True,
+        )
+        not_ready_p = _make_draft_product(
+            id=2, title="Nike Air", price=5500,
+            brand="Nike", goods_type="Мужская обувь", has_image=False,
+            image_url=None,
+        )
+
+        mock_db = _build_dashboard_db(
+            drafts=[ready_p, not_ready_p],
+            active_pids=[],
+            active_count=0, scheduled_count=0, drafts_count=2,
+        )
+        app = _make_app(mock_db)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get("/api/schedule/1/dashboard")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["drafts_ready"] == 1
+        drafts_by_id = {d["product_id"]: d for d in data["drafts"]}
+        assert drafts_by_id[1]["ready"] is True
+        assert drafts_by_id[1]["missing"] == []
+        assert drafts_by_id[2]["ready"] is False
+        assert "фото" in drafts_by_id[2]["missing"]
+
+    @pytest.mark.asyncio
+    async def test_dashboard_alive_on_accounts_only_alive_marker(self):
+        """alive_on_accounts only contains OTHER accounts whose same-model product
+        has views_5d > 30 (the 'alive' threshold). Weak / dead are filtered out."""
+        draft = _make_draft_product(id=1, account_id=1, model_id=42)
+
+        # Three products on OTHER accounts sharing the same model_id,
+        # with views_5d values spanning dead / weak / alive.
+        alive_p = MagicMock(id=100, model_id=42, account_id=2,
+                            account=MagicMock(name="Zulla"))
+        alive_p.account.name = "Zulla"
+        weak_p = MagicMock(id=101, model_id=42, account_id=3,
+                           account=MagicMock(name="Parker"))
+        weak_p.account.name = "Parker"
+        dead_p = MagicMock(id=102, model_id=42, account_id=4,
+                           account=MagicMock(name="Crosstherapy"))
+        dead_p.account.name = "Crosstherapy"
+
+        # views_5d deltas: alive=45, weak=25, dead=5
+        other_window = [
+            MagicMock(product_id=100, max_views=145, min_views=100, cnt=3),
+            MagicMock(product_id=101, max_views=125, min_views=100, cnt=3),
+            MagicMock(product_id=102, max_views=105, min_views=100, cnt=3),
+        ]
+        other_baseline = [
+            MagicMock(product_id=100, baseline_views=100),
+            MagicMock(product_id=101, baseline_views=100),
+            MagicMock(product_id=102, baseline_views=100),
+        ]
+
+        mock_db = _build_dashboard_db(
+            drafts=[draft],
+            active_pids=[],
+            same_model_products=[alive_p, weak_p, dead_p],
+            other_window_rows=other_window,
+            other_baseline_rows=other_baseline,
+            active_count=0, scheduled_count=0, drafts_count=1,
+        )
+        app = _make_app(mock_db)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get("/api/schedule/1/dashboard")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["drafts"]) == 1
+        alive_list = data["drafts"][0]["alive_on_accounts"]
+        # Only the alive (views_5d=45) account should appear
+        assert len(alive_list) == 1
+        assert alive_list[0]["account_name"] == "Zulla"
+        assert alive_list[0]["views_5d"] == 45

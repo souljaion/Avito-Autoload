@@ -195,13 +195,13 @@ async def trigger_stats_sync(db: AsyncSession = Depends(get_db)):
 
 @router.get("/api/analytics/efficiency")
 async def analytics_efficiency(db: AsyncSession = Depends(get_db)):
-    """Efficiency markers for active ads based on views delta in last 3 days."""
+    """Efficiency markers for active ads based on views delta in last 5 days."""
     from sqlalchemy import cast, Date
-    cutoff = datetime.utcnow() - timedelta(days=3)
+    cutoff = datetime.utcnow() - timedelta(days=5)
     today = datetime.utcnow().date()
     yesterday = today - timedelta(days=1)
 
-    # Within the 3-day window: MAX, MIN views and count per product
+    # Within the 5-day window: MAX, MIN views and count per product
     window_stmt = (
         select(
             ItemStats.product_id,
@@ -227,7 +227,7 @@ async def analytics_efficiency(db: AsyncSession = Depends(get_db)):
     baseline_result = await db.execute(baseline_stmt)
     baseline_map = {r.product_id: r.baseline_views or 0 for r in baseline_result.all()}
 
-    # views_3d = latest - baseline, or MAX - MIN within window if no baseline
+    # views_5d = latest - baseline, or MAX - MIN within window if no baseline
     # single_snapshot tracks products with only 1 data point (no reliable delta)
     views_map = {}
     single_snapshot = set()
@@ -278,6 +278,39 @@ async def analytics_efficiency(db: AsyncSession = Depends(get_db)):
     yesterday_result = await db.execute(yesterday_stmt)
     yesterday_map = {r.product_id: (r.v or 0, r.c or 0) for r in yesterday_result.all()}
 
+    # --- 7-day sparkline: MAX(views) per (product, day) for the last 8 days.
+    # We need 8 days because each of the 7 sparkline points is a delta
+    # (views_today - views_yesterday). Missing days produce a 0 delta. ---
+    spark_cutoff = today - timedelta(days=7)
+    spark_stmt = (
+        select(
+            ItemStats.product_id,
+            cast(ItemStats.captured_at, Date).label("day"),
+            func.max(ItemStats.views).label("v"),
+        )
+        .where(cast(ItemStats.captured_at, Date) >= spark_cutoff)
+        .group_by(ItemStats.product_id, cast(ItemStats.captured_at, Date))
+    )
+    spark_result = await db.execute(spark_stmt)
+    spark_by_product: dict[int, dict] = {}
+    for r in spark_result.all():
+        spark_by_product.setdefault(r.product_id, {})[r.day] = r.v or 0
+
+    def _build_sparkline(pid: int) -> list[int]:
+        """7 deltas, oldest first: [day6_delta, day5_delta, ..., day0_delta]."""
+        daily = spark_by_product.get(pid, {})
+        out = []
+        for offset in range(6, -1, -1):  # 6 days ago → today
+            day = today - timedelta(days=offset)
+            prev_day = day - timedelta(days=1)
+            v = daily.get(day)
+            prev_v = daily.get(prev_day)
+            if v is None or prev_v is None:
+                out.append(0)
+            else:
+                out.append(max(0, v - prev_v))
+        return out
+
     # Active products with avito_id
     products_result = await db.execute(
         select(Product)
@@ -299,9 +332,10 @@ async def analytics_efficiency(db: AsyncSession = Depends(get_db)):
             marker = "unknown"
         elif p.id in views_map:
             v = views_map[p.id]
-            if v == 0:
+            # 5-day thresholds: 0–19 = dead, 20–30 = weak, 31+ = alive
+            if v < 20:
                 marker = "dead"
-            elif v < 10:
+            elif v <= 30:
                 marker = "weak"
             else:
                 marker = "alive"
@@ -334,8 +368,9 @@ async def analytics_efficiency(db: AsyncSession = Depends(get_db)):
             views_today = None
             contacts_today = None
 
-        # Published date: only for products published through the platform
-        pub_dt = p.published_at if p.published_at and p.status in ("active", "published") else None
+        # Published date: products published via the platform plus those imported
+        # from Excel (where published_at is derived from AvitoDateEnd - 30 days)
+        pub_dt = p.published_at if p.published_at and p.status in ("active", "published", "imported") else None
         if pub_dt:
             pub_naive = pub_dt.replace(tzinfo=None) if pub_dt.tzinfo else pub_dt
             published_at_str = pub_naive.strftime("%d.%m.%Y")
@@ -359,7 +394,7 @@ async def analytics_efficiency(db: AsyncSession = Depends(get_db)):
             "account_name": p.account.name if p.account else None,
             "account_id": p.account_id,
             "avito_id": p.avito_id,
-            "views_3d": v,
+            "views_5d": v,
             "marker": marker,
             "price": p.price,
             "image": image,
@@ -369,6 +404,7 @@ async def analytics_efficiency(db: AsyncSession = Depends(get_db)):
             "contacts_today": contacts_today,
             "published_at": published_at_str,
             "days_ago": days_ago,
+            "sparkline_7d": _build_sparkline(p.id),
             "avito_messages": (p.extra or {}).get("avito_messages") or None,
             "can_delete_via_feed": can_delete_via_feed,
             "brand": p.brand,
@@ -394,19 +430,19 @@ async def analytics_efficiency(db: AsyncSession = Depends(get_db)):
                 "last_sync": last_sync_str,
             }
         acc_data[aid]["counts"][item["marker"]] += 1
-        if item["views_3d"] is not None:
+        if item["views_5d"] is not None:
             acc_data[aid]["top3"].append(item)
 
     # Sort top3 per account and global
     for ad in acc_data.values():
-        ad["top3"] = sorted(ad["top3"], key=lambda x: x["views_3d"] or 0, reverse=True)[:3]
-        ad["top3"] = [{"title": t["title"], "views": t["views_3d"], "marker": t["marker"]} for t in ad["top3"]]
+        ad["top3"] = sorted(ad["top3"], key=lambda x: x["views_5d"] or 0, reverse=True)[:3]
+        ad["top3"] = [{"title": t["title"], "views": t["views_5d"], "marker": t["marker"]} for t in ad["top3"]]
 
     global_top3 = sorted(
-        [i for i in items if i["views_3d"] is not None],
-        key=lambda x: x["views_3d"] or 0, reverse=True,
+        [i for i in items if i["views_5d"] is not None],
+        key=lambda x: x["views_5d"] or 0, reverse=True,
     )[:3]
-    global_top3 = [{"title": t["title"], "views": t["views_3d"], "marker": t["marker"]} for t in global_top3]
+    global_top3 = [{"title": t["title"], "views": t["views_5d"], "marker": t["marker"]} for t in global_top3]
 
     total_accounts = len(acc_data)
 

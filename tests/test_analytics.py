@@ -31,13 +31,14 @@ def _make_efficiency_db(products_data):
       extra (optional)
 
     The efficiency endpoint makes these queries in order:
-      1. window_stmt: MAX/MIN views + count in 3-day window, grouped by product_id
-      2. baseline_stmt: MAX views before 3-day window, grouped by product_id
+      1. window_stmt: MAX/MIN views + count in 5-day window, grouped by product_id
+      2. baseline_stmt: MAX views before 5-day window, grouped by product_id
       3. totals_stmt: MAX views/contacts all-time, grouped by product_id
       4. today_stmt: MAX views/contacts today, grouped by product_id
       5. yesterday_stmt: MAX views/contacts yesterday, grouped by product_id
-      6. products query: active products with avito_id
-      7. last_sync: MAX(captured_at)
+      6. spark_stmt: MAX views per (product_id, day) for last 8 days
+      7. products query: active products with avito_id
+      8. last_sync: MAX(captured_at)
     """
     # Build per-product mock results
     window_rows = []
@@ -111,25 +112,29 @@ def _make_efficiency_db(products_data):
     r5 = MagicMock()
     r5.all.return_value = []
 
-    # Result 6: products query
-    r6_scalars = MagicMock()
-    r6_scalars.all.return_value = product_mocks
+    # Result 6: sparkline query (empty → all 0 deltas)
     r6 = MagicMock()
-    r6.scalars.return_value = r6_scalars
+    r6.all.return_value = []
 
-    # Result 7: last_sync
+    # Result 7: products query
+    r7_scalars = MagicMock()
+    r7_scalars.all.return_value = product_mocks
     r7 = MagicMock()
-    r7.scalar.return_value = datetime.utcnow()
+    r7.scalars.return_value = r7_scalars
+
+    # Result 8: last_sync
+    r8 = MagicMock()
+    r8.scalar.return_value = datetime.utcnow()
 
     mock_db = AsyncMock()
-    mock_db.execute = AsyncMock(side_effect=[r1, r2, r3, r4, r5, r6, r7])
+    mock_db.execute = AsyncMock(side_effect=[r1, r2, r3, r4, r5, r6, r7, r8])
     return mock_db
 
 
 class TestEfficiencyMarkers:
     @pytest.mark.asyncio
     async def test_dead_marker_zero_views_delta(self):
-        """Product with 0 views delta over 3 days → dead marker."""
+        """Product with 0 views delta over 5 days → dead marker (range 0–19)."""
         db = _make_efficiency_db([{
             "id": 1, "views_baseline": 100, "views_latest": 100,
         }])
@@ -144,8 +149,22 @@ class TestEfficiencyMarkers:
         assert products[0]["marker"] == "dead"
 
     @pytest.mark.asyncio
+    async def test_dead_marker_below_20(self):
+        """Product with 15 views delta over 5 days → still dead (< 20)."""
+        db = _make_efficiency_db([{
+            "id": 1, "views_baseline": 100, "views_latest": 115,
+        }])
+        app = _make_app(db)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get("/api/analytics/efficiency")
+
+        products = resp.json()["products"]
+        assert products[0]["marker"] == "dead"
+
+    @pytest.mark.asyncio
     async def test_alive_marker_good_views(self):
-        """Product with 50 views delta over 3 days → alive marker."""
+        """Product with 50 views delta over 5 days → alive marker (> 30)."""
         db = _make_efficiency_db([{
             "id": 1, "views_baseline": 0, "views_latest": 50,
         }])
@@ -158,10 +177,10 @@ class TestEfficiencyMarkers:
         assert products[0]["marker"] == "alive"
 
     @pytest.mark.asyncio
-    async def test_weak_marker_low_views(self):
-        """Product with 5 views delta over 3 days → weak marker (< 10)."""
+    async def test_weak_marker_in_range(self):
+        """Product with 25 views delta over 5 days → weak marker (20 ≤ v ≤ 30)."""
         db = _make_efficiency_db([{
-            "id": 1, "views_baseline": 100, "views_latest": 105,
+            "id": 1, "views_baseline": 100, "views_latest": 125,
         }])
         app = _make_app(db)
 
@@ -170,6 +189,24 @@ class TestEfficiencyMarkers:
 
         products = resp.json()["products"]
         assert products[0]["marker"] == "weak"
+
+    @pytest.mark.asyncio
+    async def test_weak_marker_at_boundaries(self):
+        """Boundary check: 20 → weak, 30 → weak, 31 → alive."""
+        db = _make_efficiency_db([
+            {"id": 1, "views_baseline": 0, "views_latest": 20},  # weak
+            {"id": 2, "views_baseline": 0, "views_latest": 30},  # weak
+            {"id": 3, "views_baseline": 0, "views_latest": 31},  # alive
+        ])
+        app = _make_app(db)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get("/api/analytics/efficiency")
+
+        products = sorted(resp.json()["products"], key=lambda p: p["product_id"])
+        assert products[0]["marker"] == "weak"
+        assert products[1]["marker"] == "weak"
+        assert products[2]["marker"] == "alive"
 
     @pytest.mark.asyncio
     async def test_unknown_marker_single_snapshot(self):

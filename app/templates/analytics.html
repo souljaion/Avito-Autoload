@@ -7,7 +7,8 @@
 .analytics-table th:hover { color:var(--accent-blue); }
 .analytics-table th .sort-arrow { font-size:10px; margin-left:4px; }
 .analytics-table td { vertical-align:middle; }
-.analytics-table tbody tr:hover { background:#111827; }
+.analytics-table tbody tr:hover { background:rgba(99,102,241,0.06); }
+.analytics-table tbody tr:hover td.price-cell input { background:#ffffff !important; }
 .no-thumb { width:50px; height:50px; border-radius:6px; background:var(--bg-elevated); display:flex; align-items:center; justify-content:center; color:var(--text-muted); font-size:16px; }
 .spinner { display:inline-block; width:14px; height:14px; border:2px solid var(--border); border-top-color:var(--accent-blue); border-radius:50%; animation:spin 0.8s linear infinite; margin-right:6px; vertical-align:middle; }
 @keyframes spin { to { transform:rotate(360deg); } }
@@ -27,6 +28,55 @@
 .marker-weak { background:#eab308; }
 .marker-alive { background:#22c55e; }
 .marker-unknown { background:#6b7280; }
+.marker-badge { display:inline-block; padding:3px 8px; border-radius:4px; font-size:11px; font-weight:600; white-space:nowrap; line-height:1.4; }
+.marker-badge-dead { background:#FCEBEB; color:#A32D2D; }
+.marker-badge-weak { background:#FAEEDA; color:#854F0B; }
+.marker-badge-alive { background:#EAF3DE; color:#3B6D11; }
+.marker-badge-unknown { background:#f3f4f6; color:#6b7280; }
+.num-cell { text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.num-muted { color:#9ca3af; }
+
+/* Sortable column headers */
+.analytics-table th.sortable { cursor:pointer; user-select:none; }
+.analytics-table th.sortable .sort-ind { color:#cbd5e1; margin-left:4px; font-size:9px; }
+.analytics-table th.sortable.sort-active { font-weight:500; color:var(--accent-blue); }
+.analytics-table th.sortable.sort-active .sort-ind { color:var(--accent-blue); }
+
+/* Inline price editing */
+.price-cell { cursor:pointer; }
+.price-cell:hover { background:rgba(99,102,241,0.06); }
+.price-input {
+    background: #ffffff !important;
+    color: #111827 !important;
+    border: none !important;
+    border-bottom: 1.5px solid #6b7280 !important;
+    border-radius: 0 !important;
+    outline: none !important;
+    box-shadow: none !important;
+    font-size: 13px;
+    font-family: inherit;
+    text-align: right;
+    width: 80px;
+    padding: 0 2px;
+    -moz-appearance: textfield;
+}
+.price-input:focus {
+    border-bottom: 1.5px solid #4f46e5 !important;
+    background: #ffffff !important;
+}
+.price-input::-webkit-outer-spin-button,
+.price-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+td.price-cell input {
+    background-color: #ffffff !important;
+    color: #111827 !important;
+}
+.cell-flash-ok { animation:flashOk 0.6s ease-out; }
+.cell-flash-err { animation:flashErr 0.6s ease-out; }
+@keyframes flashOk { 0% { background:rgba(34,197,94,0.35); } 100% { background:transparent; } }
+@keyframes flashErr { 0% { background:rgba(239,68,68,0.35); } 100% { background:transparent; } }
 .acc-card-wrap { cursor:pointer; transition:border-color 0.15s, box-shadow 0.15s; }
 .acc-card-wrap:hover { border-color:#667eea !important; box-shadow:0 2px 12px rgba(102,126,234,0.15); }
 .acc-card-wrap.acc-active { border:1.5px solid #534AB7 !important; box-shadow:0 2px 12px rgba(83,74,183,0.2); }
@@ -68,9 +118,9 @@
     <details style="margin-bottom:10px;font-size:12px;color:#6b7280;">
         <summary style="cursor:pointer;color:#667eea;font-size:12px;">&#x25B6; Как работают маркеры?</summary>
         <div style="margin-top:6px;padding:8px 12px;background:#f8f9ff;border-radius:6px;line-height:1.8;">
-            &#x1F534; <b>Мёртвые</b> &mdash; 0 просмотров за 3+ дня<br>
-            &#x1F7E1; <b>Слабые</b> &mdash; менее 3 просмотров за 3 дня<br>
-            &#x1F7E2; <b>Живые</b> &mdash; 3+ просмотров за 3 дня<br>
+            &#x1F534; <b>Мёртвые</b> &mdash; 0&ndash;19 просмотров за 5 дней<br>
+            &#x1F7E1; <b>Слабые</b> &mdash; 20&ndash;30 просмотров за 5 дней<br>
+            &#x1F7E2; <b>Живые</b> &mdash; более 30 просмотров за 5 дней<br>
             &#x26AA; <b>Без данных</b> &mdash; статистика ещё не собрана, нажмите &laquo;Синхронизировать&raquo;
         </div>
     </details>
@@ -335,33 +385,220 @@ function selectAccount(accountName) {
 }
 
 function _todayCell(val) {
-    if (val === null || val === undefined) return '<span style="color:#6b7280;">&mdash;</span>';
+    if (val === null || val === undefined) return '<span class="num-muted">&mdash;</span>';
     if (val > 0) return `<span style="color:#22c55e;font-weight:600;">+${val}</span>`;
-    return '<span style="color:#6b7280;">&mdash;</span>';
+    return '<span class="num-muted">&mdash;</span>';
+}
+
+const _markerLabels = {
+    dead:    {text: 'Мёртвое',  cls: 'marker-badge-dead'},
+    weak:    {text: 'Слабое',   cls: 'marker-badge-weak'},
+    alive:   {text: 'Живое',    cls: 'marker-badge-alive'},
+    unknown: {text: 'Нет данных', cls: 'marker-badge-unknown'},
+};
+
+function _markerBadge(marker) {
+    const m = _markerLabels[marker] || _markerLabels.unknown;
+    return `<span class="marker-badge ${m.cls}">${m.text}</span>`;
+}
+
+function _priceCell(price) {
+    if (price === null || price === undefined || price === '') {
+        return '<span class="num-muted">&mdash;</span>';
+    }
+    const n = Number(price);
+    if (!isFinite(n)) return '<span class="num-muted">&mdash;</span>';
+    return `${n.toLocaleString('ru-RU')} \u20BD`;
+}
+
+function _daysCell(days) {
+    if (days === null || days === undefined) return '<span class="num-muted">&mdash;</span>';
+    return String(days);
+}
+
+function _views5dCell(v) {
+    if (v === null || v === undefined) return '<span class="num-muted">&mdash;</span>';
+    let color = '#16a34a'; // alive (>30)
+    if (v < 20) color = '#dc2626';        // dead
+    else if (v <= 30) color = '#d97706';  // weak
+    return `<span style="color:${color};font-weight:600;">${v}</span>`;
+}
+
+function _markerColor(marker) {
+    // Spec palette for the trend sparkline
+    if (marker === 'dead') return '#E24B4A';
+    if (marker === 'weak') return '#EF9F27';
+    if (marker === 'alive') return '#639922';
+    return '#9ca3af';
+}
+
+// Render a 7-day sparkline of per-day views deltas from p.sparkline_7d.
+// Width=72, height=28, 7 evenly spaced points. Y scaled from 0 to max(pts) (or 1).
+// All-zero series → flat gray line at the bottom.
+function _renderSparkline(p) {
+    const w = 72, h = 28, pad = 3;
+    const pts = Array.isArray(p.sparkline_7d) && p.sparkline_7d.length === 7
+        ? p.sparkline_7d.map(v => Number(v) || 0)
+        : [0, 0, 0, 0, 0, 0, 0];
+
+    const maxV = Math.max.apply(null, pts);
+
+    // All zeros → flat gray line at bottom
+    if (maxV === 0) {
+        const y = h - pad;
+        return `<svg width="${w}" height="${h}" style="display:block;" aria-hidden="true">`
+            + `<line x1="${pad}" y1="${y}" x2="${w - pad}" y2="${y}" stroke="#d1d5db" stroke-width="1.5" stroke-linecap="round"/>`
+            + `</svg>`;
+    }
+
+    const color = _markerColor(p.marker);
+    const denom = maxV || 1;
+    const stepX = (w - pad * 2) / (pts.length - 1);
+    let d = '';
+    pts.forEach((val, i) => {
+        const x = pad + i * stepX;
+        const y = h - pad - (val / denom) * (h - pad * 2);
+        d += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
+    });
+    return `<svg width="${w}" height="${h}" style="display:block;" aria-hidden="true">`
+        + `<path d="${d.trim()}" stroke="${color}" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`
+        + `</svg>`;
+}
+
+// ── Sort state ──
+// effSortKey: null | 'price' | 'days_ago' | 'views_5d' | 'contacts_total'
+// effSortDir: 'asc' | 'desc'
+let effSortKey = null, effSortDir = 'asc';
+
+function setEffSort(key) {
+    if (effSortKey !== key) {
+        effSortKey = key;
+        effSortDir = 'asc';
+    } else if (effSortDir === 'asc') {
+        effSortDir = 'desc';
+    } else {
+        // third click clears the sort
+        effSortKey = null;
+        effSortDir = 'asc';
+    }
+    renderEffTable();
+}
+
+function _sortInd(key) {
+    if (effSortKey !== key) return '<span class="sort-ind">&#x2195;</span>';   // ↕
+    return effSortDir === 'asc'
+        ? '<span class="sort-ind">&#x25B2;</span>'  // ▲
+        : '<span class="sort-ind">&#x25BC;</span>'; // ▼
+}
+
+function _applyEffSort(rows) {
+    if (!effSortKey) return rows;
+    const dir = effSortDir === 'asc' ? 1 : -1;
+    // Numeric sort with nulls/undefined sinking to the end regardless of dir
+    return rows.slice().sort((a, b) => {
+        const av = a[effSortKey], bv = b[effSortKey];
+        const aNull = (av === null || av === undefined);
+        const bNull = (bv === null || bv === undefined);
+        if (aNull && bNull) return 0;
+        if (aNull) return 1;
+        if (bNull) return -1;
+        return (Number(av) - Number(bv)) * dir;
+    });
+}
+
+// ── Inline price editing ──
+function startPriceEdit(td) {
+    if (td.querySelector('input.price-input')) return;  // already editing
+    const productId = td.dataset.productId;
+    const orig = td.dataset.price;  // '' for null
+    const html = td.innerHTML;
+    td.innerHTML = `<input type="number" class="price-input" value="${orig}" min="0" step="1">`;
+    const input = td.querySelector('input');
+    input.focus();
+    input.select();
+
+    let done = false;
+    const cancel = () => {
+        if (done) return; done = true;
+        td.innerHTML = html;
+    };
+    const save = async () => {
+        if (done) return; done = true;
+        const raw = input.value.trim();
+        const newPrice = raw === '' ? null : Number(raw);
+        if (raw !== '' && !isFinite(newPrice)) { td.innerHTML = html; return; }
+        // No change
+        const origNum = orig === '' ? null : Number(orig);
+        if (newPrice === origNum) { td.innerHTML = html; return; }
+        try {
+            const resp = await fetch('/products/' + productId, {
+                method: 'PATCH',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({price: newPrice}),
+            });
+            const data = await resp.json();
+            if (resp.ok && data.ok) {
+                td.dataset.price = newPrice === null ? '' : String(newPrice);
+                td.innerHTML = _priceCell(newPrice);
+                _flash(td, true);
+                // Keep effData in sync so re-renders keep the change
+                const item = effData.find(x => x.product_id == productId);
+                if (item) item.price = newPrice;
+            } else {
+                td.innerHTML = html;
+                _flash(td, false);
+                showToast(data.error || 'Не удалось сохранить цену', true);
+            }
+        } catch(e) {
+            td.innerHTML = html;
+            _flash(td, false);
+            showToast('Ошибка сети', true);
+        }
+    };
+
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); save(); }
+        else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+    });
+    input.addEventListener('blur', save);
+}
+
+function _flash(el, ok) {
+    const cls = ok ? 'cell-flash-ok' : 'cell-flash-err';
+    el.classList.remove(cls);
+    void el.offsetWidth;  // restart the animation
+    el.classList.add(cls);
+    setTimeout(() => el.classList.remove(cls), 700);
 }
 
 function renderEffTable() {
-    const filtered = getFilteredEff();
+    const filtered = _applyEffSort(getFilteredEff());
     const container = document.getElementById('eff-table');
     if (!filtered.length) {
         container.innerHTML = '<div style="color:var(--text-muted);padding:16px;text-align:center;">Нет объявлений в этой категории</div>';
         updateEffBulk();
         return;
     }
+    const thStyle = 'font-size:10px;text-transform:uppercase;letter-spacing:0.04em;';
+    const sortableTh = (key, label) => {
+        const active = effSortKey === key ? ' sort-active' : '';
+        return `<th class="sortable${active}" style="${thStyle}text-align:right;" onclick="setEffSort('${key}')">${label}${_sortInd(key)}</th>`;
+    };
     let html = `<table class="analytics-table"><thead><tr>
         <th style="width:30px;"><input type="checkbox" onchange="toggleAllEff(this.checked)" style="width:auto;cursor:pointer;"></th>
-        <th style="font-size:10px;text-transform:uppercase;letter-spacing:0.04em;">Маркер</th>
+        <th style="${thStyle}">Маркер</th>
         <th></th>
-        <th style="font-size:10px;text-transform:uppercase;letter-spacing:0.04em;">Товар</th>
-        <th style="font-size:10px;text-transform:uppercase;letter-spacing:0.04em;">Просмотры</th>
-        <th style="font-size:10px;text-transform:uppercase;letter-spacing:0.04em;">Сегодня</th>
-        <th style="font-size:10px;text-transform:uppercase;letter-spacing:0.04em;">Контакты</th>
-        <th style="font-size:10px;text-transform:uppercase;letter-spacing:0.04em;">Сегодня</th>
-        <th style="font-size:10px;text-transform:uppercase;letter-spacing:0.04em;">Выложено</th>
+        <th style="${thStyle}">Товар</th>
+        ${sortableTh('price', 'Цена')}
+        ${sortableTh('days_ago', 'Дней')}
+        ${sortableTh('views_5d', 'За 5 дней')}
+        <th style="${thStyle}text-align:right;">Сегодня</th>
+        ${sortableTh('contacts_total', 'Контакты')}
+        <th style="${thStyle}">Тренд 7д</th>
         <th></th>
     </tr></thead><tbody>`;
     for (const p of filtered) {
-        let markerHtml = {dead:'&#x1F534;', weak:'&#x1F7E1;', alive:'&#x1F7E2;', unknown:'&#x26AA;'}[p.marker];
+        let markerHtml = _markerBadge(p.marker);
         if (p.avito_messages && p.avito_messages.length > 0) {
             const msgTitle = (p.avito_messages[0].title || '') + ': ' + (p.avito_messages[0].description || '');
             markerHtml += ` <span title="${msgTitle.replace(/"/g, '&quot;')}" style="cursor:help;font-size:14px;">&#x26A0;&#xFE0F;</span>`;
@@ -369,7 +606,6 @@ function renderEffTable() {
         const imgHtml = p.image
             ? `<img src="${p.image}" style="width:48px;height:48px;object-fit:cover;border-radius:6px;border:1px solid var(--border);" onerror="this.style.display='none'">`
             : `<div class="no-thumb" style="width:48px;height:48px;">?</div>`;
-        const daysAgoText = p.days_ago !== null ? `<div style="font-size:10px;color:#9ca3af;">${p.days_ago} дн. назад</div>` : '';
         const avitoLink = p.avito_id
             ? `<a href="https://www.avito.ru/items/${p.avito_id}" target="_blank" rel="noopener" style="font-size:11px;color:#9ca3af;text-decoration:none;margin-left:6px;" title="Открыть на Авито">↗</a>`
             : '';
@@ -397,11 +633,12 @@ function renderEffTable() {
             <td>${markerHtml}</td>
             <td>${imgHtml}</td>
             <td style="max-width:250px;"><div>${p.title}${avitoLink}</div><span class="badge badge-blue" style="font-size:10px;">${p.account_name||'—'}</span></td>
-            <td style="font-weight:600;">${p.views_total !== null && p.views_total !== undefined ? p.views_total : '—'}</td>
-            <td>${_todayCell(p.views_today)}</td>
-            <td style="font-weight:600;">${p.contacts_total !== null && p.contacts_total !== undefined ? p.contacts_total : '—'}</td>
-            <td>${_todayCell(p.contacts_today)}</td>
-            <td style="white-space:nowrap;">${p.published_at || '—'}${daysAgoText}</td>
+            <td class="num-cell price-cell" data-product-id="${p.product_id}" data-price="${p.price === null || p.price === undefined ? '' : p.price}" onclick="startPriceEdit(this)" title="Клик — изменить цену">${_priceCell(p.price)}</td>
+            <td class="num-cell">${_daysCell(p.days_ago)}</td>
+            <td class="num-cell">${_views5dCell(p.views_5d)}</td>
+            <td class="num-cell">${_todayCell(p.views_today)}</td>
+            <td class="num-cell" style="font-weight:600;">${p.contacts_total !== null && p.contacts_total !== undefined ? p.contacts_total : '<span class="num-muted">&mdash;</span>'}</td>
+            <td>${_renderSparkline(p)}</td>
             <td style="text-align:right;white-space:nowrap;">
                 ${actionHtml}
             </td></tr>`;

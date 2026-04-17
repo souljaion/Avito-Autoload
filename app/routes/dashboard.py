@@ -91,19 +91,19 @@ async def command_center(db: AsyncSession = Depends(get_db)):
             "message": item.error_text or "Отклонено Авито",
         })
 
-    # Dead ads (0 views delta in 3 days)
-    cutoff_3d = datetime.utcnow() - timedelta(days=3)
+    # Dead ads (< 20 views delta in 5 days)
+    cutoff_5d = datetime.utcnow() - timedelta(days=5)
     window_stmt = select(
         ItemStats.product_id,
         func.max(ItemStats.views).label("mx"),
         func.min(ItemStats.views).label("mn"),
-    ).where(ItemStats.captured_at >= cutoff_3d).group_by(ItemStats.product_id)
+    ).where(ItemStats.captured_at >= cutoff_5d).group_by(ItemStats.product_id)
     window_result = await db.execute(window_stmt)
     window_map = {r.product_id: (r.mx or 0, r.mn or 0) for r in window_result.all()}
 
     baseline_stmt = select(
         ItemStats.product_id, func.max(ItemStats.views).label("bv")
-    ).where(ItemStats.captured_at < cutoff_3d).group_by(ItemStats.product_id)
+    ).where(ItemStats.captured_at < cutoff_5d).group_by(ItemStats.product_id)
     baseline_result = await db.execute(baseline_stmt)
     baseline_map = {r.product_id: r.bv or 0 for r in baseline_result.all()}
 
@@ -121,13 +121,13 @@ async def command_center(db: AsyncSession = Depends(get_db)):
         )
     )
     for p in dead_products_result.scalars().all():
-        if p.id in views_map and views_map[p.id] == 0:
+        if p.id in views_map and views_map[p.id] < 20:
             attention.append({
                 "type": "dead",
                 "product_id": p.id,
                 "title": p.title,
                 "account_name": p.account.name if p.account else "?",
-                "message": "0 просмотров за 3 дня",
+                "message": f"{views_map[p.id]} просмотров за 5 дней",
             })
 
     # ── Block 2: scheduled_today ──
@@ -214,7 +214,7 @@ async def command_center(db: AsyncSession = Depends(get_db)):
 
     # Dead product recommendations — fetch titles for dead products
     if len(recommendations) < 5:
-        dead_ids = [pid for pid, v in views_map.items() if v == 0]
+        dead_ids = [pid for pid, v in views_map.items() if v < 20]
         if dead_ids:
             dead_result = await db.execute(
                 select(Product.id, Product.title).where(Product.id.in_(dead_ids[:5]))
@@ -227,7 +227,7 @@ async def command_center(db: AsyncSession = Depends(get_db)):
                 short = title[:40] + "..." if len(title) > 40 else title
                 recommendations.append({
                     "type": "repost",
-                    "message": f"Перевыложи {short} — 0 просмотров 3 дня",
+                    "message": f"Перевыложи {short} — < 20 просмотров за 5 дней",
                     "product_id": p_id,
                 })
 
@@ -245,9 +245,9 @@ async def command_center(db: AsyncSession = Depends(get_db)):
             "active_accounts": active_accounts,
             "total_accounts": total_accounts,
             "total_models": total_models,
-            "dead_ads": sum(1 for v in views_map.values() if v is not None and v == 0),
-            "weak_ads": sum(1 for v in views_map.values() if v is not None and 0 < v < 10),
-            "problem_ads": sum(1 for v in views_map.values() if v is not None and v < 10),
+            "dead_ads": sum(1 for v in views_map.values() if v is not None and v < 20),
+            "weak_ads": sum(1 for v in views_map.values() if v is not None and 20 <= v <= 30),
+            "problem_ads": sum(1 for v in views_map.values() if v is not None and v <= 30),
             "last_sync": last_sync_str,
             "sync_stale": sync_stale,
         },

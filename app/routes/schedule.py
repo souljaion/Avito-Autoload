@@ -197,7 +197,7 @@ async def schedule_account_data(account_id: int, db: AsyncSession = Depends(get_
     m = metrics_result.one()
 
     # ── Dead count (marker logic) ──
-    cutoff_3d = datetime.utcnow() - timedelta(days=3)
+    cutoff_5d = datetime.utcnow() - timedelta(days=5)
     active_pids_result = await db.execute(
         select(Product.id).where(
             Product.account_id == account_id,
@@ -208,7 +208,7 @@ async def schedule_account_data(account_id: int, db: AsyncSession = Depends(get_
     active_pids = [r[0] for r in active_pids_result.all()]
 
     dead_count = 0
-    views_3d_map: dict[int, int | None] = {}
+    views_5d_map: dict[int, int | None] = {}
     single_snapshot: set[int] = set()
 
     if active_pids:
@@ -219,7 +219,7 @@ async def schedule_account_data(account_id: int, db: AsyncSession = Depends(get_
                 func.min(ItemStats.views).label("min_views"),
                 func.count().label("cnt"),
             )
-            .where(ItemStats.captured_at >= cutoff_3d, ItemStats.product_id.in_(active_pids))
+            .where(ItemStats.captured_at >= cutoff_5d, ItemStats.product_id.in_(active_pids))
             .group_by(ItemStats.product_id)
         )
         window_map = {r.product_id: (r.max_views or 0, r.min_views or 0, r.cnt) for r in window_result.all()}
@@ -229,7 +229,7 @@ async def schedule_account_data(account_id: int, db: AsyncSession = Depends(get_
                 ItemStats.product_id,
                 func.max(ItemStats.views).label("baseline_views"),
             )
-            .where(ItemStats.captured_at < cutoff_3d, ItemStats.product_id.in_(active_pids))
+            .where(ItemStats.captured_at < cutoff_5d, ItemStats.product_id.in_(active_pids))
             .group_by(ItemStats.product_id)
         )
         baseline_map = {r.product_id: r.baseline_views or 0 for r in baseline_result.all()}
@@ -237,18 +237,18 @@ async def schedule_account_data(account_id: int, db: AsyncSession = Depends(get_
         for pid, (max_v, min_v, cnt) in window_map.items():
             baseline_v = baseline_map.get(pid)
             if baseline_v is not None:
-                views_3d_map[pid] = max(0, max_v - baseline_v)
+                views_5d_map[pid] = max(0, max_v - baseline_v)
             elif cnt >= 2:
-                views_3d_map[pid] = max(0, max_v - min_v)
+                views_5d_map[pid] = max(0, max_v - min_v)
             else:
-                views_3d_map[pid] = None
+                views_5d_map[pid] = None
                 single_snapshot.add(pid)
 
         for pid in active_pids:
             if pid in single_snapshot:
                 continue
-            v = views_3d_map.get(pid)
-            if v is not None and v == 0:
+            v = views_5d_map.get(pid)
+            if v is not None and v < 20:
                 dead_count += 1
 
     # ── Hourly load ──
@@ -385,13 +385,13 @@ async def schedule_account_data(account_id: int, db: AsyncSession = Depends(get_
         # Marker
         if p.id in single_snapshot:
             marker = "unknown"
-        elif p.id in views_3d_map:
-            v3 = views_3d_map[p.id]
-            if v3 is None:
+        elif p.id in views_5d_map:
+            v5 = views_5d_map[p.id]
+            if v5 is None:
                 marker = "unknown"
-            elif v3 == 0:
+            elif v5 < 20:
                 marker = "dead"
-            elif v3 < 10:
+            elif v5 <= 30:
                 marker = "weak"
             else:
                 marker = "alive"
@@ -467,6 +467,172 @@ def _resolve_image(p: Product) -> str | None:
         sorted_imgs = sorted(p.images, key=lambda x: (not x.is_main, x.sort_order))
         return sorted_imgs[0].url
     return None
+
+
+@router.get("/api/schedule/{account_id}/dashboard")
+async def schedule_dashboard(account_id: int, db: AsyncSession = Depends(get_db)):
+    """Dashboard data for the redesigned schedule page.
+
+    Returns counts, dead/weak marker totals (5-day window), and a rich drafts
+    list with per-draft readiness, missing fields, and alive-on-other-accounts.
+    """
+    cutoff_5d = datetime.utcnow() - timedelta(days=5)
+
+    # ── Counts per status for this account ──
+    counts_result = await db.execute(
+        select(
+            func.count().filter(Product.status.in_(["active", "published", "imported"])).label("active_count"),
+            func.count().filter(Product.status == "scheduled").label("scheduled_count"),
+            func.count().filter(Product.status == "draft").label("drafts_count"),
+        )
+        .where(Product.account_id == account_id)
+    )
+    counts = counts_result.one()
+
+    # ── Drafts for this account ──
+    draft_result = await db.execute(
+        select(Product)
+        .options(selectinload(Product.images), selectinload(Product.model_ref))
+        .where(Product.account_id == account_id, Product.status == "draft")
+        .order_by(Product.id.desc())
+    )
+    drafts = list(draft_result.scalars().all())
+
+    # ── Active product ids (for dead/weak counters, 5-day window) ──
+    active_pids_result = await db.execute(
+        select(Product.id).where(
+            Product.account_id == account_id,
+            Product.avito_id.isnot(None),
+            Product.status.in_(["active", "published", "imported"]),
+        )
+    )
+    active_pids = [r[0] for r in active_pids_result.all()]
+
+    dead_count = 0
+    weak_count = 0
+    if active_pids:
+        views_5d = await _views_5d_for(db, active_pids, cutoff_5d)
+        for v in views_5d.values():
+            if v is None:
+                continue
+            if v < 20:
+                dead_count += 1
+            elif v <= 30:
+                weak_count += 1
+
+    # ── alive_on_accounts: other accounts where same model_id is "alive" (v5d > 30) ──
+    model_ids = [p.model_id for p in drafts if p.model_id is not None]
+    alive_map: dict[int, list] = {}
+    if model_ids:
+        same_model_result = await db.execute(
+            select(Product)
+            .options(selectinload(Product.account))
+            .where(
+                Product.model_id.in_(model_ids),
+                Product.account_id != account_id,
+                Product.status.in_(["active", "published", "imported"]),
+            )
+        )
+        same_model_products = list(same_model_result.scalars().all())
+        if same_model_products:
+            other_pids = [p.id for p in same_model_products]
+            other_v5d = await _views_5d_for(db, other_pids, cutoff_5d)
+            for p in same_model_products:
+                v = other_v5d.get(p.id)
+                if v is None or v <= 30:
+                    continue
+                alive_map.setdefault(p.model_id, []).append({
+                    "account_name": p.account.name if p.account else "?",
+                    "views_5d": v,
+                })
+
+    # ── Build drafts response ──
+    draft_items = []
+    drafts_ready = 0
+    for p in drafts:
+        has_image = bool(p.images) or bool(p.image_url)
+        missing: list[str] = []
+        if not has_image:
+            missing.append("фото")
+        if not p.brand:
+            missing.append("бренд")
+        if not p.category:
+            missing.append("категория")
+        if not p.goods_type:
+            missing.append("goods_type")
+        # Per spec: ready = image + brand + goods_type + title + price
+        ready = bool(has_image and p.brand and p.goods_type and p.title and p.price is not None)
+        if ready:
+            drafts_ready += 1
+
+        img = _resolve_image(p) or p.image_url
+        model_name = p.model_ref.name if p.model_ref else None
+
+        draft_items.append({
+            "product_id": p.id,
+            "title": p.title,
+            "price": p.price,
+            "image": img,
+            "model_id": p.model_id,
+            "model_name": model_name,
+            "ready": ready,
+            "missing": missing,
+            "alive_on_accounts": alive_map.get(p.model_id, []) if p.model_id else [],
+        })
+
+    return JSONResponse({
+        "active_count": counts.active_count,
+        "scheduled_count": counts.scheduled_count,
+        "drafts_count": counts.drafts_count,
+        "drafts_ready": drafts_ready,
+        "dead_count": dead_count,
+        "weak_count": weak_count,
+        "drafts": draft_items,
+    })
+
+
+async def _views_5d_for(db: AsyncSession, pids: list[int], cutoff: datetime) -> dict[int, int | None]:
+    """Compute views_5d for a set of product ids using the same window logic as
+    /api/analytics/efficiency: MAX(views) in window minus MAX(views) before it;
+    falls back to MAX-MIN within the window if no baseline exists; returns
+    None when only a single snapshot is available (unknown marker).
+    """
+    if not pids:
+        return {}
+    window_result = await db.execute(
+        select(
+            ItemStats.product_id,
+            func.max(ItemStats.views).label("max_views"),
+            func.min(ItemStats.views).label("min_views"),
+            func.count().label("cnt"),
+        )
+        .where(ItemStats.captured_at >= cutoff, ItemStats.product_id.in_(pids))
+        .group_by(ItemStats.product_id)
+    )
+    window_map = {
+        r.product_id: (r.max_views or 0, r.min_views or 0, r.cnt)
+        for r in window_result.all()
+    }
+    baseline_result = await db.execute(
+        select(
+            ItemStats.product_id,
+            func.max(ItemStats.views).label("baseline_views"),
+        )
+        .where(ItemStats.captured_at < cutoff, ItemStats.product_id.in_(pids))
+        .group_by(ItemStats.product_id)
+    )
+    baseline_map = {r.product_id: r.baseline_views or 0 for r in baseline_result.all()}
+
+    out: dict[int, int | None] = {}
+    for pid, (max_v, min_v, cnt) in window_map.items():
+        baseline_v = baseline_map.get(pid)
+        if baseline_v is not None:
+            out[pid] = max(0, max_v - baseline_v)
+        elif cnt >= 2:
+            out[pid] = max(0, max_v - min_v)
+        else:
+            out[pid] = None
+    return out
 
 
 @router.post("/api/schedule/{product_id}/cancel")

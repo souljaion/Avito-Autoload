@@ -11,7 +11,7 @@ color/price/image_url; replace product_images with the URLs from
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 
 import openpyxl
@@ -42,8 +42,9 @@ COLUMN_MAP = {
     "Цвет": "color",
     "Категория": "category",
     "Состояние": "condition",
-    "Ссылки на фото": "_photos",     # special: needs splitting
-    "AvitoStatus": "_avito_status",  # informational only
+    "Ссылки на фото": "_photos",          # special: needs splitting
+    "AvitoDateEnd": "_avito_date_end",    # special: ISO datetime, used to derive published_at
+    "AvitoStatus": "_avito_status",       # special: mirrored into product.extra for reference
 }
 
 
@@ -105,6 +106,36 @@ def _split_photos(raw: str | None) -> list[str]:
         return []
     parts = [p.strip() for p in raw.split("|")]
     return [_normalize_avito_image_url(p) for p in parts if p.startswith("http")]
+
+
+def _parse_avito_date_end(raw) -> datetime | None:
+    """Parse Avito's AvitoDateEnd value into a naive UTC datetime, then subtract
+    30 days to derive the publication date.
+
+    Avito ads run for 30 days from publication, so:
+        published_at = AvitoDateEnd - 30 days
+
+    Input formats:
+      - ISO 8601 string with offset, e.g. "2026-05-11T20:43:59+03:00"
+      - datetime instance (openpyxl may return one if the cell is date-typed)
+
+    Returns a tz-naive UTC datetime, or None if missing/unparseable.
+    """
+    if raw is None or raw == "":
+        return None
+    if isinstance(raw, datetime):
+        dt = raw
+    else:
+        s = str(raw).strip()
+        if not s:
+            return None
+        try:
+            dt = datetime.fromisoformat(s)
+        except (TypeError, ValueError):
+            return None
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt - timedelta(days=30)
 
 
 def _parse_workbook_bytes(file_bytes: bytes) -> list[dict]:
@@ -172,6 +203,18 @@ def _row_to_updates(row: dict) -> dict:
     if photos:
         out["_photos"] = photos
         out["image_url"] = photos[0][:500]
+
+    # AvitoDateEnd → derived published_at (applied conditionally in import_avito_excel:
+    # only set when the product currently has no published_at).
+    pub_at = _parse_avito_date_end(row.get("AvitoDateEnd"))
+    if pub_at is not None:
+        out["_published_at"] = pub_at
+
+    # AvitoStatus → product.extra["avito_status_excel"] (always refreshed)
+    avito_status = _str(row.get("AvitoStatus"))
+    if avito_status:
+        out["_avito_status_excel"] = avito_status[:255]
+
     return out
 
 
@@ -245,7 +288,9 @@ async def import_avito_excel(
                     account_id=account_id,
                     title=(title or f"[Авито] {avito_id}")[:255],
                     status="imported",
-                    published_at=now,
+                    # Prefer the AvitoDateEnd-derived value when available;
+                    # fall back to "now" so the row still has a sortable timestamp.
+                    published_at=upd.get("_published_at") or now,
                 )
                 db.add(target)
                 await db.flush()  # need target.id for product_images
@@ -258,11 +303,26 @@ async def import_avito_excel(
 
             # ── Apply scalar updates ──
             photos = upd.pop("_photos", None)
+            published_at_val = upd.pop("_published_at", None)
+            avito_status_excel = upd.pop("_avito_status_excel", None)
             for k, v in upd.items():
                 # Don't overwrite an existing avito_id with a different one
                 if k == "avito_id" and target.avito_id and target.avito_id != v:
                     continue
                 setattr(target, k, v)
+
+            # When AvitoDateEnd is present in the row, treat it as authoritative
+            # and overwrite any existing value (which is usually a placeholder
+            # 'now' set at first import). When the column is missing/empty we
+            # leave the current value alone.
+            if published_at_val is not None:
+                target.published_at = published_at_val
+
+            # Mirror AvitoStatus into JSONB extra for reference / debugging.
+            if avito_status_excel is not None:
+                extra = dict(target.extra or {})
+                extra["avito_status_excel"] = avito_status_excel
+                target.extra = extra
 
             # ── Replace photos ──
             if photos:

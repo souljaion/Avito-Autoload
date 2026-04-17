@@ -700,11 +700,11 @@ async def accounts_status(model_id: int, db: AsyncSession = Depends(get_db)):
     product_ids = [p.id for p in model.products if p.avito_id is not None]
     markers_map: dict[int, dict] = {}  # product_id -> {marker, views_total, views_today}
     if product_ids:
-        cutoff_3d = datetime.utcnow() - timedelta(days=3)
+        cutoff_5d = datetime.utcnow() - timedelta(days=5)
         today = datetime.utcnow().date()
         yesterday = today - timedelta(days=1)
 
-        # 3-day window
+        # 5-day window
         window_result = await db.execute(
             select(
                 ItemStats.product_id,
@@ -712,7 +712,7 @@ async def accounts_status(model_id: int, db: AsyncSession = Depends(get_db)):
                 func.min(ItemStats.views).label("min_views"),
                 func.count().label("cnt"),
             )
-            .where(ItemStats.captured_at >= cutoff_3d, ItemStats.product_id.in_(product_ids))
+            .where(ItemStats.captured_at >= cutoff_5d, ItemStats.product_id.in_(product_ids))
             .group_by(ItemStats.product_id)
         )
         window_map = {r.product_id: (r.max_views or 0, r.min_views or 0, r.cnt) for r in window_result.all()}
@@ -720,7 +720,7 @@ async def accounts_status(model_id: int, db: AsyncSession = Depends(get_db)):
         # Baseline before window
         baseline_result = await db.execute(
             select(ItemStats.product_id, func.max(ItemStats.views).label("bv"))
-            .where(ItemStats.captured_at < cutoff_3d, ItemStats.product_id.in_(product_ids))
+            .where(ItemStats.captured_at < cutoff_5d, ItemStats.product_id.in_(product_ids))
             .group_by(ItemStats.product_id)
         )
         baseline_map = {r.product_id: r.bv or 0 for r in baseline_result.all()}
@@ -770,9 +770,9 @@ async def accounts_status(model_id: int, db: AsyncSession = Depends(get_db)):
 
                 if delta is None:
                     marker = "unknown"
-                elif delta == 0:
+                elif delta < 20:
                     marker = "dead"
-                elif delta < 10:
+                elif delta <= 30:
                     marker = "weak"
                 else:
                     marker = "alive"
@@ -1002,8 +1002,8 @@ async def model_analytics(model_id: int, db: AsyncSession = Depends(get_db)):
 
     product_ids = [p.id for p in products]
 
-    # 3-day window for marker calculation (same logic as analytics efficiency)
-    cutoff = datetime.utcnow() - timedelta(days=3)
+    # 5-day window for marker calculation (same logic as analytics efficiency)
+    cutoff = datetime.utcnow() - timedelta(days=5)
 
     window_stmt = (
         select(
@@ -1029,16 +1029,16 @@ async def model_analytics(model_id: int, db: AsyncSession = Depends(get_db)):
     baseline_result = await db.execute(baseline_stmt)
     baseline_map = {r.product_id: r.baseline_views or 0 for r in baseline_result.all()}
 
-    views_3d_map = {}
+    views_5d_map = {}
     single_snapshot = set()
     for pid, (max_v, min_v, cnt) in window_map.items():
         baseline_v = baseline_map.get(pid)
         if baseline_v is not None:
-            views_3d_map[pid] = max(0, max_v - baseline_v)
+            views_5d_map[pid] = max(0, max_v - baseline_v)
         elif cnt >= 2:
-            views_3d_map[pid] = max(0, max_v - min_v)
+            views_5d_map[pid] = max(0, max_v - min_v)
         else:
-            views_3d_map[pid] = None
+            views_5d_map[pid] = None
             single_snapshot.add(pid)
 
     # Totals
@@ -1084,13 +1084,13 @@ async def model_analytics(model_id: int, db: AsyncSession = Depends(get_db)):
         # Marker
         if p.id in single_snapshot:
             marker = "unknown"
-        elif p.id in views_3d_map:
-            v = views_3d_map[p.id]
+        elif p.id in views_5d_map:
+            v = views_5d_map[p.id]
             if v is None:
                 marker = "unknown"
-            elif v == 0:
+            elif v < 20:
                 marker = "dead"
-            elif v < 10:
+            elif v <= 30:
                 marker = "weak"
             else:
                 marker = "alive"

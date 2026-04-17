@@ -8,14 +8,44 @@
 .sa-info .sa-sub { font-size:12px; color:#6b7280; display:flex; align-items:center; gap:6px; }
 .sa-info .sa-sub .online-dot { width:6px; height:6px; border-radius:50%; background:#22c55e; display:inline-block; }
 
-.metric-row { display:grid; grid-template-columns:repeat(5,1fr); gap:12px; margin-bottom:20px; }
+.metric-row { display:grid; grid-template-columns:repeat(6,1fr); gap:12px; margin-bottom:20px; }
 .metric-box { background:#f8f9ff; border-radius:10px; padding:12px 14px; text-align:center; }
 .metric-box .mv { font-size:22px; font-weight:600; color:#1e1b4b; }
 .metric-box .ml { font-size:11px; color:#6b7280; }
 .metric-box.amber .mv { color:#92400e; }
 .metric-box.red .mv { color:#dc2626; }
-@media (max-width:700px) { .metric-row { grid-template-columns:repeat(3,1fr); } }
+.metric-box.green .mv { color:#166534; }
+@media (max-width:900px) { .metric-row { grid-template-columns:repeat(3,1fr); } }
 @media (max-width:500px) { .metric-row { grid-template-columns:repeat(2,1fr); } }
+
+/* Recommendations row */
+.rec-row { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:20px; }
+@media (max-width:700px) { .rec-row { grid-template-columns:1fr; } }
+.rec-card { border-radius:12px; padding:14px 16px; display:flex; align-items:center; gap:12px; }
+.rec-card .rec-icon { width:38px; height:38px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0; }
+.rec-card .rec-body { flex:1; min-width:0; }
+.rec-card .rec-title { font-size:13px; font-weight:600; margin-bottom:2px; }
+.rec-card .rec-sub { font-size:11px; color:#6b7280; }
+.rec-card .rec-cta { background:#fff; border:none; border-radius:6px; padding:6px 12px; font-size:12px; font-weight:500; cursor:pointer; text-decoration:none; display:inline-block; white-space:nowrap; }
+.rec-red { background:#FCEBEB; } .rec-red .rec-icon { background:#F8D4D4; color:#A32D2D; } .rec-red .rec-title { color:#A32D2D; } .rec-red .rec-cta { color:#A32D2D; }
+.rec-amber { background:#FAEEDA; } .rec-amber .rec-icon { background:#F4DBB0; color:#854F0B; } .rec-amber .rec-title { color:#854F0B; } .rec-amber .rec-cta { color:#854F0B; }
+.rec-green { background:#EAF3DE; } .rec-green .rec-icon { background:#D4E5B7; color:#3B6D11; } .rec-green .rec-title { color:#3B6D11; } .rec-green .rec-cta { color:#3B6D11; }
+
+/* Drafts toolbar + new column styles */
+.drafts-toolbar { display:flex; align-items:center; gap:10px; margin-bottom:12px; flex-wrap:wrap; }
+.drafts-search { flex:1; min-width:180px; padding:7px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; background:#fff; color:#111827; }
+.drafts-filters { display:flex; gap:6px; }
+.drafts-filter-btn { padding:6px 12px; border:1px solid #d1d5db; border-radius:6px; background:#fff; color:#6b7280; cursor:pointer; font-size:12px; }
+.drafts-filter-btn.active { background:rgba(83,74,183,0.1); color:#534AB7; border-color:rgba(83,74,183,0.3); }
+
+.ready-badge { display:inline-flex; align-items:center; padding:3px 8px; border-radius:4px; font-size:11px; font-weight:500; white-space:nowrap; }
+.ready-ok    { background:#EAF3DE; color:#3B6D11; }
+.ready-nophoto { background:#FCEBEB; color:#A32D2D; }
+.ready-nobrand { background:#FAEEDA; color:#854F0B; }
+.ready-nodata  { background:#FAEEDA; color:#854F0B; }
+
+.alive-chip { display:inline-flex; align-items:center; gap:4px; padding:2px 7px; border-radius:10px; font-size:11px; font-weight:500; background:#EAF3DE; color:#3B6D11; white-space:nowrap; }
+.alive-chip-more { font-size:11px; color:#6b7280; margin-left:4px; }
 
 .hourly-chart { display:flex; gap:2px; align-items:flex-end; height:60px; margin-bottom:20px; padding:6px 4px 18px; background:#fafbff; border-radius:6px; }
 .hourly-bar { flex:1; border-radius:3px 3px 0 0; min-height:6px; position:relative; display:flex; align-items:flex-end; justify-content:center; }
@@ -87,7 +117,35 @@
     <div class="metric-box"><div class="mv" id="m-sched">—</div><div class="ml">Запланировано сегодня</div></div>
     <div class="metric-box"><div class="mv" id="m-pub">—</div><div class="ml">Опубликовано сегодня</div></div>
     <div class="metric-box amber"><div class="mv" id="m-draft">—</div><div class="ml">Черновиков</div></div>
+    <div class="metric-box green"><div class="mv" id="m-ready">—</div><div class="ml">Готовы к выкладке</div></div>
     <div class="metric-box red"><div class="mv" id="m-dead">—</div><div class="ml">Мёртвых</div></div>
+</div>
+
+<div class="rec-row" id="rec-row" style="display:none;">
+    <div class="rec-card rec-red" id="rec-dead" style="display:none;">
+        <div class="rec-icon">&#x1F534;</div>
+        <div class="rec-body">
+            <div class="rec-title">Заменить мёртвые</div>
+            <div class="rec-sub"><span id="rec-dead-count">0</span> объявлений без просмотров</div>
+        </div>
+        <a href="/analytics?filter=dead" class="rec-cta">Открыть &rarr;</a>
+    </div>
+    <div class="rec-card rec-amber" id="rec-weak" style="display:none;">
+        <div class="rec-icon">&#x1F7E1;</div>
+        <div class="rec-body">
+            <div class="rec-title">Обновить слабые</div>
+            <div class="rec-sub"><span id="rec-weak-count">0</span> объявлений с падающими просмотрами</div>
+        </div>
+        <a href="/analytics?filter=weak" class="rec-cta">Открыть &rarr;</a>
+    </div>
+    <div class="rec-card rec-green" id="rec-drafts" style="display:none;">
+        <div class="rec-icon">&#x1F4E6;</div>
+        <div class="rec-body">
+            <div class="rec-title">Выложи черновики</div>
+            <div class="rec-sub"><span id="rec-ready-count">0</span> готовы к публикации</div>
+        </div>
+        <button class="rec-cta" onclick="goToDrafts()">К черновикам &rarr;</button>
+    </div>
 </div>
 
 <div id="hourly-section" style="margin-bottom:20px;">
@@ -108,10 +166,14 @@
 </div>
 
 <div class="tab-panel" id="panel-drafts">
-    <div class="bulk-bar" id="bulk-bar">
-        <span id="bulk-count" style="font-size:13px;font-weight:500;color:#534AB7;">Выбрано: 0</span>
-        <input type="datetime-local" id="bulk-dt" style="padding:4px 8px;border:0.5px solid #d1d5db;border-radius:6px;font-size:12px;">
-        <button class="btn btn-primary btn-sm" onclick="scheduleBulk()">Запланировать выбранные</button>
+    <div class="drafts-toolbar">
+        <input type="text" class="drafts-search" id="drafts-search" placeholder="Поиск по названию или модели" oninput="renderDrafts()">
+        <div class="drafts-filters" id="drafts-filters">
+            <button class="drafts-filter-btn active" data-filter="all" onclick="setDraftFilter('all', this)">Все</button>
+            <button class="drafts-filter-btn" data-filter="ready" onclick="setDraftFilter('ready', this)">Готовые (<span id="f-ready-count">0</span>)</button>
+            <button class="drafts-filter-btn" data-filter="not_ready" onclick="setDraftFilter('not_ready', this)">Не готовые (<span id="f-notready-count">0</span>)</button>
+        </div>
+        <button class="btn btn-primary btn-sm" id="bulk-sched-btn" onclick="bulkScheduleReady()" disabled style="opacity:0.5;">Запланировать выбранные (<span id="bulk-count-inline">0</span>)</button>
     </div>
     <div class="section-card">
         <div id="drafts-content"><div class="empty-state">Загрузка...</div></div>
@@ -129,6 +191,12 @@
 <script>
 const ACCOUNT_ID = {{ account.id }};
 const _selectedDrafts = new Set();
+// Dashboard cache (drafts with readiness, alive_on_accounts, etc.)
+let _dashboard = null;
+let _draftFilter = 'all';
+// Analytics efficiency cache — loaded once when Активные tab opens
+let _effMarkers = null;  // Map<product_id, marker>
+let _effLoading = false;
 
 function showToast(msg, isError) {
     const t = document.getElementById('toast');
@@ -143,6 +211,35 @@ function switchTab(tab, btn) {
     btn.classList.add('active');
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
     document.getElementById('panel-' + tab).classList.add('active');
+    if (tab === 'active' && _effMarkers === null && !_effLoading) {
+        loadEffMarkers();
+    }
+}
+
+function goToDrafts() {
+    const pill = document.querySelector('.tab-pill[data-tab="drafts"]');
+    if (pill) { switchTab('drafts', pill); pill.scrollIntoView({behavior:'smooth', block:'start'}); }
+}
+
+async function loadEffMarkers() {
+    _effLoading = true;
+    try {
+        const resp = await fetch('/api/analytics/efficiency');
+        const data = await resp.json();
+        _effMarkers = new Map();
+        for (const p of (data.products || [])) {
+            _effMarkers.set(p.product_id, p.marker);
+        }
+    } catch(e) {
+        _effMarkers = new Map();
+    }
+    _effLoading = false;
+    // Re-render active panel if currently visible
+    const panel = document.getElementById('panel-active');
+    if (panel && panel.classList.contains('active')) {
+        const data = window._lastData;
+        if (data) renderActive(data.active || []);
+    }
 }
 
 function renderHourlyChart(hourly, containerId) {
@@ -175,8 +272,14 @@ function thumbHtml(img) {
 
 async function loadData() {
     try {
-        const resp = await fetch('/api/schedule/' + ACCOUNT_ID);
+        const [resp, dashResp] = await Promise.all([
+            fetch('/api/schedule/' + ACCOUNT_ID),
+            fetch('/api/schedule/' + ACCOUNT_ID + '/dashboard'),
+        ]);
         const data = await resp.json();
+        const dash = await dashResp.json();
+        window._lastData = data;
+        _dashboard = dash;
 
         // Metrics
         const me = data.metrics || {};
@@ -184,25 +287,33 @@ async function loadData() {
         document.getElementById('m-sched').textContent = me.scheduled_today ?? '—';
         document.getElementById('m-pub').textContent = me.published_today ?? '—';
         document.getElementById('m-draft').textContent = me.draft_count ?? '—';
-        document.getElementById('m-dead').textContent = me.dead_count ?? '—';
+        document.getElementById('m-ready').textContent = dash.drafts_ready ?? 0;
+        document.getElementById('m-dead').textContent = dash.dead_count ?? 0;
 
-        // Color amber/red only if > 0
         if ((me.draft_count || 0) === 0) document.getElementById('m-draft').closest('.metric-box').classList.remove('amber');
-        if ((me.dead_count || 0) === 0) document.getElementById('m-dead').closest('.metric-box').classList.remove('red');
+        if ((dash.dead_count || 0) === 0) document.getElementById('m-dead').closest('.metric-box').classList.remove('red');
+
+        // Recommendations
+        renderRecommendations(dash);
 
         // Hourly chart
         renderHourlyChart(data.hourly_load || new Array(24).fill(0), 'hourly-chart');
 
         // Tab counts
         const sched = data.scheduled || [];
-        const drafts = data.drafts || [];
         const active = data.active || [];
+        const dashDrafts = dash.drafts || [];
         document.getElementById('tab-q-count').textContent = sched.length;
-        document.getElementById('tab-d-count').textContent = drafts.length;
+        document.getElementById('tab-d-count').textContent = dashDrafts.length;
         document.getElementById('tab-a-count').textContent = active.length;
 
+        // Filter counts
+        const readyN = dashDrafts.filter(d => d.ready).length;
+        document.getElementById('f-ready-count').textContent = readyN;
+        document.getElementById('f-notready-count').textContent = dashDrafts.length - readyN;
+
         renderQueue(sched);
-        renderDrafts(drafts);
+        renderDrafts();
         renderActive(active);
 
         // Handle ?highlight= param
@@ -221,6 +332,23 @@ async function loadData() {
     } catch(e) {
         document.getElementById('queue-content').innerHTML = '<div class="empty-state" style="color:#dc2626;">Ошибка загрузки</div>';
     }
+}
+
+function renderRecommendations(dash) {
+    const row = document.getElementById('rec-row');
+    const dead = document.getElementById('rec-dead');
+    const weak = document.getElementById('rec-weak');
+    const drafts = document.getElementById('rec-drafts');
+    const deadN = dash.dead_count || 0;
+    const weakN = dash.weak_count || 0;
+    const readyN = dash.drafts_ready || 0;
+    document.getElementById('rec-dead-count').textContent = deadN;
+    document.getElementById('rec-weak-count').textContent = weakN;
+    document.getElementById('rec-ready-count').textContent = readyN;
+    dead.style.display = deadN > 0 ? '' : 'none';
+    weak.style.display = weakN > 0 ? '' : 'none';
+    drafts.style.display = readyN > 0 ? '' : 'none';
+    row.style.display = (deadN > 0 || weakN > 0 || readyN > 0) ? 'grid' : 'none';
 }
 
 function renderQueue(items) {
@@ -256,30 +384,147 @@ function renderQueue(items) {
     el.innerHTML = html;
 }
 
-function renderDrafts(items) {
+function setDraftFilter(f, btn) {
+    _draftFilter = f;
+    document.querySelectorAll('#drafts-filters .drafts-filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderDrafts();
+}
+
+function _readinessBadge(p) {
+    if (p.ready) return '<span class="ready-badge ready-ok">Готов</span>';
+    if (p.missing && p.missing.includes('фото')) return '<span class="ready-badge ready-nophoto">Нет фото</span>';
+    if (p.missing && p.missing.includes('бренд')) return '<span class="ready-badge ready-nobrand">Нет бренда</span>';
+    return '<span class="ready-badge ready-nodata">Нет данных</span>';
+}
+
+function _aliveCell(p) {
+    if (!p.alive_on_accounts || p.alive_on_accounts.length === 0) {
+        return '<span style="color:#9ca3af;">—</span>';
+    }
+    const first = p.alive_on_accounts[0];
+    let html = `<span class="alive-chip" title="${first.views_5d} просмотров за 5 дн.">&#x1F7E2; Живое · ${first.account_name}</span>`;
+    if (p.alive_on_accounts.length > 1) {
+        html += `<span class="alive-chip-more">+${p.alive_on_accounts.length - 1} ещё</span>`;
+    }
+    return html;
+}
+
+function _actionButton(p) {
+    if (p.ready) {
+        return `<button class="btn btn-sm" onclick="publishDraft(${p.product_id})" style="background:#534AB7;color:#fff;border:none;">Выложить</button>`;
+    }
+    if (p.missing && p.missing.includes('фото')) {
+        return `<a class="btn btn-secondary btn-sm" href="/products/${p.product_id}/edit">Добавить фото</a>`;
+    }
+    return `<a class="btn btn-secondary btn-sm" href="/products/${p.product_id}/edit">Заполнить</a>`;
+}
+
+function _filteredDrafts() {
+    if (!_dashboard) return [];
+    const q = (document.getElementById('drafts-search')?.value || '').trim().toLowerCase();
+    return (_dashboard.drafts || []).filter(p => {
+        if (_draftFilter === 'ready' && !p.ready) return false;
+        if (_draftFilter === 'not_ready' && p.ready) return false;
+        if (!q) return true;
+        const hay = ((p.title || '') + ' ' + (p.model_name || '')).toLowerCase();
+        return hay.includes(q);
+    });
+}
+
+function renderDrafts() {
     const el = document.getElementById('drafts-content');
+    if (!_dashboard) { el.innerHTML = '<div class="empty-state">Загрузка...</div>'; return; }
+    const items = _filteredDrafts();
     if (!items.length) {
-        el.innerHTML = '<div class="empty-state">Нет черновиков.</div>';
+        el.innerHTML = '<div class="empty-state">Нет черновиков по фильтру.</div>';
+        _syncBulkBtn();
         return;
     }
-    let html = '<table class="q-table"><thead><tr><th style="width:30px;"><input type="checkbox" onchange="toggleAllDrafts(this.checked)"></th><th>Фото</th><th>Название</th><th>Размер</th><th>Цена</th><th>Модель</th><th></th></tr></thead><tbody>';
+    let html = '<table class="q-table"><thead><tr>' +
+        '<th style="width:30px;"><input type="checkbox" onchange="toggleAllDrafts(this.checked)"></th>' +
+        '<th>Черновик</th>' +
+        '<th>Готовность</th>' +
+        '<th>Активно на др. акк.</th>' +
+        '<th>Цена</th>' +
+        '<th></th>' +
+    '</tr></thead><tbody>';
     for (const p of items) {
         const priceStr = p.price ? p.price.toLocaleString('ru-RU') + ' \u20BD' : '—';
+        const checked = _selectedDrafts.has(p.product_id) ? 'checked' : '';
+        const disabledCb = p.ready ? '' : 'disabled title="Нельзя запланировать — не готов" style="opacity:0.4;"';
+        const model = p.model_name ? `<div style="font-size:11px;color:#6b7280;">${p.model_name}</div>` : '';
         html += `<tr id="draft-${p.product_id}">
-            <td><input type="checkbox" value="${p.product_id}" onchange="toggleDraftSelect(${p.product_id}, this.checked)"></td>
-            <td>${thumbHtml(p.image)}</td>
-            <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><a href="/products/${p.product_id}" style="color:#1e1b4b;text-decoration:none;">${p.title}</a></td>
-            <td>${p.size || '—'}</td>
-            <td>${priceStr}</td>
-            <td style="font-size:12px;color:#6b7280;">${p.model_name || '—'}</td>
-            <td style="white-space:nowrap;">
-                <input type="datetime-local" id="draft-dt-${p.product_id}" style="width:170px;">
-                <button class="btn btn-primary btn-sm" onclick="scheduleDraft(${p.product_id})">В расписание</button>
+            <td><input type="checkbox" value="${p.product_id}" ${checked} ${disabledCb} onchange="toggleDraftSelect(${p.product_id}, this.checked)"></td>
+            <td style="max-width:260px;">
+                <div style="display:flex;align-items:center;gap:10px;">
+                    ${thumbHtml(p.image)}
+                    <div style="min-width:0;">
+                        <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><a href="/products/${p.product_id}" style="color:#1e1b4b;text-decoration:none;">${p.title}</a></div>
+                        ${model}
+                    </div>
+                </div>
             </td>
+            <td>${_readinessBadge(p)}</td>
+            <td>${_aliveCell(p)}</td>
+            <td style="white-space:nowrap;">${priceStr}</td>
+            <td style="white-space:nowrap;text-align:right;">${_actionButton(p)}</td>
         </tr>`;
     }
     html += '</tbody></table>';
     el.innerHTML = html;
+    _syncBulkBtn();
+}
+
+function _syncBulkBtn() {
+    const btn = document.getElementById('bulk-sched-btn');
+    const n = _selectedDrafts.size;
+    document.getElementById('bulk-count-inline').textContent = n;
+    btn.disabled = n === 0;
+    btn.style.opacity = n === 0 ? '0.5' : '1';
+}
+
+async function publishDraft(pid) {
+    if (!confirm('Выложить это объявление?')) return;
+    try {
+        const resp = await fetch('/products/' + pid, {
+            method: 'PATCH', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ status: 'scheduled' }),
+        });
+        const data = await resp.json();
+        if (data.ok) { showToast('Запланировано к публикации', false); loadData(); }
+        else showToast(data.error || 'Не удалось выложить', true);
+    } catch(e) { showToast('Ошибка сети', true); }
+}
+
+async function bulkScheduleReady() {
+    const ids = Array.from(_selectedDrafts);
+    if (!ids.length) return;
+    if (!confirm(`Выложить ${ids.length} объявлений?`)) return;
+    let ok = 0;
+    for (const pid of ids) {
+        try {
+            const resp = await fetch('/products/' + pid, {
+                method: 'PATCH', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ status: 'scheduled' }),
+            });
+            if ((await resp.json()).ok) ok++;
+        } catch(e) {}
+    }
+    showToast(`Запланировано: ${ok}/${ids.length}`, ok < ids.length);
+    _selectedDrafts.clear();
+    loadData();
+}
+
+function _markerBadge(marker) {
+    const map = {
+        alive: {t: 'Живое', bg: '#EAF3DE', fg: '#3B6D11'},
+        weak:  {t: 'Слабое', bg: '#FAEEDA', fg: '#854F0B'},
+        dead:  {t: 'Мёртвое', bg: '#FCEBEB', fg: '#A32D2D'},
+        unknown: {t: '—', bg: '#f3f4f6', fg: '#6b7280'},
+    };
+    const m = map[marker] || map.unknown;
+    return `<span style="display:inline-block;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:500;background:${m.bg};color:${m.fg};">${m.t}</span>`;
 }
 
 function renderActive(items) {
@@ -288,17 +533,20 @@ function renderActive(items) {
         el.innerHTML = '<div class="empty-state">Нет активных объявлений.</div>';
         return;
     }
-    const markerLabels = {alive:'живое',weak:'слабое',dead:'мёртвое',unknown:'—'};
-    let html = '<table class="q-table"><thead><tr><th>Фото</th><th>Название</th><th>Выложено</th><th>Просмотры</th><th>&Delta; день</th><th>Маркер</th><th></th></tr></thead><tbody>';
+    const haveEff = _effMarkers instanceof Map;
+    let html = '<table class="q-table"><thead><tr><th>Фото</th><th>Название</th><th>Маркер</th><th>Выложено</th><th>Просмотры</th><th>&Delta; день</th><th></th></tr></thead><tbody>';
     for (const p of items) {
         const deltaStr = p.views_delta != null ? (p.views_delta > 0 ? '+' : '') + p.views_delta : '—';
+        // Prefer efficiency marker (5-day window) when loaded; fallback to the
+        // inline marker returned by /api/schedule which uses a 5-day window.
+        const marker = haveEff ? (_effMarkers.get(p.product_id) || 'unknown') : p.marker;
         html += `<tr>
             <td>${thumbHtml(p.image)}</td>
             <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><a href="/products/${p.product_id}" style="color:#1e1b4b;text-decoration:none;">${p.title}</a></td>
+            <td>${_markerBadge(marker)}</td>
             <td style="font-size:12px;">${p.published_at || '—'}</td>
             <td>${p.views_total ?? '—'}</td>
             <td>${deltaStr}</td>
-            <td><span class="marker-dot marker-${p.marker}"></span>${markerLabels[p.marker]||'—'}</td>
             <td style="white-space:nowrap;">
                 <button class="btn btn-sm btn-purple" onclick="repostProduct(${p.product_id})" style="background:#534AB7;color:#fff;border:none;">Перевыложить</button>
                 <button class="btn btn-secondary btn-sm" onclick="deactivateProduct(${p.product_id})">Снять</button>
@@ -333,61 +581,18 @@ async function cancelScheduled(productId) {
     } catch(e) { showToast('Ошибка сети', true); }
 }
 
-async function scheduleDraft(productId) {
-    const dt = document.getElementById('draft-dt-' + productId)?.value;
-    if (!dt) { showToast('Укажите дату и время', true); return; }
-    try {
-        const resp = await fetch('/products/' + productId + '/schedule', {
-            method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ account_id: ACCOUNT_ID, scheduled_at: dt }),
-        });
-        const data = await resp.json();
-        if (data.ok) { showToast('Запланировано', false); loadData(); }
-        else showToast(data.error || (data.problems||[]).join(', '), true);
-    } catch(e) { showToast('Ошибка сети', true); }
-}
-
 function toggleDraftSelect(id, checked) {
     if (checked) _selectedDrafts.add(id); else _selectedDrafts.delete(id);
-    updateBulkBar();
+    _syncBulkBtn();
 }
 
 function toggleAllDrafts(checked) {
-    document.querySelectorAll('#panel-drafts input[type="checkbox"][value]').forEach(cb => {
+    document.querySelectorAll('#panel-drafts input[type="checkbox"][value]:not([disabled])').forEach(cb => {
         cb.checked = checked;
         const id = parseInt(cb.value);
         if (id) { if (checked) _selectedDrafts.add(id); else _selectedDrafts.delete(id); }
     });
-    updateBulkBar();
-}
-
-function updateBulkBar() {
-    const bar = document.getElementById('bulk-bar');
-    if (_selectedDrafts.size > 0) {
-        bar.classList.add('visible');
-        document.getElementById('bulk-count').textContent = 'Выбрано: ' + _selectedDrafts.size;
-    } else {
-        bar.classList.remove('visible');
-    }
-}
-
-async function scheduleBulk() {
-    const dt = document.getElementById('bulk-dt').value;
-    if (!dt) { showToast('Укажите дату и время', true); return; }
-    let ok = 0;
-    for (const pid of _selectedDrafts) {
-        try {
-            const resp = await fetch('/products/' + pid + '/schedule', {
-                method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ account_id: ACCOUNT_ID, scheduled_at: dt }),
-            });
-            if ((await resp.json()).ok) ok++;
-        } catch(e) {}
-    }
-    showToast(`Запланировано: ${ok}/${_selectedDrafts.size}`, ok < _selectedDrafts.size);
-    _selectedDrafts.clear();
-    updateBulkBar();
-    loadData();
+    _syncBulkBtn();
 }
 
 async function repostProduct(pid) {

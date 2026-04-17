@@ -164,7 +164,7 @@ function renderStats(s) {
             <div class="stat-item"><div class="stat-value">${s.total_models || 0}</div><div class="stat-label">Моделей</div></div>
             <div class="stat-item">
                 <a href="/analytics" style="text-decoration:none;"><div class="stat-value" style="color:${probColor}">${s.problem_ads || 0}</div></a>
-                <div class="stat-label" title="Объявления с 0 или менее 10 просмотрами за 3 дня">Проблемных</div>
+                <div class="stat-label" title="Объявления с менее 20 или 20-30 просмотрами за 5 дней">Проблемных</div>
                 <div style="font-size:10px;color:#9ca3af;margin-top:2px;">&#x1F534;${s.dead_ads||0} &#x1F7E1;${s.weak_ads||0}</div>
             </div>
         </div>
