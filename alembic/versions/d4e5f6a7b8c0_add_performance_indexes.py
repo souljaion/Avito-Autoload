@@ -18,7 +18,7 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     # item_stats: composite index for analytics delta queries
     op.execute("""
-        CREATE INDEX ix_item_stats_product_captured_desc
+        CREATE INDEX IF NOT EXISTS ix_item_stats_product_captured_desc
         ON item_stats (product_id, captured_at DESC)
     """)
 
