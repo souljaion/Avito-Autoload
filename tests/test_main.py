@@ -161,14 +161,15 @@ class TestLifespan:
         from app.main import lifespan
 
         # Make fcntl.flock raise IOError to simulate "another worker has lock"
+        # Patch async_session to avoid real DB connections during lifespan diagnostics
         with patch("fcntl.flock", side_effect=IOError("locked")):
             with patch("app.main.start_scheduler") as mock_start:
-                # DB diag swallows exceptions, so fine to leave it
-                app = FastAPI()
-                async with lifespan(app):
-                    pass
-                # start_scheduler was NOT called because lock failed
-                mock_start.assert_not_called()
+                with patch("app.db.async_session", side_effect=Exception("skip diag")):
+                    app = FastAPI()
+                    async with lifespan(app):
+                        pass
+                    # start_scheduler was NOT called because lock failed
+                    mock_start.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_lifespan_starts_scheduler_when_lock_acquired(self):
@@ -177,10 +178,15 @@ class TestLifespan:
         from app.main import lifespan
 
         mock_sched = MagicMock()
+        # Patch async_session to avoid real DB connections during lifespan diagnostics.
+        # Without this, the Zulla diag query opens a real asyncpg connection that
+        # leaks on teardown (RuntimeWarning: coroutine 'Connection._cancel' was never
+        # awaited), which can cause flaky failures in CI.
         with patch("fcntl.flock"):  # acquires lock OK
             with patch("app.main.start_scheduler", return_value=mock_sched) as mock_start:
-                app = FastAPI()
-                async with lifespan(app):
-                    assert app.state.scheduler is mock_sched
-                mock_start.assert_called_once()
-                mock_sched.shutdown.assert_called_once_with(wait=False)
+                with patch("app.db.async_session", side_effect=Exception("skip diag")):
+                    app = FastAPI()
+                    async with lifespan(app):
+                        assert app.state.scheduler is mock_sched
+                    mock_start.assert_called_once()
+                    mock_sched.shutdown.assert_called_once_with(wait=False)
