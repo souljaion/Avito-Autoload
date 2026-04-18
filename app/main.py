@@ -29,6 +29,7 @@ from app.routes.photo_packs import router as photo_packs_router
 from app.routes.yandex_folders import router as yandex_folders_router
 from app.routes.photo_pack_yandex_folders import router as pack_yandex_folders_router
 from app.routes.yandex_preview import router as yandex_preview_router
+from app.routes.description_templates import router as description_templates_router
 
 _start_time = time.monotonic()
 
@@ -109,6 +110,7 @@ app.include_router(photo_packs_router)
 app.include_router(yandex_folders_router)
 app.include_router(pack_yandex_folders_router)
 app.include_router(yandex_preview_router)
+app.include_router(description_templates_router)
 
 
 @app.get("/health")

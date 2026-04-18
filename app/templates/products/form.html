@@ -87,7 +87,20 @@
         </div>
 
         <div class="field">
-            <label>Описание *</label>
+            <label style="display:flex;align-items:center;gap:8px;">
+                Описание *
+                <div style="position:relative;display:inline-block;" id="tpl-dropdown-wrap">
+                    <button type="button" class="btn btn-sm" style="font-size:11px;padding:2px 8px;" onclick="toggleTplDropdown()">Вставить шаблон &#x25BE;</button>
+                    <div id="tpl-dropdown" style="display:none;position:absolute;top:100%;left:0;z-index:100;background:#fff;border:1px solid #d1d5db;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.1);min-width:240px;max-height:260px;overflow-y:auto;margin-top:4px;">
+                        <div id="tpl-dropdown-list" style="padding:4px 0;">
+                            <div style="padding:8px 12px;color:#9ca3af;font-size:12px;">Загрузка...</div>
+                        </div>
+                        <div style="border-top:1px solid #e5e7eb;padding:6px 12px;">
+                            <a href="/settings/description-templates" target="_blank" style="font-size:12px;color:#6366f1;text-decoration:none;">+ Управлять шаблонами &rarr;</a>
+                        </div>
+                    </div>
+                </div>
+            </label>
             <textarea name="description" rows="10" required placeholder="Описание обязательно для Avito">{{ product.description if product and product.description else '' }}</textarea>
         </div>
 
@@ -656,6 +669,52 @@ document.querySelectorAll('.yd-folder').forEach(async el => {
         }
     } catch(e) {
         thumbsEl.innerHTML = '<span style="color:#dc2626;font-size:12px;">Ошибка загрузки</span>';
+    }
+});
+
+// Description template dropdown
+let _tplLoaded = false;
+function toggleTplDropdown() {
+    const dd = document.getElementById('tpl-dropdown');
+    if (dd.style.display === 'none') {
+        dd.style.display = 'block';
+        if (!_tplLoaded) fetchTemplates();
+    } else {
+        dd.style.display = 'none';
+    }
+}
+
+async function fetchTemplates() {
+    const list = document.getElementById('tpl-dropdown-list');
+    try {
+        const resp = await fetch('/api/description-templates');
+        const data = await resp.json();
+        _tplLoaded = true;
+        if (!data.ok || !data.templates.length) {
+            list.innerHTML = '<div style="padding:8px 12px;color:#9ca3af;font-size:12px;">Нет шаблонов</div>';
+            return;
+        }
+        list.innerHTML = data.templates.map(t =>
+            `<div style="padding:6px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid #f3f4f6;"
+                  onmouseover="this.style.background='#f0f2ff'"
+                  onmouseout="this.style.background=''"
+                  onclick="applyTemplate(${JSON.stringify(t.body)})">${t.name}</div>`
+        ).join('');
+    } catch(e) { list.innerHTML = '<div style="padding:8px 12px;color:#dc2626;font-size:12px;">Ошибка</div>'; }
+}
+
+function applyTemplate(body) {
+    const ta = document.querySelector('textarea[name="description"]');
+    if (ta.value.trim() && !confirm('Заменить текущее описание?')) return;
+    ta.value = body;
+    document.getElementById('tpl-dropdown').style.display = 'none';
+}
+
+// Close dropdown on outside click
+document.addEventListener('click', function(e) {
+    const wrap = document.getElementById('tpl-dropdown-wrap');
+    if (wrap && !wrap.contains(e.target)) {
+        document.getElementById('tpl-dropdown').style.display = 'none';
     }
 });
 </script>

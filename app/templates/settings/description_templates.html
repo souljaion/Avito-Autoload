@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block title %}Шаблоны описаний — Avito Autoload{% endblock %}
+{% block content %}
+<div class="actions" style="display:flex;justify-content:space-between;align-items:center;">
+    <h2 style="margin:0;">Шаблоны описаний</h2>
+    <button class="btn btn-primary" onclick="openModal()">+ Новый шаблон</button>
+</div>
+
+<div class="card" style="margin-top:16px;">
+    <table id="tpl-table">
+        <thead>
+            <tr>
+                <th>Название</th>
+                <th>Превью</th>
+                <th style="width:80px;"></th>
+            </tr>
+        </thead>
+        <tbody id="tpl-body">
+            <tr><td colspan="3" style="color:#9ca3af;text-align:center;">Загрузка...</td></tr>
+        </tbody>
+    </table>
+</div>
+
+<!-- Modal -->
+<div id="tpl-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:12px;padding:24px;width:520px;max-width:90vw;max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.2);">
+        <h3 id="modal-title" style="margin-top:0;">Новый шаблон</h3>
+        <input type="hidden" id="tpl-id">
+        <div class="field" style="margin-bottom:12px;">
+            <label>Название</label>
+            <input type="text" id="tpl-name" maxlength="100" placeholder="Например: Кроссовки стандарт" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;">
+        </div>
+        <div class="field" style="margin-bottom:16px;">
+            <label>Текст описания</label>
+            <textarea id="tpl-body" rows="10" maxlength="5000" placeholder="Текст описания для объявлений..." style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;resize:vertical;"></textarea>
+        </div>
+        <div id="modal-error" style="color:#dc2626;font-size:13px;margin-bottom:12px;display:none;"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;">
+            <button id="btn-delete" class="btn" style="background:#fee2e2;color:#dc2626;margin-right:auto;display:none;" onclick="deleteTemplate()">Удалить</button>
+            <button class="btn" onclick="closeModal()">Отмена</button>
+            <button class="btn btn-primary" onclick="saveTemplate()">Сохранить</button>
+        </div>
+    </div>
+</div>
+
+<script>
+let _templates = [];
+
+async function loadTemplates() {
+    try {
+        const resp = await fetch('/api/description-templates');
+        const data = await resp.json();
+        if (!data.ok) return;
+        _templates = data.templates;
+        renderTable();
+    } catch(e) { console.error('Failed to load templates', e); }
+}
+
+function renderTable() {
+    const tbody = document.getElementById('tpl-body');
+    if (!_templates.length) {
+        tbody.innerHTML = '<tr><td colspan="3" style="color:#9ca3af;text-align:center;">Нет шаблонов</td></tr>';
+        return;
+    }
+    tbody.innerHTML = _templates.map(t => `
+        <tr style="cursor:pointer;" onclick="openModal(${t.id})">
+            <td><strong>${esc(t.name)}</strong></td>
+            <td style="color:#6b7280;font-size:13px;">${esc(t.body.substring(0, 80))}${t.body.length > 80 ? '...' : ''}</td>
+            <td style="text-align:right;">
+                <button class="btn btn-sm" style="font-size:11px;" onclick="event.stopPropagation();openModal(${t.id})">Изм.</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function esc(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+}
+
+function openModal(id) {
+    const modal = document.getElementById('tpl-modal');
+    const errEl = document.getElementById('modal-error');
+    errEl.style.display = 'none';
+
+    if (id) {
+        const t = _templates.find(x => x.id === id);
+        if (!t) return;
+        document.getElementById('modal-title').textContent = 'Редактировать шаблон';
+        document.getElementById('tpl-id').value = t.id;
+        document.getElementById('tpl-name').value = t.name;
+        document.getElementById('tpl-body').value = t.body;
+        document.getElementById('btn-delete').style.display = 'inline-block';
+    } else {
+        document.getElementById('modal-title').textContent = 'Новый шаблон';
+        document.getElementById('tpl-id').value = '';
+        document.getElementById('tpl-name').value = '';
+        document.getElementById('tpl-body').value = '';
+        document.getElementById('btn-delete').style.display = 'none';
+    }
+    modal.style.display = 'flex';
+}
+
+function closeModal() {
+    document.getElementById('tpl-modal').style.display = 'none';
+}
+
+async function saveTemplate() {
+    const id = document.getElementById('tpl-id').value;
+    const name = document.getElementById('tpl-name').value.trim();
+    const body = document.getElementById('tpl-body').value.trim();
+    const errEl = document.getElementById('modal-error');
+    errEl.style.display = 'none';
+
+    if (!name || !body) { errEl.textContent = 'Заполните название и текст'; errEl.style.display = 'block'; return; }
+
+    const url = id ? `/api/description-templates/${id}` : '/api/description-templates';
+    const method = id ? 'PATCH' : 'POST';
+    try {
+        const resp = await fetch(url, {
+            method, headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name, body}),
+        });
+        const data = await resp.json();
+        if (!resp.ok || !data.ok) {
+            errEl.textContent = data.error || 'Ошибка сохранения';
+            errEl.style.display = 'block';
+            return;
+        }
+        closeModal();
+        await loadTemplates();
+    } catch(e) { errEl.textContent = 'Сетевая ошибка'; errEl.style.display = 'block'; }
+}
+
+async function deleteTemplate() {
+    const id = document.getElementById('tpl-id').value;
+    const name = document.getElementById('tpl-name').value;
+    if (!id) return;
+    if (!confirm(`Удалить шаблон "${name}"?`)) return;
+    try {
+        await fetch(`/api/description-templates/${id}`, {method: 'DELETE'});
+        closeModal();
+        await loadTemplates();
+    } catch(e) { console.error(e); }
+}
+
+// Close modal on backdrop click
+document.getElementById('tpl-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeModal();
+});
+
+loadTemplates();
+</script>
+{% endblock %}

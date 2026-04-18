@@ -16,6 +16,7 @@ from app.models.photo_pack_image import PhotoPackImage
 from app.models.photo_pack_yandex_folder import PhotoPackYandexFolder
 from app.models.photo_pack_publish_history import PhotoPackPublishHistory
 from app.models.variant import ModelVariant
+from app.models.description_template import DescriptionTemplate
 
 __all__ = [
     "Account",
@@ -36,4 +37,5 @@ __all__ = [
     "PhotoPackYandexFolder",
     "PhotoPackPublishHistory",
     "ModelVariant",
+    "DescriptionTemplate",
 ]
