@@ -403,6 +403,12 @@ async def product_create(
 
     price_int = form.validated_price()
 
+    acct_id = int(account_id) if account_id else None
+    if acct_id:
+        acct = await db.get(Account, acct_id)
+        if not acct:
+            return JSONResponse({"ok": False, "error": f"Account {acct_id} not found"}, status_code=400)
+
     product = Product(
         title=form.title,
         sku=sku or None,
@@ -420,7 +426,7 @@ async def product_create(
         price=price_int,
         description=description or None,
         status=status,
-        account_id=int(account_id) if account_id else None,
+        account_id=acct_id,
         extra={
             "ad_type": ad_type or DEFAULT_AD_TYPE,
             "availability": availability or DEFAULT_AVAILABILITY,

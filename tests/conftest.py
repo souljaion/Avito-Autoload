@@ -91,3 +91,22 @@ async def _clear_in_memory_cache():
     await cache.clear()
     yield
     await cache.clear()
+
+
+@pytest_asyncio.fixture(scope="session", autouse=True)
+async def _seed_test_account():
+    """Ensure account id=1 exists for integration tests that reference it."""
+    import uuid
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy import text
+
+    e = create_async_engine(str(settings.DATABASE_URL))
+    async with e.begin() as conn:
+        row = await conn.execute(text("SELECT id FROM accounts WHERE id = 1"))
+        if not row.scalar():
+            await conn.execute(text(
+                "INSERT INTO accounts (id, name, client_id, client_secret, feed_token, created_at, updated_at) "
+                "VALUES (1, 'TestAccount', 'test_client_id', 'test_secret', :token, now(), now()) "
+                "ON CONFLICT (id) DO NOTHING"
+            ), {"token": str(uuid.uuid4())})
+    await e.dispose()
