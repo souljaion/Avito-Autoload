@@ -21,6 +21,7 @@ from app.models.listing_image import ListingImage
 from app.models.product import Product
 from app.services.image_processor import process_image_async
 from app.routes.products import _to_utc_naive, MSK
+from app.utils.uploads import check_content_length
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(tags=["listings"])
@@ -286,6 +287,7 @@ async def upload_listing_images(
     files: list[UploadFile] = File(...),
     db: AsyncSession = Depends(get_db),
 ):
+    check_content_length(request)
     want_json = "application/json" in (request.headers.get("accept") or "")
 
     listing = await db.get(Listing, listing_id)

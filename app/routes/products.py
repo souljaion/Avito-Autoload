@@ -58,7 +58,7 @@ def _get_feed_problems(product: Product, has_account_template: bool = False) -> 
     return problems
 from app.schemas.product import ProductCreateForm
 from app.services.avito_client import AvitoClient
-from app.services.photo_uniquifier import uniquify_image
+from app.services.photo_uniquifier import uniquify_image_async
 
 logger = structlog.get_logger(__name__)
 from app.catalog import (
@@ -504,10 +504,21 @@ async def product_edit(request: Request, product_id: int, db: AsyncSession = Dep
     accs = await db.execute(select(Account).order_by(Account.name))
     models = await db.execute(select(Model).order_by(Model.name))
     catalog = await get_catalog(db)
+
+    # Load Yandex.Disk folders
+    from app.models.product_yandex_folder import ProductYandexFolder
+    yf_result = await db.execute(
+        select(ProductYandexFolder)
+        .where(ProductYandexFolder.product_id == product_id)
+        .order_by(ProductYandexFolder.id)
+    )
+    yandex_folders = yf_result.scalars().all()
+
     return templates.TemplateResponse("products/form.html", {
         "request": request, "product": product, "accounts": accs.scalars().all(),
         "models": models.scalars().all(),
         "statuses": PRODUCT_STATUSES,
+        "yandex_folders": yandex_folders,
         **catalog, **EXTRA_FIELD_OPTIONS,
     })
 
@@ -774,7 +785,7 @@ async def _apply_pack_to_product(db: AsyncSession, product_id: int, pack_id: int
         filepath = os.path.join(product_dir, filename)
 
         if do_uniquify:
-            data = uniquify_image(pimg.file_path)
+            data = await uniquify_image_async(pimg.file_path)
             async with aiofiles.open(filepath, "wb") as f:
                 await f.write(data)
         else:
@@ -969,7 +980,7 @@ async def repost_product(product_id: int, db: AsyncSession = Depends(get_db)):
     import shutil
     import aiofiles
     from app.services.avito_client import AvitoClient
-    from app.services.photo_uniquifier import uniquify_image
+    from app.services.photo_uniquifier import uniquify_image_async
     from app.services.feed_generator import generate_feed
     from app.models.pack_usage_history import PackUsageHistory
     from app.models.photo_pack import PhotoPack
@@ -1026,7 +1037,7 @@ async def repost_product(product_id: int, db: AsyncSession = Depends(get_db)):
             filename = f"{idx}_{basename}"
             filepath = os.path.join(product_dir, filename)
 
-            data = uniquify_image(pimg.file_path)
+            data = await uniquify_image_async(pimg.file_path)
             async with aiofiles.open(filepath, "wb") as f:
                 await f.write(data)
 

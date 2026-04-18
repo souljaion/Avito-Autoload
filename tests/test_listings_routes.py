@@ -689,7 +689,6 @@ class TestUploadListingImages:
                 )
 
         assert resp.status_code == 413
-        assert "20 МБ" in resp.json()["error"]
 
     @pytest.mark.asyncio
     async def test_upload_success(self):

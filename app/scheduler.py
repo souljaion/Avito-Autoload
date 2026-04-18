@@ -478,7 +478,315 @@ scheduler.add_job(
 )
 
 
+async def _job_cleanup_old_feeds():
+    """Background job: delete feed XML files older than FEED_RETENTION_DAYS."""
+    import time
+    from pathlib import Path
+    from app.config import settings
+
+    feeds_dir = Path(settings.FEEDS_DIR)
+    if not feeds_dir.is_dir():
+        return
+
+    retention_seconds = settings.FEED_RETENTION_DAYS * 86400
+    cutoff = time.time() - retention_seconds
+    deleted = 0
+    freed = 0
+    kept = 0
+
+    for f in feeds_dir.glob("*.xml"):
+        if f.name.endswith(".xml") and "_" in f.name:
+            try:
+                mtime = f.stat().st_mtime
+                if mtime < cutoff:
+                    size = f.stat().st_size
+                    f.unlink()
+                    deleted += 1
+                    freed += size
+                else:
+                    kept += 1
+            except OSError as e:
+                logger.warning("cleanup_feeds.file_error", path=str(f), error=str(e))
+        else:
+            kept += 1
+
+    if deleted:
+        logger.info(
+            "cleanup_feeds.done",
+            deleted=deleted,
+            freed_mb=round(freed / 1024 / 1024, 1),
+            kept=kept,
+        )
+
+
+scheduler.add_job(
+    _job_cleanup_old_feeds,
+    "cron",
+    hour=4,
+    minute=0,
+    id="cleanup_old_feeds",
+    max_instances=1,
+)
+
+
+async def _download_one_yandex_image(db, img, folder_model_cls, kind, sem, cfg):
+    """Download and process a single Yandex.Disk image (product or photo_pack).
+
+    Args:
+        img: ProductImage or PhotoPackImage row with download_status='pending'
+        folder_model_cls: ProductYandexFolder or PhotoPackYandexFolder
+        kind: 'product' or 'photo_pack'
+        sem: asyncio.Semaphore for concurrency control
+        cfg: app settings
+    Returns True on success, False on failure.
+    """
+    import os
+    import tempfile
+    import aiofiles
+    from sqlalchemy import select as sa_select
+    from app.services.yandex_disk import download_file as yd_download
+    from app.services.image_processor import process_image_async
+    from app.services.photo_uniquifier import uniquify_image_bytes_async
+
+    async with sem:
+        try:
+            img.download_status = "downloading"
+            await db.commit()
+
+            folder = await db.get(folder_model_cls, img.yandex_folder_id)
+            if not folder:
+                raise ValueError("Folder not found in DB")
+
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".tmp") as tmp:
+                tmp_path = tmp.name
+
+            try:
+                await yd_download(folder.public_url, img.yandex_file_path, tmp_path)
+
+                with open(tmp_path, "rb") as f:
+                    raw = f.read()
+                jpeg_bytes = await process_image_async(
+                    raw, max_side=1920, quality=90, max_input_size=100 * 1024 * 1024,
+                )
+
+                # ── Uniquification decision ──
+                # For products: uniquify if (product_id, account_id) has prior publish history.
+                # For photo_packs: uniquify if pack has ANY prior publish history on ANY account.
+                #   We don't know which account the pack will be published on at download time,
+                #   so we check for any prior publish. Over-uniquifies in edge cases, but extra
+                #   uniqueness never hurts for Avito duplicate detection. (Phase 2 MVP decision.)
+                needs_uniquify = False
+                if kind == "product":
+                    from app.models.product import Product as Prod
+                    from app.models.product_publish_history import ProductPublishHistory
+                    product = await db.get(Prod, img.product_id)
+                    if product and product.account_id:
+                        hist = await db.execute(
+                            sa_select(ProductPublishHistory.id)
+                            .where(
+                                ProductPublishHistory.product_id == img.product_id,
+                                ProductPublishHistory.account_id == product.account_id,
+                            )
+                            .limit(1)
+                        )
+                        needs_uniquify = hist.scalar_one_or_none() is not None
+                elif kind == "photo_pack":
+                    from app.models.photo_pack_publish_history import PhotoPackPublishHistory
+                    hist = await db.execute(
+                        sa_select(PhotoPackPublishHistory.id)
+                        .where(PhotoPackPublishHistory.photo_pack_id == img.pack_id)
+                        .limit(1)
+                    )
+                    needs_uniquify = hist.scalar_one_or_none() is not None
+
+                if needs_uniquify:
+                    jpeg_bytes = await uniquify_image_bytes_async(jpeg_bytes)
+                    img.was_uniquified = True
+
+                # ── Save to disk ──
+                safe_name = (getattr(img, "filename", None) or img.yandex_file_path.rsplit("/", 1)[-1] if img.yandex_file_path else "photo").replace(" ", "_")
+                if not safe_name.lower().endswith(".jpg"):
+                    safe_name = os.path.splitext(safe_name)[0] + ".jpg"
+                fname = f"{img.sort_order}_{safe_name}"
+
+                if kind == "product":
+                    media_subdir = os.path.join("products", str(img.product_id))
+                else:
+                    media_subdir = os.path.join("photo_packs", str(img.pack_id))
+
+                dest_dir = os.path.join(cfg.MEDIA_DIR, media_subdir)
+                os.makedirs(dest_dir, exist_ok=True)
+                filepath = os.path.join(dest_dir, fname)
+
+                async with aiofiles.open(filepath, "wb") as f:
+                    await f.write(jpeg_bytes)
+
+                img.url = f"/media/{media_subdir}/{fname}"
+                if kind == "photo_pack":
+                    img.file_path = filepath
+                img.download_status = "ready"
+                img.download_error = None
+                await db.commit()
+                return True
+            finally:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+
+        except Exception as e:
+            img.download_attempts += 1
+            img.download_error = str(e)[:500]
+            img.download_status = "failed" if img.download_attempts >= 3 else "pending"
+            await db.commit()
+            logger.warning("yandex_download.failed", image_id=img.id, kind=kind, error=str(e))
+            return False
+
+
+async def _job_download_pending_yandex():
+    """Background job: download pending Yandex.Disk photos (products + photo packs)."""
+    from sqlalchemy import select as sa_select
+    from app.config import settings as cfg
+    from app.models.product_image import ProductImage
+    from app.models.product_yandex_folder import ProductYandexFolder
+    from app.models.photo_pack_image import PhotoPackImage
+    from app.models.photo_pack_yandex_folder import PhotoPackYandexFolder
+
+    sem = asyncio.Semaphore(cfg.YANDEX_DOWNLOAD_CONCURRENCY)
+
+    async def run(db):
+        # Query both product and photo_pack pending images
+        prod_result = await db.execute(
+            sa_select(ProductImage)
+            .where(ProductImage.source_type == "yandex_disk", ProductImage.download_status == "pending")
+            .order_by(ProductImage.id).limit(50)
+        )
+        prod_pending = [(img, ProductYandexFolder, "product") for img in prod_result.scalars().all()]
+
+        pack_result = await db.execute(
+            sa_select(PhotoPackImage)
+            .where(PhotoPackImage.source_type == "yandex_disk", PhotoPackImage.download_status == "pending")
+            .order_by(PhotoPackImage.id).limit(50)
+        )
+        pack_pending = [(img, PhotoPackYandexFolder, "photo_pack") for img in pack_result.scalars().all()]
+
+        all_pending = prod_pending + pack_pending
+        if not all_pending:
+            return
+
+        logger.info("yandex_download.start", count=len(all_pending),
+                     products=len(prod_pending), packs=len(pack_pending))
+        ok = 0
+        failed = 0
+
+        for img, folder_cls, kind in all_pending:
+            success = await _download_one_yandex_image(db, img, folder_cls, kind, sem, cfg)
+            if success:
+                ok += 1
+            else:
+                failed += 1
+
+        logger.info("yandex_download.done", ok=ok, failed=failed)
+
+    if await _run_with_retry("yandex_download", run) is not False:
+        _record_job_success("yandex_download")
+
+
+def _delete_local_media_file(url, cfg):
+    """Delete a local file by its /media/... URL. Silently ignores errors."""
+    import os
+    if url and url.startswith("/media/"):
+        rel = url[len("/media/"):]
+        filepath = os.path.join(cfg.MEDIA_DIR, rel)
+        try:
+            os.remove(filepath)
+        except OSError:
+            pass
+
+
+async def _sync_one_folder_kind(db, folder_model_cls, image_model_cls, folder_id_attr, cfg):
+    """Sync folders of one kind (product or photo_pack). Returns count of synced folders."""
+    from sqlalchemy import select as sa_select
+    from app.services.yandex_disk import list_folder as yd_list
+    from app.db import utc_now
+
+    result = await db.execute(
+        sa_select(folder_model_cls)
+        .order_by(folder_model_cls.last_synced_at.asc().nullsfirst())
+        .limit(50)
+    )
+    folders = result.scalars().all()
+    synced = 0
+
+    for folder in folders:
+        try:
+            files = await yd_list(folder.public_url)
+            current_paths = {f["path"] for f in files}
+
+            imgs_result = await db.execute(
+                sa_select(image_model_cls).where(
+                    getattr(image_model_cls, folder_id_attr) == folder.id,
+                )
+            )
+            for img in imgs_result.scalars().all():
+                if img.yandex_file_path and img.yandex_file_path not in current_paths:
+                    _delete_local_media_file(img.url, cfg)
+                    await db.delete(img)
+
+            folder.last_synced_at = utc_now()
+            folder.error = None
+            synced += 1
+        except Exception as e:
+            folder.error = str(e)[:500]
+            logger.warning("yandex_sync.folder_error", folder_id=folder.id, error=str(e))
+
+    return synced, len(folders)
+
+
+async def _job_sync_yandex_folders():
+    """Background job: re-sync Yandex.Disk folder listings, detect deletions (products + photo packs)."""
+    from app.config import settings as cfg
+    from app.models.product_image import ProductImage
+    from app.models.product_yandex_folder import ProductYandexFolder
+    from app.models.photo_pack_image import PhotoPackImage
+    from app.models.photo_pack_yandex_folder import PhotoPackYandexFolder
+
+    async def run(db):
+        prod_synced, prod_total = await _sync_one_folder_kind(
+            db, ProductYandexFolder, ProductImage, "yandex_folder_id", cfg,
+        )
+        pack_synced, pack_total = await _sync_one_folder_kind(
+            db, PhotoPackYandexFolder, PhotoPackImage, "yandex_folder_id", cfg,
+        )
+        await db.commit()
+
+        total_synced = prod_synced + pack_synced
+        if total_synced:
+            logger.info("yandex_sync.done", synced=total_synced,
+                         products=prod_synced, packs=pack_synced)
+
+    if await _run_with_retry("yandex_sync", run) is not False:
+        _record_job_success("yandex_sync")
+
+
+scheduler.add_job(
+    _job_download_pending_yandex,
+    "interval",
+    minutes=1,
+    id="yandex_download",
+    max_instances=1,
+)
+
+scheduler.add_job(
+    _job_sync_yandex_folders,
+    "interval",
+    minutes=30,
+    id="yandex_sync",
+    max_instances=1,
+)
+
+
 def start_scheduler() -> AsyncIOScheduler:
     scheduler.start()
-    logger.info("Scheduler started: stats 3h, publish 5m, images 30m, sold 6h, tokens 50m, import 3h, cleanup 24h, declined 6h, autoload_sync 6h")
+    logger.info("Scheduler started: stats 3h, publish 5m, images 30m, sold 6h, tokens 50m, import 3h, cleanup 24h, declined 6h, autoload_sync 6h, feed_cleanup daily@04:00, yandex_download 1m, yandex_sync 30m")
     return scheduler

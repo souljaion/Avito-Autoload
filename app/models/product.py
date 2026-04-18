@@ -64,6 +64,9 @@ class Product(Base):
     images: Mapped[list["ProductImage"]] = relationship(
         back_populates="product", order_by="ProductImage.sort_order"
     )
+    yandex_folders: Mapped[list["ProductYandexFolder"]] = relationship(
+        back_populates="product", cascade="all, delete-orphan"
+    )
     listings: Mapped[list["Listing"]] = relationship(
         back_populates="product", cascade="all, delete-orphan"
     )

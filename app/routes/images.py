@@ -14,6 +14,7 @@ from app.db import get_db
 from app.models.product import Product
 from app.models.product_image import ProductImage
 from app.services.image_processor import process_image_async
+from app.utils.uploads import check_content_length
 
 router = APIRouter(tags=["images"])
 
@@ -27,6 +28,7 @@ async def upload_images(
     files: List[UploadFile] = File(...),
     db: AsyncSession = Depends(get_db),
 ):
+    check_content_length(request)
     want_json = "application/json" in (request.headers.get("accept") or "")
 
     product = await db.get(Product, product_id)

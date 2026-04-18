@@ -142,10 +142,23 @@ async def model_detail(request: Request, model_id: int, db: AsyncSession = Depen
 
     catalog = await get_catalog(db)
 
+    # Find which packs have Y.Disk folders (for auto-expand optimization)
+    pack_ids = [p.id for p in model.photo_packs]
+    packs_with_yd: list[int] = []
+    if pack_ids:
+        from app.models.photo_pack_yandex_folder import PhotoPackYandexFolder
+        yd_result = await db.execute(
+            select(PhotoPackYandexFolder.photo_pack_id)
+            .where(PhotoPackYandexFolder.photo_pack_id.in_(pack_ids))
+            .distinct()
+        )
+        packs_with_yd = [r[0] for r in yd_result.all()]
+
     return templates.TemplateResponse("models/detail.html", {
         "request": request,
         "model": model,
         "accounts": accounts,
+        "packs_with_yd": packs_with_yd,
         **catalog,
     })
 
@@ -404,7 +417,7 @@ async def create_all_listings(model_id: int, request: Request, db: AsyncSession 
     import shutil
     import aiofiles
     from app.config import settings
-    from app.services.photo_uniquifier import uniquify_image
+    from app.services.photo_uniquifier import uniquify_image_async
     from app.models.photo_pack_image import PhotoPackImage
 
     body = await request.json()
@@ -496,7 +509,7 @@ async def create_all_listings(model_id: int, request: Request, db: AsyncSession 
             filepath = os.path.join(product_dir, filename)
 
             if needs_uniquify:
-                data = uniquify_image(pimg.file_path)
+                data = await uniquify_image_async(pimg.file_path)
                 async with aiofiles.open(filepath, "wb") as f:
                     await f.write(data)
             else:
@@ -541,7 +554,7 @@ async def schedule_matrix(request: Request, db: AsyncSession = Depends(get_db)):
     from datetime import datetime as dt, timedelta, timezone
     from zoneinfo import ZoneInfo
     from app.config import settings
-    from app.services.photo_uniquifier import uniquify_image
+    from app.services.photo_uniquifier import uniquify_image_async
     from app.models.photo_pack_image import PhotoPackImage
 
     MSK = ZoneInfo("Europe/Moscow")
@@ -858,7 +871,7 @@ async def create_one(model_id: int, request: Request, db: AsyncSession = Depends
     import shutil
     import aiofiles
     from app.config import settings
-    from app.services.photo_uniquifier import uniquify_image
+    from app.services.photo_uniquifier import uniquify_image_async
     from app.models.photo_pack_image import PhotoPackImage
 
     body = await request.json()
@@ -942,7 +955,7 @@ async def create_one(model_id: int, request: Request, db: AsyncSession = Depends
             filepath = os.path.join(product_dir, filename)
 
             if needs_uniquify:
-                data = uniquify_image(pimg.file_path)
+                data = await uniquify_image_async(pimg.file_path)
                 async with aiofiles.open(filepath, "wb") as f:
                     await f.write(data)
             else:

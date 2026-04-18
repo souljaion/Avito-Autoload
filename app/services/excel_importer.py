@@ -11,6 +11,7 @@ color/price/image_url; replace product_images with the URLs from
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 
@@ -19,11 +20,39 @@ import structlog
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
+
 from app.models.account import Account
 from app.models.product import Product
 from app.models.product_image import ProductImage
 
 logger = structlog.get_logger(__name__)
+
+
+def _delete_local_image_files(image_urls: list[str]) -> int:
+    """Delete local files for image URLs starting with /media/.
+
+    Returns the number of files successfully deleted.
+    Skips external URLs and logs warnings for missing files.
+    """
+    deleted = 0
+    for url in image_urls:
+        if not url.startswith("/media/"):
+            continue
+        # /media/products/123/file.jpg → <MEDIA_DIR>/products/123/file.jpg
+        rel = url[len("/media/"):]
+        filepath = os.path.normpath(os.path.join(settings.MEDIA_DIR, rel))
+        media_root = os.path.normpath(settings.MEDIA_DIR)
+        if not filepath.startswith(media_root):
+            continue
+        try:
+            os.remove(filepath)
+            deleted += 1
+        except FileNotFoundError:
+            logger.warning("excel_importer.orphan_file_missing", path=filepath)
+        except OSError as e:
+            logger.warning("excel_importer.orphan_delete_failed", path=filepath, error=str(e))
+    return deleted
 
 
 SHEET_SKIP_PREFIXES = ("Спр-",)
@@ -326,6 +355,11 @@ async def import_avito_excel(
 
             # ── Replace photos ──
             if photos:
+                old_imgs = await db.execute(
+                    select(ProductImage.url).where(ProductImage.product_id == target.id)
+                )
+                old_urls = [r[0] for r in old_imgs.all()]
+                _delete_local_image_files(old_urls)
                 await db.execute(
                     delete(ProductImage).where(ProductImage.product_id == target.id)
                 )

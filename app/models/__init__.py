@@ -1,6 +1,8 @@
 from app.models.account import Account
 from app.models.product import Product
 from app.models.product_image import ProductImage
+from app.models.product_yandex_folder import ProductYandexFolder
+from app.models.product_publish_history import ProductPublishHistory
 from app.models.listing import Listing
 from app.models.listing_image import ListingImage
 from app.models.feed_export import FeedExport
@@ -11,12 +13,16 @@ from app.models.item_stats import ItemStats
 from app.models.model import Model
 from app.models.photo_pack import PhotoPack
 from app.models.photo_pack_image import PhotoPackImage
+from app.models.photo_pack_yandex_folder import PhotoPackYandexFolder
+from app.models.photo_pack_publish_history import PhotoPackPublishHistory
 from app.models.variant import ModelVariant
 
 __all__ = [
     "Account",
     "Product",
     "ProductImage",
+    "ProductYandexFolder",
+    "ProductPublishHistory",
     "Listing",
     "ListingImage",
     "FeedExport",
@@ -27,5 +33,7 @@ __all__ = [
     "Model",
     "PhotoPack",
     "PhotoPackImage",
+    "PhotoPackYandexFolder",
+    "PhotoPackPublishHistory",
     "ModelVariant",
 ]

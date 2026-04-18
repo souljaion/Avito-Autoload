@@ -34,19 +34,25 @@ def _add_images(ad: etree._Element, images, base_url: str, fallback_url: str | N
     """Render <Images> block.
 
     Primary source: product.images relation (sorted by is_main desc, sort_order).
+    Only images with download_status='ready' are included.
     Fallback: a single fallback_url (product.image_url) — used for imported
     items that have an Avito CDN URL but no rows in product_images yet.
     """
     if images:
-        imgs_el = etree.SubElement(ad, "Images")
-        sorted_images = sorted(images, key=lambda x: (not x.is_main, x.sort_order))[:10]
-        for img in sorted_images:
-            url = img.url
-            if url.startswith("/"):
-                url = base_url.rstrip("/") + url
-            img_el = etree.SubElement(imgs_el, "Image")
-            img_el.set("url", url)
-        return
+        ready_images = [
+            img for img in images
+            if getattr(img, "download_status", "ready") == "ready"
+        ]
+        if ready_images:
+            imgs_el = etree.SubElement(ad, "Images")
+            sorted_images = sorted(ready_images, key=lambda x: (not x.is_main, x.sort_order))[:10]
+            for img in sorted_images:
+                url = img.url
+                if url.startswith("/"):
+                    url = base_url.rstrip("/") + url
+                img_el = etree.SubElement(imgs_el, "Image")
+                img_el.set("url", url)
+            return
 
     # Fallback: use product.image_url (typically an Avito CDN URL on imported items)
     if fallback_url and isinstance(fallback_url, str) and fallback_url.startswith("http"):

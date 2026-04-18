@@ -36,6 +36,10 @@ def _mock_pack_image(img_id=1, url="/media/photo_packs/1/0_test.jpg", sort_order
     img.id = img_id
     img.url = url
     img.sort_order = sort_order
+    img.download_status = "ready"
+    img.download_error = None
+    img.yandex_file_path = None
+    img.source_type = "local"
     return img
 
 

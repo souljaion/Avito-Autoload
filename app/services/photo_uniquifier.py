@@ -5,6 +5,7 @@ Applies imperceptible random modifications so each copy
 produces a unique file hash while looking identical to the human eye.
 """
 
+import asyncio
 import random
 from io import BytesIO
 
@@ -34,6 +35,18 @@ def uniquify_image_bytes(data: bytes, quality: int = 85) -> bytes:
     buf = BytesIO()
     img.save(buf, format="JPEG", quality=quality, optimize=True)
     return buf.getvalue()
+
+
+async def uniquify_image_async(image_path: str, quality: int = 85) -> bytes:
+    """Async wrapper — runs uniquify_image in threadpool to avoid blocking the event loop."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, uniquify_image, image_path, quality)
+
+
+async def uniquify_image_bytes_async(data: bytes, quality: int = 85) -> bytes:
+    """Async wrapper — runs uniquify_image_bytes in threadpool."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, uniquify_image_bytes, data, quality)
 
 
 def _random_crop_resize(img: Image.Image) -> Image.Image:

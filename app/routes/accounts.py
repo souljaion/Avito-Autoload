@@ -11,6 +11,7 @@ from app.models.account import Account
 from app.models.account_description_template import AccountDescriptionTemplate
 from app.services.avito_client import AvitoClient
 from app.services.excel_importer import import_avito_excel, InvalidExcelError
+from app.utils.uploads import check_content_length
 
 router = APIRouter(prefix="/accounts", tags=["accounts"])
 templates = Jinja2Templates(directory="app/templates")
@@ -172,12 +173,14 @@ _MAX_EXCEL_BYTES = 20 * 1024 * 1024  # 20 MB
 
 @router.post("/{account_id}/import-excel")
 async def import_excel_endpoint(
+    request: Request,
     account_id: int,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ):
     """Upload an Avito Excel export — match products by avito_id/title and
     backfill brand/goods_type/photos."""
+    check_content_length(request)
     account = await db.get(Account, account_id)
     if not account:
         return JSONResponse({"ok": False, "error": "Аккаунт не найден"}, status_code=404)

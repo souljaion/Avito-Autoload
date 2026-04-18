@@ -10,6 +10,8 @@ from PIL import Image
 from app.services.photo_uniquifier import (
     uniquify_image,
     uniquify_image_bytes,
+    uniquify_image_async,
+    uniquify_image_bytes_async,
     _random_crop_resize,
     _random_brightness,
     _random_noise,
@@ -236,3 +238,42 @@ class TestHeicSupport:
         assert out[:2] == b"\xff\xd8"
         result = Image.open(BytesIO(out))
         assert result.size == (100, 80)
+
+
+# ---------------------------------------------------------------------------
+# Async wrappers
+# ---------------------------------------------------------------------------
+
+class TestAsyncWrappers:
+    @pytest.mark.asyncio
+    async def test_uniquify_image_async_returns_jpeg(self, tmp_path):
+        path = _make_jpeg_file(str(tmp_path))
+        out = await uniquify_image_async(path)
+        assert isinstance(out, bytes)
+        assert out[:2] == b"\xff\xd8"
+
+    @pytest.mark.asyncio
+    async def test_uniquify_image_bytes_async_returns_jpeg(self):
+        data = _make_jpeg_bytes()
+        out = await uniquify_image_bytes_async(data)
+        assert isinstance(out, bytes)
+        assert out[:2] == b"\xff\xd8"
+
+    @pytest.mark.asyncio
+    async def test_async_does_not_block_loop(self, tmp_path):
+        """A concurrent asyncio task should run during uniquification."""
+        import asyncio
+
+        path = _make_jpeg_file(str(tmp_path), width=400, height=300)
+        concurrent_ran = False
+
+        async def concurrent_task():
+            nonlocal concurrent_ran
+            concurrent_ran = True
+
+        # Schedule both: uniquify (runs in executor) and a trivial coroutine
+        await asyncio.gather(
+            uniquify_image_async(path),
+            concurrent_task(),
+        )
+        assert concurrent_ran

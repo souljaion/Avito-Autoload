@@ -17,6 +17,7 @@ from app.db import get_db
 from app.models.photo_pack import PhotoPack
 from app.models.photo_pack_image import PhotoPackImage
 from app.services.image_processor import process_image_async, make_thumbnail_async
+from app.utils.uploads import check_content_length
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/photo-packs", tags=["photo-packs"])
@@ -87,10 +88,12 @@ async def _process_one_file(raw: bytes) -> tuple[bytes, bytes]:
 
 @router.post("/{pack_id}/upload")
 async def upload_photos(
+    request: Request,
     pack_id: int,
     files: List[UploadFile] = File(...),
     db: AsyncSession = Depends(get_db),
 ):
+    check_content_length(request)
     pack = await db.get(PhotoPack, pack_id)
     if not pack:
         return JSONResponse({"ok": False, "error": "Пак не найден"}, status_code=404)
@@ -202,6 +205,10 @@ async def pack_images(pack_id: int, db: AsyncSession = Depends(get_db)):
                 "url": img.url,
                 "thumb_url": _thumb_url(img.url),
                 "sort_order": img.sort_order,
+                "download_status": img.download_status,
+                "download_error": img.download_error,
+                "yandex_file_path": img.yandex_file_path,
+                "source_type": img.source_type,
             }
             for img in images
         ],

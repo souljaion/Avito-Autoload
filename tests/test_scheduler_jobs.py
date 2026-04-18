@@ -14,6 +14,7 @@ from app.scheduler import (
     _job_check_sold,
     _job_import_items,
     _job_cleanup_removed,
+    _job_cleanup_old_feeds,
     _job_refresh_tokens,
     _record_job_success,
     _job_last_success,
@@ -306,3 +307,69 @@ class TestJobCleanupRemoved:
             await _job_cleanup_removed()
 
         assert "cleanup_removed" in _job_last_success
+
+
+# ---------------------------------------------------------------------------
+# _job_cleanup_old_feeds
+# ---------------------------------------------------------------------------
+
+class TestJobCleanupOldFeeds:
+    @pytest.mark.asyncio
+    async def test_removes_old_keeps_new(self, tmp_path):
+        """Old timestamped XML files should be deleted; recent ones kept."""
+        import os
+        import time
+        from app.config import settings as real_settings
+
+        # Create old file (>30 days)
+        old_file = tmp_path / "1_20260101_120000.xml"
+        old_file.write_text("<xml>old</xml>")
+        old_mtime = time.time() - 40 * 86400
+        os.utime(old_file, (old_mtime, old_mtime))
+
+        # Create recent file
+        new_file = tmp_path / "1_20260415_120000.xml"
+        new_file.write_text("<xml>new</xml>")
+
+        # Create active feed (no underscore — current feed)
+        active_file = tmp_path / "1.xml"
+        active_file.write_text("<xml>active</xml>")
+        os.utime(active_file, (old_mtime, old_mtime))  # old but no underscore
+
+        orig_feeds = real_settings.FEEDS_DIR
+        orig_retention = real_settings.FEED_RETENTION_DAYS
+        try:
+            real_settings.FEEDS_DIR = str(tmp_path)
+            real_settings.FEED_RETENTION_DAYS = 30
+            await _job_cleanup_old_feeds()
+        finally:
+            real_settings.FEEDS_DIR = orig_feeds
+            real_settings.FEED_RETENTION_DAYS = orig_retention
+
+        assert not old_file.exists(), "Old timestamped file should be deleted"
+        assert new_file.exists(), "Recent file should be kept"
+        assert active_file.exists(), "Active feed (no underscore) should be kept"
+
+    @pytest.mark.asyncio
+    async def test_empty_feeds_dir(self, tmp_path):
+        """Should handle empty directory without errors."""
+        from app.config import settings as real_settings
+
+        orig = real_settings.FEEDS_DIR
+        try:
+            real_settings.FEEDS_DIR = str(tmp_path)
+            await _job_cleanup_old_feeds()  # should not raise
+        finally:
+            real_settings.FEEDS_DIR = orig
+
+    @pytest.mark.asyncio
+    async def test_nonexistent_dir(self, tmp_path):
+        """Should handle nonexistent directory without errors."""
+        from app.config import settings as real_settings
+
+        orig = real_settings.FEEDS_DIR
+        try:
+            real_settings.FEEDS_DIR = str(tmp_path / "nonexistent")
+            await _job_cleanup_old_feeds()  # should not raise
+        finally:
+            real_settings.FEEDS_DIR = orig

@@ -26,6 +26,9 @@ from app.routes.schedule import router as schedule_router
 from app.routes.listings import router as listings_router
 from app.routes.models import router as models_router
 from app.routes.photo_packs import router as photo_packs_router
+from app.routes.yandex_folders import router as yandex_folders_router
+from app.routes.photo_pack_yandex_folders import router as pack_yandex_folders_router
+from app.routes.yandex_preview import router as yandex_preview_router
 
 _start_time = time.monotonic()
 
@@ -103,6 +106,9 @@ app.include_router(schedule_router)
 app.include_router(listings_router)
 app.include_router(models_router)
 app.include_router(photo_packs_router)
+app.include_router(yandex_folders_router)
+app.include_router(pack_yandex_folders_router)
+app.include_router(yandex_preview_router)
 
 
 @app.get("/health")

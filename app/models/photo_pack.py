@@ -22,3 +22,6 @@ class PhotoPack(Base):
         back_populates="pack", cascade="all, delete-orphan",
         order_by="PhotoPackImage.sort_order",
     )
+    yandex_folders: Mapped[list["PhotoPackYandexFolder"]] = relationship(
+        back_populates="pack", cascade="all, delete-orphan",
+    )

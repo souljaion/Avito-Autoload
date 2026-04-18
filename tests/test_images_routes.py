@@ -104,6 +104,7 @@ async def test_upload_images_too_large_json():
 
 @pytest.mark.asyncio
 async def test_upload_images_too_large_redirect():
+    """Oversized uploads now rejected early via Content-Length check (413)."""
     product = _mock_product(product_id=1)
     db = AsyncMock()
     db.get = AsyncMock(return_value=product)
@@ -118,8 +119,7 @@ async def test_upload_images_too_large_redirect():
             files=[("files", ("big.jpg", big_data, "image/jpeg"))],
             headers={"accept": "text/html"},
         )
-    assert resp.status_code == 303
-    assert "error=" in resp.headers["location"]
+    assert resp.status_code == 413
 
 
 @pytest.mark.asyncio
@@ -326,3 +326,36 @@ async def test_delete_image_redirect_on_html():
         )
     assert resp.status_code == 303
     assert "/products/1" in resp.headers["location"]
+
+
+# ---------------------------------------------------------------------------
+# Early Content-Length rejection
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_upload_rejects_oversized_via_content_length():
+    """A request with Content-Length > 20 MB should be rejected with 413
+    before any file bytes are read.  httpx sets Content-Length from the
+    actual body, so we send a real (small) multipart but monkey-patch the
+    check_content_length to verify it is called correctly."""
+    product = _mock_product(product_id=1)
+    db = AsyncMock()
+    db.get = AsyncMock(return_value=product)
+    db.execute = AsyncMock(return_value=_mock_scalars([]))
+
+    app = _make_app(db)
+
+    from app.utils.uploads import check_content_length as real_check
+
+    def _reject_always(request, max_bytes=20 * 1024 * 1024):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=413, detail="File too large")
+
+    with patch("app.routes.images.check_content_length", side_effect=_reject_always):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            resp = await ac.post(
+                "/products/1/images",
+                files=[("files", ("small.jpg", b"tiny", "image/jpeg"))],
+                headers={"accept": "application/json"},
+            )
+    assert resp.status_code == 413

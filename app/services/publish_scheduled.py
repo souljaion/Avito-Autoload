@@ -65,6 +65,18 @@ async def publish_scheduled_products(db: AsyncSession) -> dict:
                 logger.warning("Scheduled listing %d product not ready, skipping", ls.id)
                 skipped += 1
                 continue
+            # Skip products with pending/downloading Yandex.Disk photos
+            pending_imgs = [
+                img for img in (ls.product.images or [])
+                if getattr(img, "download_status", "ready") in ("pending", "downloading")
+            ]
+            if pending_imgs:
+                logger.info(
+                    "Scheduled listing %d waiting for photos, pending=%d",
+                    ls.id, len(pending_imgs),
+                )
+                skipped += 1
+                continue
             ready.append(ls)
 
         if not ready:
@@ -93,6 +105,49 @@ async def publish_scheduled_products(db: AsyncSession) -> dict:
                 ls.product.published_at = now
                 ls.product.scheduled_at = None
                 published += 1
+
+                # Record product publish history
+                from app.models.product_publish_history import ProductPublishHistory
+                any_uniquified = any(
+                    getattr(img, "was_uniquified", False) for img in (ls.product.images or [])
+                )
+                db.add(ProductPublishHistory(
+                    product_id=ls.product.id,
+                    account_id=acc_id,
+                    published_at=now,
+                    was_uniquified=any_uniquified,
+                ))
+
+                # Record photo pack publish history (via pack_usage_history link)
+                # Best-effort: if the product has a model with packs used on this
+                # account, record publish history for uniquification tracking.
+                model_id = getattr(ls.product, "model_id", None)
+                if model_id and isinstance(model_id, int):
+                    try:
+                        from app.models.photo_pack_publish_history import PhotoPackPublishHistory
+                        from app.models.pack_usage_history import PackUsageHistory
+                        from app.models.photo_pack import PhotoPack
+                        usage_result = await db.execute(
+                            select(PackUsageHistory.pack_id)
+                            .where(PackUsageHistory.account_id == acc_id)
+                            .distinct()
+                        )
+                        used_pack_ids = {r[0] for r in usage_result.all()}
+                        if used_pack_ids:
+                            pack_result = await db.execute(
+                                select(PhotoPack.id).where(PhotoPack.model_id == model_id)
+                            )
+                            model_pack_ids = {r[0] for r in pack_result.all()}
+                            for pack_id in model_pack_ids & used_pack_ids:
+                                db.add(PhotoPackPublishHistory(
+                                    photo_pack_id=pack_id,
+                                    account_id=acc_id,
+                                    published_at=now,
+                                    was_uniquified=any_uniquified,
+                                ))
+                    except Exception:
+                        logger.debug("pack_publish_history skipped", product_id=ls.product.id)
+
             await db.commit()
             logger.info("Published %d listings for account %s", len(ready), account.name)
         except Exception as e:

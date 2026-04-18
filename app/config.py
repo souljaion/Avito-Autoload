@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     SENTRY_DSN: str = ""
     TELEGRAM_BOT_TOKEN: str = ""
     TELEGRAM_CHAT_ID: str = ""
+    FEED_RETENTION_DAYS: int = 30
+    YANDEX_DISK_API_BASE: str = "https://cloud-api.yandex.net/v1/disk/public"
+    YANDEX_DOWNLOAD_TIMEOUT: int = 60
+    YANDEX_DOWNLOAD_CONCURRENCY: int = 2
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

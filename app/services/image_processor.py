@@ -20,10 +20,11 @@ logger = structlog.get_logger(__name__)
 MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
 
 
-def _sync_process_image(data: bytes, max_side: int = 1600, quality: int = 85) -> bytes:
+def _sync_process_image(data: bytes, max_side: int = 1600, quality: int = 85, max_input_size: int | None = None) -> bytes:
     """Sync: resize image to max_side, convert to JPEG, strip metadata."""
-    if len(data) > MAX_FILE_SIZE:
-        raise ValueError(f"Файл слишком большой ({len(data) // 1024 // 1024} МБ, макс. {MAX_FILE_SIZE // 1024 // 1024} МБ)")
+    limit = max_input_size if max_input_size is not None else MAX_FILE_SIZE
+    if len(data) > limit:
+        raise ValueError(f"Файл слишком большой ({len(data) // 1024 // 1024} МБ, макс. {limit // 1024 // 1024} МБ)")
 
     t0 = time.monotonic()
 
@@ -91,10 +92,10 @@ def make_thumbnail(data: bytes, max_side: int = 300, quality: int = 70) -> bytes
 
 # ── Async wrappers (run CPU work in threadpool) ──
 
-async def process_image_async(data: bytes, max_side: int = 1600, quality: int = 85) -> bytes:
+async def process_image_async(data: bytes, max_side: int = 1600, quality: int = 85, max_input_size: int | None = None) -> bytes:
     """Process image in threadpool executor to avoid blocking the event loop."""
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, _sync_process_image, data, max_side, quality)
+    return await loop.run_in_executor(None, _sync_process_image, data, max_side, quality, max_input_size)
 
 
 async def make_thumbnail_async(data: bytes, max_side: int = 300, quality: int = 70) -> bytes:

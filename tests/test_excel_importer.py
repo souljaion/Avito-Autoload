@@ -700,3 +700,56 @@ class TestEndpoint:
             )
         assert resp.status_code == 400
         assert "xlsx" in resp.json()["error"].lower() or "не удалось" in resp.json()["error"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Orphan file cleanup on re-import
+# ---------------------------------------------------------------------------
+
+class TestOrphanFileCleanup:
+    def test_delete_local_image_files_removes_existing(self, tmp_path):
+        """_delete_local_image_files should remove local files matching /media/ URLs."""
+        from unittest.mock import patch
+        from app.services.excel_importer import _delete_local_image_files
+
+        # Create a fake file
+        products_dir = tmp_path / "products" / "42"
+        products_dir.mkdir(parents=True)
+        fake_file = products_dir / "0_shoe.jpg"
+        fake_file.write_bytes(b"fake jpeg")
+
+        urls = [
+            f"/media/products/42/0_shoe.jpg",
+            "https://avito.st/image/1/abc.jpg",  # external — should be skipped
+        ]
+
+        with patch("app.services.excel_importer.settings") as mock_settings:
+            mock_settings.MEDIA_DIR = str(tmp_path)
+            deleted = _delete_local_image_files(urls)
+
+        assert deleted == 1
+        assert not fake_file.exists()
+
+    def test_delete_local_image_files_handles_missing(self, tmp_path):
+        """Missing files should be logged but not raise."""
+        from unittest.mock import patch
+        from app.services.excel_importer import _delete_local_image_files
+
+        urls = ["/media/products/999/nonexistent.jpg"]
+
+        with patch("app.services.excel_importer.settings") as mock_settings:
+            mock_settings.MEDIA_DIR = str(tmp_path)
+            deleted = _delete_local_image_files(urls)
+
+        assert deleted == 0
+
+    def test_delete_local_image_files_skips_external(self, tmp_path):
+        """External URLs should be completely skipped."""
+        from app.services.excel_importer import _delete_local_image_files
+
+        urls = [
+            "https://avito.st/image/1/abc.jpg",
+            "https://cdn.example.com/photo.png",
+        ]
+        deleted = _delete_local_image_files(urls)
+        assert deleted == 0

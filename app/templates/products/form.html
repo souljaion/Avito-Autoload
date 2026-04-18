@@ -195,6 +195,70 @@
             <input type="hidden" name="pack_uniquify" id="pack-uniquify-input" value="">
         </div>
 
+        {% if product and product.id %}
+        <h3>Фото с Яндекс.Диска</h3>
+        <div id="yd-section">
+            <div id="yd-folders">
+                {% for folder in yandex_folders or [] %}
+                <div class="yd-folder" data-folder-id="{{ folder.id }}" style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                        <strong>{{ folder.folder_name or 'Папка' }}</strong>
+                        <button type="button" class="btn btn-danger btn-sm" onclick="deleteYdFolder({{ product.id }}, {{ folder.id }})">удалить</button>
+                    </div>
+                    {% if folder.error %}
+                    <div style="color:#dc2626;font-size:12px;margin-bottom:6px;">Ошибка: {{ folder.error }}</div>
+                    {% endif %}
+                    <div class="yd-thumbs" id="yd-thumbs-{{ folder.id }}" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+                    <button type="button" class="btn btn-secondary btn-sm" style="margin-top:8px;" onclick="saveYdSelection({{ product.id }}, {{ folder.id }})">Сохранить выбор</button>
+                </div>
+                {% endfor %}
+            </div>
+            <div style="margin-top:8px;">
+                <button type="button" class="btn btn-secondary btn-sm" onclick="showAddYdFolder()">+ Добавить папку Яндекс.Диска</button>
+            </div>
+            <div id="yd-add-form" style="display:none;margin-top:10px;border:1px solid var(--border);border-radius:8px;padding:12px;">
+                <div class="field" style="margin-bottom:8px;">
+                    <label>Публичная ссылка</label>
+                    <input type="text" id="yd-url" placeholder="https://disk.yandex.ru/d/..." style="width:100%;">
+                </div>
+                <div class="field" style="margin-bottom:8px;">
+                    <label>Название (необязательно)</label>
+                    <input type="text" id="yd-name" placeholder="Фотосет 1" style="width:100%;">
+                </div>
+                <button type="button" class="btn btn-primary btn-sm" onclick="addYdFolder({{ product.id }})">Добавить</button>
+                <span id="yd-add-error" style="color:#dc2626;font-size:12px;margin-left:8px;"></span>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Yandex.Disk download status for current images -->
+        {% if product and product.images %}
+        {% set pending_imgs = [] %}
+        {% for img in product.images %}
+            {% if img.download_status and img.download_status != 'ready' %}
+                {% if pending_imgs.append(img) %}{% endif %}
+            {% endif %}
+        {% endfor %}
+        {% if pending_imgs %}
+        <div style="margin-bottom:12px;padding:10px;background:#fef3c7;border-radius:8px;font-size:13px;">
+            <strong>Загрузка фото:</strong>
+            {% for img in pending_imgs %}
+            <div style="margin-top:4px;">
+                {{ img.filename }}:
+                {% if img.download_status == 'pending' %}
+                <span style="color:#6b7280;">В очереди</span>
+                {% elif img.download_status == 'downloading' %}
+                <span style="color:#2563eb;">⏳ Загружается</span>
+                {% elif img.download_status == 'failed' %}
+                <span style="color:#dc2626;">❌ {{ img.download_error or 'Ошибка' }}</span>
+                <button type="button" class="btn btn-sm" onclick="retryDownload({{ product.id }}, {{ img.id }})">Повторить</button>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% endif %}
+
         <h3>Публикация</h3>
         <div class="grid-2">
             <div class="field">
@@ -504,6 +568,94 @@ document.addEventListener("DOMContentLoaded", function() {
     const currentModelId = modelSelect.value;
     if (currentModelId && currentModelId !== '__new__') {
         loadPacksForModel(currentModelId);
+    }
+});
+
+// ── Yandex.Disk folder management ──
+
+function showAddYdFolder() {
+    document.getElementById('yd-add-form').style.display = 'block';
+}
+
+async function addYdFolder(productId) {
+    const url = document.getElementById('yd-url').value.trim();
+    const name = document.getElementById('yd-name').value.trim();
+    const errEl = document.getElementById('yd-add-error');
+    errEl.textContent = '';
+
+    if (!url) { errEl.textContent = 'Введите ссылку'; return; }
+
+    const resp = await fetch(`/api/products/${productId}/yandex-folders`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({public_url: url, folder_name: name || null}),
+    });
+    const data = await resp.json();
+    if (!data.ok) { errEl.textContent = data.error || 'Ошибка'; return; }
+
+    location.reload();
+}
+
+async function deleteYdFolder(productId, folderId) {
+    if (!confirm('Удалить папку?')) return;
+    await fetch(`/api/products/${productId}/yandex-folders/${folderId}?delete_images=true`, {method: 'DELETE'});
+    location.reload();
+}
+
+async function saveYdSelection(productId, folderId) {
+    const container = document.getElementById('yd-thumbs-' + folderId);
+    const checks = container.querySelectorAll('input[type=checkbox]:checked');
+    const paths = Array.from(checks).map(c => c.value);
+
+    const resp = await fetch(`/api/products/${productId}/yandex-folders/${folderId}/selection`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({selected_paths: paths}),
+    });
+    const data = await resp.json();
+    if (data.ok) {
+        alert(`Выбрано ${data.added} новых фото. Загрузка начнётся автоматически.`);
+        location.reload();
+    }
+}
+
+async function retryDownload(productId, imageId) {
+    await fetch(`/api/products/${productId}/images/${imageId}/retry-download`, {method: 'PATCH'});
+    location.reload();
+}
+
+// Load folder file listings on page load
+document.querySelectorAll('.yd-folder').forEach(async el => {
+    const folderId = el.dataset.folderId;
+    const productId = {{ product.id if product and product.id else 0 }};
+    if (!productId) return;
+
+    const thumbsEl = el.querySelector('.yd-thumbs');
+    thumbsEl.innerHTML = '<span style="color:#9ca3af;font-size:12px;">Загрузка...</span>';
+
+    try {
+        const resp = await fetch(`/api/products/${productId}/yandex-folders`);
+        const data = await resp.json();
+        if (!data.ok) return;
+        const folder = data.folders.find(f => f.folder_id == folderId);
+        if (!folder) return;
+
+        thumbsEl.innerHTML = '';
+        folder.files.forEach(f => {
+            const wrap = document.createElement('label');
+            wrap.style.cssText = 'display:inline-block;position:relative;cursor:pointer;';
+            wrap.innerHTML = `
+                <input type="checkbox" value="${f.path}" ${f.selected ? 'checked' : ''} style="position:absolute;top:4px;left:4px;z-index:2;">
+                <img src="/api/yandex-preview?url=${encodeURIComponent(f.preview_url)}" alt="${f.name}" loading="lazy"
+                     style="width:120px;height:120px;object-fit:cover;border-radius:6px;border:2px solid ${f.selected ? '#6366f1' : '#e5e7eb'};">
+            `;
+            thumbsEl.appendChild(wrap);
+        });
+        if (folder.files.length === 0) {
+            thumbsEl.innerHTML = '<span style="color:#9ca3af;font-size:12px;">Папка пуста или не содержит изображений</span>';
+        }
+    } catch(e) {
+        thumbsEl.innerHTML = '<span style="color:#dc2626;font-size:12px;">Ошибка загрузки</span>';
     }
 });
 </script>

@@ -404,3 +404,48 @@ class TestGenerateFeed:
         assert mock_aiofiles.open.call_count == 2
         db.add.assert_called_once()
         db.commit.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# Pending images excluded from feed
+# ---------------------------------------------------------------------------
+
+class TestPendingImagesExcluded:
+    def test_pending_images_not_in_feed(self):
+        """Images with download_status != 'ready' must not appear in feed XML."""
+        ad = etree.Element("Ad")
+        images = [
+            _make_image(id=1, url="/media/products/1/ready.jpg", sort_order=0, is_main=True, download_status="ready"),
+            _make_image(id=2, url="", sort_order=1, is_main=False, download_status="pending"),
+            _make_image(id=3, url="", sort_order=2, is_main=False, download_status="downloading"),
+            _make_image(id=4, url="", sort_order=3, is_main=False, download_status="failed"),
+        ]
+        _add_images(ad, images, "https://example.com")
+        imgs_el = ad.find("Images")
+        assert imgs_el is not None
+        image_els = imgs_el.findall("Image")
+        assert len(image_els) == 1
+        assert "ready.jpg" in image_els[0].get("url")
+
+    def test_all_pending_falls_through_to_fallback(self):
+        """If all images are pending, fallback_url should be used."""
+        ad = etree.Element("Ad")
+        images = [
+            _make_image(id=1, url="", sort_order=0, is_main=True, download_status="pending"),
+        ]
+        _add_images(ad, images, "https://example.com", fallback_url="https://cdn.avito.st/fallback.jpg")
+        imgs_el = ad.find("Images")
+        assert imgs_el is not None
+        image_els = imgs_el.findall("Image")
+        assert len(image_els) == 1
+        assert image_els[0].get("url") == "https://cdn.avito.st/fallback.jpg"
+
+    def test_no_download_status_defaults_to_ready(self):
+        """Existing images without download_status attr should be treated as ready."""
+        ad = etree.Element("Ad")
+        # SimpleNamespace without download_status attribute
+        img = types.SimpleNamespace(id=1, url="/media/products/1/old.jpg", is_main=True, sort_order=0)
+        _add_images(ad, [img], "https://example.com")
+        imgs_el = ad.find("Images")
+        assert imgs_el is not None
+        assert len(imgs_el.findall("Image")) == 1
