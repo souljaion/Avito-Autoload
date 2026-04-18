@@ -144,8 +144,19 @@ class TestHealthEndpoint:
         assert "uptime_seconds" in data
 
     @pytest.mark.asyncio
-    async def test_404_for_unknown_route(self, client):
-        resp = await client.get("/this-route-does-not-exist-xyz")
+    async def test_404_for_unknown_route(self):
+        """Unknown route returns 404 (not 401) when authenticated."""
+        import httpx as _httpx
+        from app.main import app as real_app
+        from base64 import b64encode
+        from app.config import settings
+        creds = b64encode(f"{settings.BASIC_AUTH_USER}:{settings.BASIC_AUTH_PASSWORD}".encode()).decode()
+        async with _httpx.AsyncClient(
+            transport=_httpx.ASGITransport(app=real_app),
+            base_url="http://test",
+            headers={"Authorization": f"Basic {creds}"},
+        ) as c:
+            resp = await c.get("/this-route-does-not-exist-xyz")
         assert resp.status_code == 404
 
 

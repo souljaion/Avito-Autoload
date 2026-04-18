@@ -1,109 +1,225 @@
-"""Tests for products API endpoints (integration tests against running server)."""
+"""Tests for products API endpoints (ASGI transport, mock DB)."""
+
+from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import pytest_asyncio
+from fastapi import FastAPI
+from httpx import AsyncClient, ASGITransport
+
+from app.db import get_db
+from app.routes.products import router
 
 
-@pytest.mark.asyncio
-async def test_products_list_returns_200(client):
-    resp = await client.get("/products")
-    assert resp.status_code == 200
+# ── Helpers ──
 
 
-@pytest.mark.asyncio
-async def test_products_list_requires_auth():
-    """Products page should require authentication."""
-    import httpx
-    async with httpx.AsyncClient(base_url="http://127.0.0.1:8001", timeout=10.0) as c:
-        resp = await c.get("/products")
-    assert resp.status_code == 401
+def _make_app(mock_db):
+    app = FastAPI()
+    app.include_router(router)
+
+    async def override_db():
+        yield mock_db
+
+    app.dependency_overrides[get_db] = override_db
+    return app
 
 
-@pytest.mark.asyncio
-async def test_create_product(client):
-    resp = await client.post(
-        "/products/new",
-        data={
-            "title": "Test Product Pytest",
-            "price": "1500",
-            "status": "draft",
-        },
-        follow_redirects=False,
-    )
-    # Should redirect to product detail on success
-    assert resp.status_code == 303
-    location = resp.headers.get("location", "")
-    assert "/products/" in location
+def _make_product(pid=1, title="Test Product", price=1500, status="draft",
+                  account_id=None, avito_id=None):
+    p = MagicMock()
+    p.id = pid
+    p.title = title
+    p.price = price
+    p.status = status
+    p.account_id = account_id
+    p.avito_id = avito_id
+    p.sku = None
+    p.brand = None
+    p.model = None
+    p.category = None
+    p.subcategory = None
+    p.goods_type = None
+    p.goods_subtype = None
+    p.size = None
+    p.color = None
+    p.material = None
+    p.condition = "Новое с биркой"
+    p.description = "Test description"
+    p.use_custom_description = False
+    p.scheduled_at = None
+    p.published_at = None
+    p.removed_at = None
+    p.scheduled_account_id = None
+    p.image_url = None
+    p.extra = {}
+    p.version = 1
+    p.variant_id = None
+    p.model_id = None
+    p.images = []
+    p.account = None
+    p.created_at = datetime(2026, 4, 18)
+    p.updated_at = datetime(2026, 4, 18)
+    return p
 
 
-@pytest.mark.asyncio
-async def test_patch_product_status(client):
-    """Create a product via API, then PATCH its status."""
-    # Create product first
-    create_resp = await client.post(
-        "/products/new",
-        data={"title": "Patch Status Test", "price": "2000", "status": "draft"},
-        follow_redirects=False,
-    )
-    assert create_resp.status_code == 303
-    location = create_resp.headers["location"]
-    # Extract product ID from redirect URL like /products/123
-    pid = location.rstrip("/").split("/")[-1]
-
-    resp = await client.patch(
-        f"/products/{pid}",
-        json={"status": "active"},
-    )
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["ok"] is True
-    assert data["status"] == "active"
+def _make_account(aid=1, name="TestAccount"):
+    a = MagicMock()
+    a.id = aid
+    a.name = name
+    a.client_id = "cid"
+    a.description_template = None
+    return a
 
 
-@pytest.mark.asyncio
-async def test_patch_product_price(client):
-    create_resp = await client.post(
-        "/products/new",
-        data={"title": "Patch Price Test", "price": "1000", "status": "draft"},
-        follow_redirects=False,
-    )
-    assert create_resp.status_code == 303
-    pid = create_resp.headers["location"].rstrip("/").split("/")[-1]
-
-    resp = await client.patch(
-        f"/products/{pid}",
-        json={"price": 2500},
-    )
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["price"] == 2500
+# ── GET /products ──
 
 
-@pytest.mark.asyncio
-async def test_patch_nonexistent_product(client):
-    resp = await client.patch(
-        "/products/999999",
-        json={"status": "active"},
-    )
-    assert resp.status_code == 404
+class TestProductsList:
+    @pytest.mark.asyncio
+    async def test_products_list_returns_200(self):
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.unique.return_value.all.return_value = []
+
+        count_result = MagicMock()
+        count_result.scalar.return_value = 0
+
+        acct_result = MagicMock()
+        acct_result.scalars.return_value.all.return_value = []
+
+        mock_db = AsyncMock()
+        mock_db.execute = AsyncMock(side_effect=[acct_result, count_result, mock_result])
+
+        app = _make_app(mock_db)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            resp = await c.get("/products")
+        assert resp.status_code == 200
 
 
-@pytest.mark.asyncio
-async def test_product_with_account_creates_listing(client):
-    """Product created with account_id should auto-create a listing and appear on /products."""
-    # Create product with account_id=1
-    create_resp = await client.post(
-        "/products/new",
-        data={"title": "Auto Listing Test", "price": "3000", "status": "draft", "account_id": "1"},
-        follow_redirects=False,
-    )
-    assert create_resp.status_code == 303
-    pid = create_resp.headers["location"].rstrip("/").split("/")[-1]
+# ── POST /products/new ──
 
-    # Verify listing was auto-created via /api/listings
-    resp = await client.get("/api/listings?status=draft")
-    assert resp.status_code == 200
-    items = resp.json()["items"]
-    matching = [i for i in items if i["product_id"] == int(pid)]
-    assert len(matching) >= 1, f"Product {pid} should have a listing in draft status"
-    assert matching[0]["title"] == "Auto Listing Test"
+
+class TestCreateProduct:
+    @pytest.mark.asyncio
+    async def test_create_product_redirects(self):
+        mock_db = AsyncMock()
+        mock_db.flush = AsyncMock()
+        mock_db.commit = AsyncMock()
+        mock_db.refresh = AsyncMock()
+
+        # After flush, the product gets an id assigned
+        def fake_add(obj):
+            obj.id = 42
+
+        mock_db.add = MagicMock(side_effect=fake_add)
+
+        app = _make_app(mock_db)
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test",
+            follow_redirects=False,
+        ) as c:
+            resp = await c.post(
+                "/products/new",
+                data={"title": "Test Product Pytest", "price": "1500", "status": "draft"},
+            )
+        assert resp.status_code == 303
+        assert "/products/" in resp.headers.get("location", "")
+
+
+# ── PATCH /products/{id} ──
+
+
+class TestPatchProduct:
+    @pytest.mark.asyncio
+    async def test_patch_product_status(self):
+        product = _make_product(pid=10, status="draft")
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=product)
+        mock_db.commit = AsyncMock()
+
+        app = _make_app(mock_db)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            resp = await c.patch("/products/10", json={"status": "active"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        assert data["status"] == "active"
+
+    @pytest.mark.asyncio
+    async def test_patch_product_price(self):
+        product = _make_product(pid=11, price=1000)
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=product)
+        mock_db.commit = AsyncMock()
+
+        app = _make_app(mock_db)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            resp = await c.patch("/products/11", json={"price": 2500})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["price"] == 2500
+
+    @pytest.mark.asyncio
+    async def test_patch_nonexistent_product(self):
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=None)
+
+        app = _make_app(mock_db)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            resp = await c.patch("/products/999999", json={"status": "active"})
+        assert resp.status_code == 404
+
+
+# ── POST with account_id → auto-create listing ──
+
+
+class TestProductWithListing:
+    @pytest.mark.asyncio
+    async def test_product_with_account_creates_listing(self):
+        account = _make_account(aid=1)
+        mock_db = AsyncMock()
+        mock_db.flush = AsyncMock()
+        mock_db.commit = AsyncMock()
+        mock_db.refresh = AsyncMock()
+        mock_db.get = AsyncMock(return_value=account)
+
+        added_objects = []
+        def fake_add(obj):
+            if hasattr(obj, 'title'):
+                obj.id = 55
+            added_objects.append(obj)
+
+        mock_db.add = MagicMock(side_effect=fake_add)
+
+        app = _make_app(mock_db)
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test",
+            follow_redirects=False,
+        ) as c:
+            resp = await c.post(
+                "/products/new",
+                data={"title": "Auto Listing Test", "price": "3000",
+                      "status": "draft", "account_id": "1"},
+            )
+        assert resp.status_code == 303
+
+        # Verify a Listing object was added (product + listing = 2 adds)
+        from app.models.listing import Listing
+        listings = [o for o in added_objects if isinstance(o, Listing)]
+        assert len(listings) == 1
+        assert listings[0].account_id == 1
+
+
+# ── Auth requirement ──
+
+
+class TestAuthRequired:
+    @pytest.mark.asyncio
+    async def test_products_requires_auth(self):
+        """Products page should require authentication (via middleware)."""
+        from app.main import app as real_app
+        async with AsyncClient(
+            transport=ASGITransport(app=real_app), base_url="http://test",
+        ) as c:
+            resp = await c.get("/products")
+        assert resp.status_code == 401
