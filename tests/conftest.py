@@ -3,8 +3,16 @@ Shared fixtures for tests.
 
 Integration tests run against the live server on localhost:8001.
 Unit tests (feed_generator, avito_client) use mocks and don't need DB/server.
+
+HARD GUARD: This module refuses to let pytest run against a production
+database. The check runs at import time (before any test is collected).
+To create the test DB:
+    createdb -U avito_user -h localhost -p 5433 avito_autoload_test
+    DATABASE_URL=postgresql+asyncpg://avito_user:avito_pass@localhost:5433/avito_autoload_test \
+        alembic upgrade head
 """
 
+import os
 from base64 import b64encode
 
 import pytest
@@ -14,6 +22,35 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db import engine
+
+# ---------------------------------------------------------------------------
+# HARD GUARD — runs at import time, before any test is collected
+# ---------------------------------------------------------------------------
+_PRODUCTION_URL = (
+    "postgresql+asyncpg://avito_user:avito_pass@localhost:5433/avito_autoload"
+)
+
+_db_url = str(settings.DATABASE_URL)
+
+# Belt: exact match against known production URL
+if _db_url.rstrip("/") == _PRODUCTION_URL:
+    raise RuntimeError(
+        f"REFUSING to run tests against the PRODUCTION database: {_db_url}\n"
+        f"Set DATABASE_URL to a test DB (e.g. avito_autoload_test) "
+        f"or export TESTING=1."
+    )
+
+# Suspenders: URL must contain 'test' OR TESTING=1 must be set
+_has_test_in_url = "test" in _db_url.lower()
+_testing_env = os.environ.get("TESTING", "") == "1"
+
+if not _has_test_in_url and not _testing_env:
+    raise RuntimeError(
+        f"REFUSING to run tests against non-test database: {_db_url}\n"
+        f"Set DATABASE_URL to a test DB (must contain 'test' in the name) "
+        f"or export TESTING=1."
+    )
+# ---------------------------------------------------------------------------
 
 
 @pytest_asyncio.fixture
