@@ -56,6 +56,10 @@
 .create-template-link { color:#534AB7; font-size:12px; text-decoration:none; white-space:nowrap; }
 .create-template-link:hover { text-decoration:underline; }
 
+.model-badge { display:inline-block; padding:4px 10px; border-radius:8px; font-size:12px; font-weight:500; margin-top:6px; }
+.model-badge--ok { background:#dcfce7; color:#166534; }
+.model-badge--warn { background:#fef3c7; color:#92400e; }
+
 .status-badge { display:inline-flex; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:500; white-space:nowrap; }
 .status-active { background:#dcfce7; color:#166534; }
 .status-scheduled { background:#dbeafe; color:#1e40af; }
@@ -105,6 +109,11 @@
             </span>
             {% endif %}
             <div class="m-pills" id="status-pills"></div>
+            {% if model_is_complete %}
+            <div class="model-badge model-badge--ok">&#x25CF; Модель готова к публикации</div>
+            {% else %}
+            <div class="model-badge model-badge--warn">&#x26A0; Модель заполнена частично. Не хватает: {{ missing_fields | join(", ") }}</div>
+            {% endif %}
         </div>
         <div class="m-header-actions">
             <button class="btn btn-sm btn-outline" onclick="toggleEditForm()">Редактировать</button>
@@ -326,6 +335,8 @@ const MODEL_ID = {{ model.id }};
 const ACCOUNTS = [{% for acc in accounts %}{id:{{ acc.id }},name:"{{ acc.name }}"},{% endfor %}];
 const PACKS = [{% for pack in model.photo_packs %}{id:{{ pack.id }},name:"{{ pack.name }}"},{% endfor %}];
 const HAS_CATEGORY = {{ 'true' if model.category and model.goods_type else 'false' }};
+window.modelIsComplete = {{ model_is_complete | tojson }};
+window.modelMissingFields = {{ missing_fields | tojson }};
 
 const goodsTypesMap = {{ goods_types | tojson }};
 const apparelsMap = {{ apparels | tojson }};
@@ -524,10 +535,24 @@ async function softDelete(pid, title) {
 
 // ── Add row ──
 async function addNewRow() {
+    // Warn if model is incomplete
+    if (!window.modelIsComplete) {
+        const missing = window.modelMissingFields.join(", ");
+        const ok = confirm(
+            `Модель не полностью заполнена (не хватает: ${missing}).\n\n` +
+            `Объявление будет создано, но не попадёт в фид до дозаполнения модели.\n\n` +
+            `Продолжить создание?`
+        );
+        if (!ok) return;
+    }
+
     // Copy size+price from last row
     const lastRow = document.querySelector('#listings-body tr:last-child');
     const lastSize = lastRow?.querySelector('[data-field="size"]')?.value || '';
     const lastPrice = lastRow?.querySelector('[data-field="price"]')?.value || '';
+
+    // Copy description_template_id from last row's dropdown (if exists)
+    const lastDescTpl = lastRow?.querySelector('.desc-template-select')?.value || null;
 
     // Pick first account (allow duplicates — multiple listings per account)
     const firstAcc = ACCOUNTS.length ? ACCOUNTS[0].id : null;
@@ -535,7 +560,12 @@ async function addNewRow() {
     try {
         const resp = await fetch('/models/' + MODEL_ID + '/products', {
             method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ account_id: firstAcc, size: lastSize, price: lastPrice || null }),
+            body: JSON.stringify({
+                account_id: firstAcc,
+                size: lastSize,
+                price: lastPrice || null,
+                description_template_id: lastDescTpl ? parseInt(lastDescTpl) : null,
+            }),
         });
         const data = await resp.json();
         if (data.ok) { showToast('Объявление создано', false); location.reload(); }

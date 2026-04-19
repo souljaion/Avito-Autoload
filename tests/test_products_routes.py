@@ -1931,3 +1931,90 @@ class TestScheduleBulk:
         data = resp.json()
         assert "not_ready" in data
         assert data["not_ready"][0]["problems"] == ["Товар не найден"]
+
+
+# ── Duplicate preserves template link (integration) ────────────────
+
+
+class TestDuplicatePreservesTemplateLink:
+    @pytest.mark.asyncio
+    async def test_duplicate_preserves_template_link(self, isolated_db):
+        """Regression: duplicate_product must copy use_custom_description, description_template_id, model_id."""
+        import uuid
+        from sqlalchemy import text, select as sa_select
+        from base64 import b64encode
+        from app.config import settings
+        from app.models.account import Account
+        from app.models.model import Model
+        from app.models.description_template import DescriptionTemplate
+        from app.models.product import Product as ProductModel
+
+        db = isolated_db
+        await db.execute(text(
+            "SELECT setval('accounts_id_seq', GREATEST(nextval('accounts_id_seq'), "
+            "(SELECT COALESCE(MAX(id), 0) FROM accounts)))"
+        ))
+        token = uuid.uuid4().hex[:8]
+        acc = Account(name=f"DupTest-{token}", client_id=f"c-{token}",
+                      client_secret="s", feed_token=token)
+        db.add(acc)
+        await db.flush()
+
+        model = Model(name=f"DupModel-{token}", brand="TestBrand")
+        db.add(model)
+        await db.flush()
+
+        tpl = DescriptionTemplate(name=f"DupTpl-{token}", body="tpl body")
+        db.add(tpl)
+        await db.flush()
+
+        source = ProductModel(
+            title="Source Product", description="Custom desc", price=3000,
+            status="draft", account_id=acc.id, model_id=model.id,
+            category="Одежда, обувь, аксессуары", goods_type="Мужская обувь",
+            subcategory="Кроссовки", goods_subtype="Кроссовки",
+            brand="TestBrand", condition="Новое с биркой",
+            use_custom_description=True,
+            description_template_id=tpl.id,
+        )
+        db.add(source)
+        await db.flush()
+
+        from fastapi import FastAPI
+        from app.db import get_db
+        from app.routes.products import router as prod_router
+        from app.middleware.auth import BasicAuthMiddleware
+
+        app = FastAPI()
+        app.add_middleware(BasicAuthMiddleware)
+        app.include_router(prod_router)
+
+        async def override_db():
+            yield db
+
+        app.dependency_overrides[get_db] = override_db
+
+        creds = b64encode(
+            f"{settings.BASIC_AUTH_USER}:{settings.BASIC_AUTH_PASSWORD}".encode()
+        ).decode()
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test",
+            headers={"Authorization": f"Basic {creds}"},
+            follow_redirects=False,
+        ) as client:
+            resp = await client.post(f"/products/{source.id}/duplicate")
+
+        assert resp.status_code == 303
+
+        result = await db.execute(
+            sa_select(ProductModel)
+            .where(ProductModel.title == "Source Product (копия)")
+            .order_by(ProductModel.id.desc())
+        )
+        copy = result.scalar_one_or_none()
+        assert copy is not None
+        assert copy.description_template_id == tpl.id
+        assert copy.use_custom_description is True
+        assert copy.model_id == model.id
+        assert copy.description == "Custom desc"

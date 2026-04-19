@@ -93,6 +93,28 @@ async def _clear_in_memory_cache():
     await cache.clear()
 
 
+@pytest_asyncio.fixture
+async def isolated_db():
+    """Isolated DB session for integration tests where the endpoint calls db.commit().
+
+    The standard `db` fixture wraps everything in a transaction and rolls back.
+    But if the code under test calls commit(), it finalizes that transaction and
+    breaks subsequent tests. This fixture creates its own engine+connection so
+    the pool isn't polluted.
+    """
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+
+    eng = create_async_engine(str(settings.DATABASE_URL))
+    async with eng.connect() as conn:
+        trans = await conn.begin()
+        session = AsyncSession(bind=conn, expire_on_commit=False)
+        yield session
+        await session.close()
+        if trans.is_active:
+            await trans.rollback()
+    await eng.dispose()
+
+
 @pytest_asyncio.fixture(scope="session", autouse=True)
 async def _seed_test_account():
     """Ensure account id=1 exists for integration tests that reference it."""

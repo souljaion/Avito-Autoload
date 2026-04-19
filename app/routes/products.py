@@ -636,8 +636,11 @@ async def duplicate_product(product_id: int, db: AsyncSession = Depends(get_db))
         condition=product.condition,
         price=product.price,
         description=product.description,
+        use_custom_description=product.use_custom_description,
+        description_template_id=product.description_template_id,
         status="draft",
         account_id=product.account_id,
+        model_id=product.model_id,
         extra=dict(product.extra) if product.extra else None,
     )
     db.add(copy)

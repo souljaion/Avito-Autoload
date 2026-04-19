@@ -13,7 +13,6 @@ MSK = ZoneInfo("Europe/Moscow")
 from app.db import get_db
 from app.catalog import get_catalog, DEFAULT_CONDITION
 from app.models.account import Account
-from app.models.account_description_template import AccountDescriptionTemplate
 from app.models.item_stats import ItemStats
 from app.models.model import Model
 from app.models.photo_pack import PhotoPack
@@ -164,12 +163,25 @@ async def model_detail(request: Request, model_id: int, db: AsyncSession = Depen
         for t in dt_result.scalars().all()
     ]
 
+    # Model readiness check
+    _required = {
+        "brand": "Бренд",
+        "category": "Категория",
+        "goods_type": "Тип товара",
+        "subcategory": "Вид одежды/обуви",
+        "goods_subtype": "Подтип",
+    }
+    missing_fields = [ru for key, ru in _required.items() if not getattr(model, key)]
+    model_is_complete = not missing_fields
+
     return templates.TemplateResponse("models/detail.html", {
         "request": request,
         "model": model,
         "accounts": accounts,
         "packs_with_yd": packs_with_yd,
         "description_templates": description_templates,
+        "model_is_complete": model_is_complete,
+        "missing_fields": missing_fields,
         **catalog,
     })
 
@@ -232,6 +244,8 @@ async def copy_variant(model_id: int, request: Request, db: AsyncSession = Depen
         condition=source.condition,
         price=source.price,
         description=source.description,
+        use_custom_description=source.use_custom_description,
+        description_template_id=source.description_template_id,
         status="draft",
         account_id=int(target_account_id),
         model_id=model_id,
@@ -447,10 +461,6 @@ async def create_all_listings(model_id: int, request: Request, db: AsyncSession 
     if not model:
         return JSONResponse({"ok": False, "error": "Модель не найдена"}, status_code=404)
 
-    # Load description templates
-    tmpl_result = await db.execute(select(AccountDescriptionTemplate))
-    templates_map = {t.account_id: t.description_template for t in tmpl_result.scalars().all()}
-
     packs_map = {p.id: p for p in model.photo_packs}
 
     existing_account_ids = {
@@ -491,11 +501,12 @@ async def create_all_listings(model_id: int, request: Request, db: AsyncSession 
         needs_uniquify = usage_check.scalar_one_or_none() is not None
 
         # Create product
-        description = templates_map.get(acc_id, "")
+        has_model_desc = bool(model.description)
         product = Product(
             title=title,
             brand=model.brand or None,
-            description=description or None,
+            description=model.description if has_model_desc else None,
+            use_custom_description=has_model_desc,
             status="draft",
             account_id=acc_id,
             model_id=model_id,
@@ -586,10 +597,6 @@ async def schedule_matrix(request: Request, db: AsyncSession = Depends(get_db)):
     except ValueError:
         return JSONResponse({"ok": False, "error": "Invalid datetime"}, status_code=400)
 
-    # Load description templates
-    tmpl_result = await db.execute(select(AccountDescriptionTemplate))
-    templates_map = {t.account_id: t.description_template for t in tmpl_result.scalars().all()}
-
     scheduled = []
     for i, item in enumerate(items):
         model_id = item["model_id"]
@@ -616,11 +623,12 @@ async def schedule_matrix(request: Request, db: AsyncSession = Depends(get_db)):
             if not model:
                 continue
             title = f"{model.brand} {model.name}" if model.brand else model.name
-            description = templates_map.get(account_id, "")
+            has_model_desc = bool(model.description)
             product = Product(
                 title=title,
                 brand=model.brand or None,
-                description=description or None,
+                description=model.description if has_model_desc else None,
+                use_custom_description=has_model_desc,
                 status="draft",
                 account_id=account_id,
                 model_id=model_id,
@@ -911,19 +919,16 @@ async def create_one(model_id: int, request: Request, db: AsyncSession = Depends
     if existing:
         return JSONResponse({"ok": False, "error": "Объявление уже существует"}, status_code=400)
 
-    # Load description template
-    from app.models.account_description_template import AccountDescriptionTemplate
-    tmpl_result = await db.execute(
-        select(AccountDescriptionTemplate).where(AccountDescriptionTemplate.account_id == int(account_id))
-    )
-    tmpl = tmpl_result.scalar_one_or_none()
-    description = tmpl.description_template if tmpl else ""
-
     title = f"{model.brand} {model.name}" if model.brand else model.name
+
+    # Copy description from model; protect with use_custom_description
+    has_model_desc = bool(model.description)
+
     product = Product(
         title=title,
         brand=model.brand or None,
-        description=description or None,
+        description=model.description if has_model_desc else None,
+        use_custom_description=has_model_desc,
         status="draft",
         account_id=int(account_id),
         model_id=model_id,
@@ -1239,6 +1244,15 @@ async def create_model_product(model_id: int, request: Request, db: AsyncSession
         return JSONResponse({"ok": False, "error": "account_id обязателен"}, status_code=400)
 
     title = f"{model.brand} {model.name}" if model.brand else model.name
+
+    # description_template_id from request (if provided)
+    desc_tpl_id = body.get("description_template_id")
+    if desc_tpl_id is not None:
+        desc_tpl_id = int(desc_tpl_id)
+
+    # Copy description from model; protect with use_custom_description
+    has_model_desc = bool(model.description)
+
     product = Product(
         title=title,
         brand=model.brand or None,
@@ -1250,6 +1264,9 @@ async def create_model_product(model_id: int, request: Request, db: AsyncSession
         goods_type=model.goods_type,
         goods_subtype=model.goods_subtype,
         condition=DEFAULT_CONDITION,
+        description=model.description if has_model_desc else None,
+        use_custom_description=has_model_desc,
+        description_template_id=desc_tpl_id,
         size=body.get("size") or None,
         price=int(body["price"]) if body.get("price") else None,
     )

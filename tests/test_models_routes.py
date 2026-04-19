@@ -3,11 +3,13 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import pytest_asyncio
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from httpx import AsyncClient, ASGITransport
 
 from app.db import get_db
+from app.models.product import Product
 from app.routes.models import router
 
 
@@ -300,6 +302,49 @@ class TestModelDetail:
             assert resp.status_code == 200
             ctx = mock_templates.TemplateResponse.call_args[0][1]
             assert ctx["model"] is model
+
+    @pytest.mark.asyncio
+    async def test_detail_includes_model_is_complete(self):
+        """GET /models/{id} context includes model_is_complete and missing_fields."""
+        model = _make_model(id=9, brand="Nike", description=None)
+        model.category = None  # incomplete
+        model.goods_type = "Мужская обувь"
+        model.subcategory = None
+        model.goods_subtype = "Кроссовки"
+
+        call_count = 0
+
+        async def mock_execute(stmt, *args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = model
+            elif call_count == 2:
+                result.scalars.return_value.all.return_value = [_make_account()]
+            else:
+                result.scalar_one_or_none.return_value = None
+                result.scalars.return_value.all.return_value = []
+                result.all.return_value = []
+            return result
+
+        mock_db = AsyncMock()
+        mock_db.execute = mock_execute
+        app = _make_app(mock_db)
+
+        with patch("app.routes.models.templates") as mock_templates:
+            mock_templates.TemplateResponse.return_value = HTMLResponse("<html></html>")
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                resp = await client.get("/models/9")
+
+            assert resp.status_code == 200
+            ctx = mock_templates.TemplateResponse.call_args[0][1]
+            assert ctx["model_is_complete"] is False
+            assert "Категория" in ctx["missing_fields"]
+            assert "Вид одежды/обуви" in ctx["missing_fields"]
+            assert "Бренд" not in ctx["missing_fields"]  # brand is set
 
     @pytest.mark.asyncio
     async def test_detail_includes_description_templates(self):
@@ -1095,9 +1140,6 @@ class TestCreateAllListings:
             if call_count == 1:
                 # Model query
                 result.scalar_one_or_none.return_value = model
-            elif call_count == 2:
-                # AccountDescriptionTemplate query
-                result.scalars.return_value.all.return_value = []
             else:
                 # PackUsageHistory check
                 result.scalar_one_or_none.return_value = None
@@ -1231,12 +1273,8 @@ class TestScheduleMatrix:
             nonlocal call_count
             call_count += 1
             result = MagicMock()
-            if call_count == 1:
-                # AccountDescriptionTemplate
-                result.scalars.return_value.all.return_value = []
-            else:
-                # Product lookup or Listing lookup
-                result.scalar_one_or_none.return_value = None
+            # Product lookup or Listing lookup
+            result.scalar_one_or_none.return_value = None
             return result
 
         mock_db = AsyncMock()
@@ -1994,3 +2032,514 @@ class TestModelAnalytics:
         assert data["recommendations"]["dead_count"] == 0
         assert data["recommendations"]["weak_count"] == 0
         assert data["recommendations"]["live_count"] == 0
+
+
+# ── POST /models/{id}/products (create_model_product) ─────────────
+
+
+class TestCreateModelProduct:
+    @pytest.mark.asyncio
+    async def test_copies_description_from_model(self):
+        """Model with description → product gets description + use_custom_description=True."""
+        model = _make_model(id=10, description="Model description text")
+        created_product = None
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=model)
+        mock_db.flush = AsyncMock()
+        mock_db.commit = AsyncMock()
+
+        original_add = mock_db.add
+
+        def capture_add(obj):
+            nonlocal created_product
+            if isinstance(obj, Product):
+                created_product = obj
+            return original_add(obj)
+
+        mock_db.add = MagicMock(side_effect=capture_add)
+        app = _make_app(mock_db)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            resp = await c.post("/models/10/products", json={"account_id": 1})
+
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+        assert created_product is not None
+        assert created_product.description == "Model description text"
+        assert created_product.use_custom_description is True
+
+    @pytest.mark.asyncio
+    async def test_no_description_model_leaves_null(self):
+        """Model without description → product.description=None, use_custom_description=False."""
+        model = _make_model(id=11, description=None)
+        created_product = None
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=model)
+        mock_db.flush = AsyncMock()
+        mock_db.commit = AsyncMock()
+
+        def capture_add(obj):
+            nonlocal created_product
+            if isinstance(obj, Product):
+                created_product = obj
+
+        mock_db.add = MagicMock(side_effect=capture_add)
+        app = _make_app(mock_db)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            resp = await c.post("/models/11/products", json={"account_id": 1})
+
+        assert resp.status_code == 200
+        assert created_product is not None
+        assert created_product.description is None
+        assert created_product.use_custom_description is False
+
+    @pytest.mark.asyncio
+    async def test_accepts_description_template_id(self):
+        """POST with description_template_id → saved on product."""
+        model = _make_model(id=12)
+        created_product = None
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=model)
+        mock_db.flush = AsyncMock()
+        mock_db.commit = AsyncMock()
+
+        def capture_add(obj):
+            nonlocal created_product
+            if isinstance(obj, Product):
+                created_product = obj
+
+        mock_db.add = MagicMock(side_effect=capture_add)
+        app = _make_app(mock_db)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            resp = await c.post("/models/12/products", json={
+                "account_id": 1,
+                "description_template_id": 5,
+            })
+
+        assert resp.status_code == 200
+        assert created_product is not None
+        assert created_product.description_template_id == 5
+
+    @pytest.mark.asyncio
+    async def test_no_description_template_id_is_null(self):
+        """POST without description_template_id → product.description_template_id=None."""
+        model = _make_model(id=13)
+        created_product = None
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=model)
+        mock_db.flush = AsyncMock()
+        mock_db.commit = AsyncMock()
+
+        def capture_add(obj):
+            nonlocal created_product
+            if isinstance(obj, Product):
+                created_product = obj
+
+        mock_db.add = MagicMock(side_effect=capture_add)
+        app = _make_app(mock_db)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            resp = await c.post("/models/13/products", json={"account_id": 1})
+
+        assert resp.status_code == 200
+        assert created_product is not None
+        assert created_product.description_template_id is None
+
+
+# ── Integration tests: copy_variant, create_all_listings, schedule_matrix ──
+
+
+class TestCopyVariantPreservesTemplate:
+    @pytest.mark.asyncio
+    async def test_copy_variant_preserves_template_link(self, isolated_db):
+        """copy_variant must copy use_custom_description and description_template_id from source."""
+        import uuid
+        from sqlalchemy import text, select as sa_select
+        from app.models.account import Account
+        from app.models.model import Model as ModelORM
+        from app.models.description_template import DescriptionTemplate
+        from app.models.product import Product as ProductORM
+        from app.models.product_image import ProductImage
+
+        await isolated_db.execute(text(
+            "SELECT setval('accounts_id_seq', GREATEST(nextval('accounts_id_seq'), "
+            "(SELECT COALESCE(MAX(id), 0) FROM accounts)))"
+        ))
+        token = uuid.uuid4().hex[:8]
+        acc1 = Account(name=f"CopySrc-{token}", client_id=f"cs-{token}",
+                       client_secret="s", feed_token=f"fs-{token}")
+        acc2 = Account(name=f"CopyDst-{token}", client_id=f"cd-{token}",
+                       client_secret="s", feed_token=f"fd-{token}")
+        isolated_db.add(acc1)
+        isolated_db.add(acc2)
+        await isolated_db.flush()
+
+        model = ModelORM(name=f"CopyModel-{token}", brand="Nike")
+        isolated_db.add(model)
+        await isolated_db.flush()
+
+        tpl = DescriptionTemplate(name=f"CopyTpl-{token}", body="tpl body")
+        isolated_db.add(tpl)
+        await isolated_db.flush()
+
+        source = ProductORM(
+            title="Source Variant", description="SRC DESC", price=5000,
+            status="active", account_id=acc1.id, model_id=model.id,
+            category="Одежда", goods_type="Мужская обувь",
+            subcategory="Кроссовки", goods_subtype="Кроссовки",
+            brand="Nike", condition="Новое с биркой",
+            use_custom_description=True,
+            description_template_id=tpl.id,
+        )
+        isolated_db.add(source)
+        await isolated_db.flush()
+        isolated_db.add(ProductImage(product_id=source.id, url="/media/cv.jpg",
+                            filename="cv.jpg", sort_order=0, is_main=True))
+        await isolated_db.flush()
+
+        from fastapi import FastAPI
+        from app.db import get_db
+        from app.routes.models import router as models_router
+
+        app = FastAPI()
+        app.include_router(models_router)
+
+        async def override_db():
+            yield isolated_db
+
+        app.dependency_overrides[get_db] = override_db
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            resp = await c.post(f"/models/{model.id}/copy-variant", json={
+                "product_id": source.id,
+                "account_id": acc2.id,
+            })
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+
+        copy = await isolated_db.get(ProductORM, data["new_product_id"])
+        assert copy.description_template_id == tpl.id
+        assert copy.use_custom_description is True
+        assert copy.description == "SRC DESC"
+
+
+class TestCreateAllListingsDescription:
+    @pytest.mark.asyncio
+    async def test_copies_model_description(self, isolated_db):
+        """create_all_listings: model with description → product gets it + use_custom=True."""
+        import uuid
+        from sqlalchemy import text, select as sa_select
+        from app.models.account import Account
+        from app.models.model import Model as ModelORM
+        from app.models.product import Product as ProductORM
+        from app.models.photo_pack import PhotoPack
+        from app.models.photo_pack_image import PhotoPackImage
+
+        await isolated_db.execute(text(
+            "SELECT setval('accounts_id_seq', GREATEST(nextval('accounts_id_seq'), "
+            "(SELECT COALESCE(MAX(id), 0) FROM accounts)))"
+        ))
+        token = uuid.uuid4().hex[:8]
+        acc = Account(name=f"CAL-{token}", client_id=f"cal-{token}",
+                      client_secret="s", feed_token=f"cal-{token}")
+        isolated_db.add(acc)
+        await isolated_db.flush()
+
+        model = ModelORM(name=f"CALModel-{token}", brand="Adidas",
+                         description="MODEL DESCRIPTION",
+                         category="Одежда", goods_type="Мужская обувь",
+                         subcategory="Кроссовки", goods_subtype="Кроссовки")
+        isolated_db.add(model)
+        await isolated_db.flush()
+
+        pack = PhotoPack(name=f"CALPack-{token}", model_id=model.id)
+        isolated_db.add(pack)
+        await isolated_db.flush()
+        isolated_db.add(PhotoPackImage(pack_id=pack.id, file_path="/tmp/fake.jpg",
+                              url="/media/packs/fake.jpg", sort_order=0))
+        await isolated_db.flush()
+
+        from fastapi import FastAPI
+        from app.db import get_db
+        from app.routes.models import router as models_router
+
+        app = FastAPI()
+        app.include_router(models_router)
+
+        async def override_db():
+            yield isolated_db
+
+        app.dependency_overrides[get_db] = override_db
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            resp = await c.post(f"/models/{model.id}/create-all-listings", json={
+                "items": [{"account_id": acc.id, "pack_id": pack.id}],
+            })
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        assert data["created"] == 1
+
+        result = await isolated_db.execute(
+            sa_select(ProductORM).where(
+                ProductORM.model_id == model.id,
+                ProductORM.account_id == acc.id,
+            )
+        )
+        product = result.scalar_one()
+        assert product.description == "MODEL DESCRIPTION"
+        assert product.use_custom_description is True
+
+    @pytest.mark.asyncio
+    async def test_null_model_description_stays_null(self, isolated_db):
+        """create_all_listings: model without description → product.description=None, use_custom=False."""
+        import uuid
+        from sqlalchemy import text, select as sa_select
+        from app.models.account import Account
+        from app.models.model import Model as ModelORM
+        from app.models.product import Product as ProductORM
+        from app.models.photo_pack import PhotoPack
+        from app.models.photo_pack_image import PhotoPackImage
+
+        await isolated_db.execute(text(
+            "SELECT setval('accounts_id_seq', GREATEST(nextval('accounts_id_seq'), "
+            "(SELECT COALESCE(MAX(id), 0) FROM accounts)))"
+        ))
+        token = uuid.uuid4().hex[:8]
+        acc = Account(name=f"CALN-{token}", client_id=f"caln-{token}",
+                      client_secret="s", feed_token=f"caln-{token}")
+        isolated_db.add(acc)
+        await isolated_db.flush()
+
+        model = ModelORM(name=f"CALNModel-{token}", brand="Puma",
+                         description=None,
+                         category="Одежда", goods_type="Мужская обувь",
+                         subcategory="Кроссовки", goods_subtype="Кроссовки")
+        isolated_db.add(model)
+        await isolated_db.flush()
+
+        pack = PhotoPack(name=f"CALNPack-{token}", model_id=model.id)
+        isolated_db.add(pack)
+        await isolated_db.flush()
+        isolated_db.add(PhotoPackImage(pack_id=pack.id, file_path="/tmp/fake.jpg",
+                              url="/media/packs/fake.jpg", sort_order=0))
+        await isolated_db.flush()
+
+        from fastapi import FastAPI
+        from app.db import get_db
+        from app.routes.models import router as models_router
+
+        app = FastAPI()
+        app.include_router(models_router)
+
+        async def override_db():
+            yield isolated_db
+
+        app.dependency_overrides[get_db] = override_db
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            resp = await c.post(f"/models/{model.id}/create-all-listings", json={
+                "items": [{"account_id": acc.id, "pack_id": pack.id}],
+            })
+
+        assert resp.status_code == 200
+
+        result = await isolated_db.execute(
+            sa_select(ProductORM).where(
+                ProductORM.model_id == model.id,
+                ProductORM.account_id == acc.id,
+            )
+        )
+        product = result.scalar_one()
+        assert product.description is None
+        assert product.use_custom_description is False
+
+
+class TestScheduleMatrixDescription:
+    @pytest.mark.asyncio
+    async def test_copies_model_description(self, isolated_db):
+        """schedule_matrix: new product from model with description → description copied, use_custom=True."""
+        import uuid
+        from sqlalchemy import text, select as sa_select
+        from app.models.account import Account
+        from app.models.model import Model as ModelORM
+        from app.models.product import Product as ProductORM
+
+        await isolated_db.execute(text(
+            "SELECT setval('accounts_id_seq', GREATEST(nextval('accounts_id_seq'), "
+            "(SELECT COALESCE(MAX(id), 0) FROM accounts)))"
+        ))
+        token = uuid.uuid4().hex[:8]
+        acc = Account(name=f"SM-{token}", client_id=f"sm-{token}",
+                      client_secret="s", feed_token=f"sm-{token}")
+        isolated_db.add(acc)
+        await isolated_db.flush()
+
+        model = ModelORM(name=f"SMModel-{token}", brand="Nike",
+                         description="SCHED MODEL DESC",
+                         category="Одежда", goods_type="Мужская обувь",
+                         subcategory="Кроссовки", goods_subtype="Кроссовки")
+        isolated_db.add(model)
+        await isolated_db.flush()
+
+        from fastapi import FastAPI
+        from app.db import get_db
+        from app.routes.models import router as models_router
+
+        app = FastAPI()
+        app.include_router(models_router)
+
+        async def override_db():
+            yield isolated_db
+
+        app.dependency_overrides[get_db] = override_db
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            resp = await c.post("/models/schedule-matrix", json={
+                "items": [{"model_id": model.id, "account_id": acc.id}],
+                "start_time": "2026-04-20T12:00:00",
+                "interval_minutes": 60,
+            })
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+
+        result = await isolated_db.execute(
+            sa_select(ProductORM).where(
+                ProductORM.model_id == model.id,
+                ProductORM.account_id == acc.id,
+            )
+        )
+        product = result.scalar_one()
+        assert product.description == "SCHED MODEL DESC"
+        assert product.use_custom_description is True
+
+    @pytest.mark.asyncio
+    async def test_null_description(self, isolated_db):
+        """schedule_matrix: model without description → product.description=None, use_custom=False."""
+        import uuid
+        from sqlalchemy import text, select as sa_select
+        from app.models.account import Account
+        from app.models.model import Model as ModelORM
+        from app.models.product import Product as ProductORM
+
+        await isolated_db.execute(text(
+            "SELECT setval('accounts_id_seq', GREATEST(nextval('accounts_id_seq'), "
+            "(SELECT COALESCE(MAX(id), 0) FROM accounts)))"
+        ))
+        token = uuid.uuid4().hex[:8]
+        acc = Account(name=f"SMN-{token}", client_id=f"smn-{token}",
+                      client_secret="s", feed_token=f"smn-{token}")
+        isolated_db.add(acc)
+        await isolated_db.flush()
+
+        model = ModelORM(name=f"SMNModel-{token}", brand="Puma",
+                         description=None,
+                         category="Одежда", goods_type="Мужская обувь",
+                         subcategory="Кроссовки", goods_subtype="Кроссовки")
+        isolated_db.add(model)
+        await isolated_db.flush()
+
+        from fastapi import FastAPI
+        from app.db import get_db
+        from app.routes.models import router as models_router
+
+        app = FastAPI()
+        app.include_router(models_router)
+
+        async def override_db():
+            yield isolated_db
+
+        app.dependency_overrides[get_db] = override_db
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            resp = await c.post("/models/schedule-matrix", json={
+                "items": [{"model_id": model.id, "account_id": acc.id}],
+                "start_time": "2026-04-20T12:00:00",
+                "interval_minutes": 60,
+            })
+
+        assert resp.status_code == 200
+
+        result = await isolated_db.execute(
+            sa_select(ProductORM).where(
+                ProductORM.model_id == model.id,
+                ProductORM.account_id == acc.id,
+            )
+        )
+        product = result.scalar_one()
+        assert product.description is None
+        assert product.use_custom_description is False
+
+    @pytest.mark.asyncio
+    async def test_existing_product_keeps_description(self, isolated_db):
+        """schedule_matrix: existing product must NOT have description overwritten."""
+        import uuid
+        from sqlalchemy import text
+        from app.models.account import Account
+        from app.models.model import Model as ModelORM
+        from app.models.product import Product as ProductORM
+
+        await isolated_db.execute(text(
+            "SELECT setval('accounts_id_seq', GREATEST(nextval('accounts_id_seq'), "
+            "(SELECT COALESCE(MAX(id), 0) FROM accounts)))"
+        ))
+        token = uuid.uuid4().hex[:8]
+        acc = Account(name=f"SME-{token}", client_id=f"sme-{token}",
+                      client_secret="s", feed_token=f"sme-{token}")
+        isolated_db.add(acc)
+        await isolated_db.flush()
+
+        model = ModelORM(name=f"SMEModel-{token}", brand="Nike",
+                         description="NEW MODEL DESC",
+                         category="Одежда", goods_type="Мужская обувь",
+                         subcategory="Кроссовки", goods_subtype="Кроссовки")
+        isolated_db.add(model)
+        await isolated_db.flush()
+
+        existing = ProductORM(
+            title="Existing Product", description="EXISTING DESC", price=4000,
+            status="draft", account_id=acc.id, model_id=model.id,
+            category="Одежда", goods_type="Мужская обувь",
+            subcategory="Кроссовки", goods_subtype="Кроссовки",
+            brand="Nike", condition="Новое с биркой",
+            use_custom_description=True,
+        )
+        isolated_db.add(existing)
+        await isolated_db.flush()
+
+        from fastapi import FastAPI
+        from app.db import get_db
+        from app.routes.models import router as models_router
+
+        app = FastAPI()
+        app.include_router(models_router)
+
+        async def override_db():
+            yield isolated_db
+
+        app.dependency_overrides[get_db] = override_db
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            resp = await c.post("/models/schedule-matrix", json={
+                "items": [{"model_id": model.id, "account_id": acc.id,
+                           "product_id": existing.id}],
+                "start_time": "2026-04-20T12:00:00",
+                "interval_minutes": 60,
+            })
+
+        assert resp.status_code == 200
+
+        await isolated_db.refresh(existing)
+        assert existing.description == "EXISTING DESC"
+        assert existing.use_custom_description is True

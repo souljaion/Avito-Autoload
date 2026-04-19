@@ -117,6 +117,12 @@ class TestIsReadyForFeed:
         p.use_custom_description = True
         assert is_ready_for_feed(p, has_account_template=True) is False
 
+    def test_description_template_id_makes_ready(self):
+        """Product with description_template_id but no description/account_template → ready."""
+        p = _make_product(description=None, description_template_id=5)
+        p.use_custom_description = False
+        assert is_ready_for_feed(p, has_account_template=False) is True
+
 
 # ── build_ad_element ──
 
@@ -653,3 +659,103 @@ class TestDescriptionTemplatePriority:
         tree = etree.parse(filepath)
         desc = tree.find(".//Ad/Description").text
         assert desc == "PRODUCT DESC FALLBACK"
+
+
+class TestUseCustomDescriptionInteraction:
+    """Regression: use_custom_description protects copied model.description from account_template."""
+
+    @pytest.mark.asyncio
+    async def test_custom_desc_wins_over_account_template(self, feed_db):
+        """use_custom_description=True + description="X" + account_template exists → feed shows "X"."""
+        from app.models.account_description_template import AccountDescriptionTemplate
+        from app.models.product import Product
+        from app.models.product_image import ProductImage
+        from app.services.feed_generator import generate_feed
+
+        acc = await _make_test_account(feed_db)
+        feed_db.add(AccountDescriptionTemplate(account_id=acc.id, description_template="ACCOUNT TPL"))
+
+        p = Product(
+            title="Custom Desc Test", description="COPIED FROM MODEL", price=5000,
+            status="active", account_id=acc.id,
+            category="Одежда, обувь, аксессуары", goods_type="Мужская обувь",
+            subcategory="Кроссовки и кеды", goods_subtype="Кроссовки",
+            brand="Nike", condition="Новое с биркой",
+            use_custom_description=True,
+            description_template_id=None,
+        )
+        feed_db.add(p)
+        await feed_db.flush()
+        feed_db.add(ProductImage(product_id=p.id, url="/media/t.jpg", filename="t.jpg",
+                                 sort_order=0, is_main=True))
+        await feed_db.flush()
+
+        filepath, count = await generate_feed(acc.id, feed_db)
+        assert count == 1
+        tree = etree.parse(filepath)
+        assert tree.find(".//Ad/Description").text == "COPIED FROM MODEL"
+
+    @pytest.mark.asyncio
+    async def test_no_custom_desc_falls_back_to_account_template(self, feed_db):
+        """use_custom_description=False + description=None + account_template exists → feed shows account_template."""
+        from app.models.account_description_template import AccountDescriptionTemplate
+        from app.models.product import Product
+        from app.models.product_image import ProductImage
+        from app.services.feed_generator import generate_feed
+
+        acc = await _make_test_account(feed_db)
+        feed_db.add(AccountDescriptionTemplate(account_id=acc.id, description_template="ACCOUNT TPL"))
+
+        p = Product(
+            title="Fallback Test", description=None, price=5000,
+            status="active", account_id=acc.id,
+            category="Одежда, обувь, аксессуары", goods_type="Мужская обувь",
+            subcategory="Кроссовки и кеды", goods_subtype="Кроссовки",
+            brand="Nike", condition="Новое с биркой",
+            use_custom_description=False,
+            description_template_id=None,
+        )
+        feed_db.add(p)
+        await feed_db.flush()
+        feed_db.add(ProductImage(product_id=p.id, url="/media/t2.jpg", filename="t2.jpg",
+                                 sort_order=0, is_main=True))
+        await feed_db.flush()
+
+        filepath, count = await generate_feed(acc.id, feed_db)
+        assert count == 1
+        tree = etree.parse(filepath)
+        assert tree.find(".//Ad/Description").text == "ACCOUNT TPL"
+
+    @pytest.mark.asyncio
+    async def test_template_id_wins_over_custom_desc(self, feed_db):
+        """description_template_id + description="X" + use_custom_description=True → feed shows template body."""
+        from app.models.description_template import DescriptionTemplate
+        from app.models.product import Product
+        from app.models.product_image import ProductImage
+        from app.services.feed_generator import generate_feed
+
+        acc = await _make_test_account(feed_db)
+
+        tpl = DescriptionTemplate(name="Priority Test TPL", body="TEMPLATE BODY WINS")
+        feed_db.add(tpl)
+        await feed_db.flush()
+
+        p = Product(
+            title="Priority Test", description="CUSTOM X", price=5000,
+            status="active", account_id=acc.id,
+            category="Одежда, обувь, аксессуары", goods_type="Мужская обувь",
+            subcategory="Кроссовки и кеды", goods_subtype="Кроссовки",
+            brand="Nike", condition="Новое с биркой",
+            use_custom_description=True,
+            description_template_id=tpl.id,
+        )
+        feed_db.add(p)
+        await feed_db.flush()
+        feed_db.add(ProductImage(product_id=p.id, url="/media/t3.jpg", filename="t3.jpg",
+                                 sort_order=0, is_main=True))
+        await feed_db.flush()
+
+        filepath, count = await generate_feed(acc.id, feed_db)
+        assert count == 1
+        tree = etree.parse(filepath)
+        assert tree.find(".//Ad/Description").text == "TEMPLATE BODY WINS"

@@ -100,7 +100,10 @@ def is_ready_for_feed(product: Product, has_account_template: bool = False) -> b
 
     if not product.title:
         return False
-    has_description = bool(product.description)
+    has_description = (
+        bool(product.description)
+        or product.description_template_id is not None
+    )
     if not has_description and not product.use_custom_description and has_account_template:
         has_description = True
     if not has_description:
