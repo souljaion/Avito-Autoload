@@ -504,7 +504,10 @@ async def product_avito_status(
 
 @router.get("/{product_id}/edit", response_class=HTMLResponse)
 async def product_edit(request: Request, product_id: int, db: AsyncSession = Depends(get_db)):
-    product = await db.get(Product, product_id)
+    result = await db.execute(
+        select(Product).options(selectinload(Product.images)).where(Product.id == product_id)
+    )
+    product = result.scalar_one_or_none()
     if not product:
         return HTMLResponse("Товар не найден", status_code=404)
     accs = await db.execute(select(Account).order_by(Account.name))
@@ -707,6 +710,20 @@ async def patch_product(product_id: int, request: Request, db: AsyncSession = De
     if "model_id" in body:
         val = body["model_id"]
         product.model_id = int(val) if val is not None else None
+
+    if "description_template_id" in body:
+        val = body["description_template_id"]
+        if val is not None:
+            from app.models.description_template import DescriptionTemplate
+            tpl = await db.get(DescriptionTemplate, int(val))
+            if not tpl:
+                return JSONResponse(
+                    {"ok": False, "error": f"Шаблон с id={val} не найден"},
+                    status_code=404,
+                )
+            product.description_template_id = tpl.id
+        else:
+            product.description_template_id = None
 
     if "account_id" in body:
         val = body["account_id"]

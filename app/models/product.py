@@ -44,6 +44,9 @@ class Product(Base):
     image_url: Mapped[str | None] = mapped_column(String(500), default=None)
     extra: Mapped[dict | None] = mapped_column(JSONB, default=None)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    description_template_id: Mapped[int | None] = mapped_column(
+        ForeignKey("description_templates.id", ondelete="RESTRICT"), default=None, index=True
+    )
     variant_id: Mapped[int | None] = mapped_column(
         ForeignKey("model_variants.id", ondelete="SET NULL"), default=None
     )
@@ -60,6 +63,7 @@ class Product(Base):
         back_populates="products", foreign_keys=[account_id]
     )
     model_ref: Mapped["Model | None"] = relationship(back_populates="products")
+    description_template: Mapped["DescriptionTemplate | None"] = relationship()
     variant: Mapped["ModelVariant | None"] = relationship(back_populates="products")
     images: Mapped[list["ProductImage"]] = relationship(
         back_populates="product", order_by="ProductImage.sort_order"

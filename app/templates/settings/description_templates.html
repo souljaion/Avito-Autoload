@@ -12,6 +12,7 @@
             <tr>
                 <th>Название</th>
                 <th>Превью</th>
+                <th>Используется</th>
                 <th style="width:80px;"></th>
             </tr>
         </thead>
@@ -59,13 +60,14 @@ async function loadTemplates() {
 function renderTable() {
     const tbody = document.getElementById('tpl-body');
     if (!_templates.length) {
-        tbody.innerHTML = '<tr><td colspan="3" style="color:#9ca3af;text-align:center;">Нет шаблонов</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4" style="color:#9ca3af;text-align:center;">Нет шаблонов</td></tr>';
         return;
     }
     tbody.innerHTML = _templates.map(t => `
         <tr style="cursor:pointer;" onclick="openModal(${t.id})">
             <td><strong>${esc(t.name)}</strong></td>
             <td style="color:#6b7280;font-size:13px;">${esc(t.body.substring(0, 80))}${t.body.length > 80 ? '...' : ''}</td>
+            <td style="color:#9ca3af;font-size:13px;">${t.usage_count > 0 ? t.usage_count + ' объявлений' : '—'}</td>
             <td style="text-align:right;">
                 <button class="btn btn-sm" style="font-size:11px;" onclick="event.stopPropagation();openModal(${t.id})">Изм.</button>
             </td>
@@ -138,8 +140,16 @@ async function deleteTemplate() {
     const name = document.getElementById('tpl-name').value;
     if (!id) return;
     if (!confirm(`Удалить шаблон "${name}"?`)) return;
+    const errEl = document.getElementById('modal-error');
     try {
-        await fetch(`/api/description-templates/${id}`, {method: 'DELETE'});
+        const resp = await fetch(`/api/description-templates/${id}`, {method: 'DELETE'});
+        if (resp.status === 409) {
+            const data = await resp.json();
+            const n = data.usage_count || 0;
+            errEl.textContent = `Нельзя удалить: шаблон используется в ${n} объявлениях. Сначала измените шаблон в этих объявлениях.`;
+            errEl.style.display = 'block';
+            return;
+        }
         closeModal();
         await loadTemplates();
     } catch(e) { console.error(e); }

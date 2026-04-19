@@ -277,15 +277,13 @@ class TestModelDetail:
                 # Model query
                 result.scalar_one_or_none.return_value = model
             elif call_count == 2:
-                # Unassigned products query
-                result.scalars.return_value.all.return_value = []
-            elif call_count == 3:
                 # Accounts query
                 result.scalars.return_value.all.return_value = [_make_account()]
             else:
-                # get_catalog queries (AvitoCategory root + all)
+                # get_catalog, packs_with_yd, description_templates queries
                 result.scalar_one_or_none.return_value = None
                 result.scalars.return_value.all.return_value = []
+                result.all.return_value = []
             return result
 
         mock_db = AsyncMock()
@@ -302,6 +300,46 @@ class TestModelDetail:
             assert resp.status_code == 200
             ctx = mock_templates.TemplateResponse.call_args[0][1]
             assert ctx["model"] is model
+
+    @pytest.mark.asyncio
+    async def test_detail_includes_description_templates(self):
+        """GET /models/{id} context includes description_templates list."""
+        model = _make_model(id=7, products=[], photo_packs=[])
+
+        mock_tpl = MagicMock()
+        mock_tpl.id = 10
+        mock_tpl.name = "Кроссовки стандарт"
+
+        call_count = 0
+
+        async def mock_execute(stmt, *args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = model
+            elif call_count == 2:
+                result.scalars.return_value.all.return_value = [_make_account()]
+            else:
+                result.scalar_one_or_none.return_value = None
+                result.scalars.return_value.all.return_value = [mock_tpl]
+                result.all.return_value = []
+            return result
+
+        mock_db = AsyncMock()
+        mock_db.execute = mock_execute
+        app = _make_app(mock_db)
+
+        with patch("app.routes.models.templates") as mock_templates:
+            mock_templates.TemplateResponse.return_value = HTMLResponse("<html></html>")
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                resp = await client.get("/models/7")
+
+            assert resp.status_code == 200
+            ctx = mock_templates.TemplateResponse.call_args[0][1]
+            assert "description_templates" in ctx
 
 
 # ── POST /models/{id}/add-variant ────────────────────────────────────

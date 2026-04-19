@@ -13,6 +13,7 @@ from app.config import settings
 logger = structlog.get_logger(__name__)
 from app.models.account import Account
 from app.models.account_description_template import AccountDescriptionTemplate
+from app.models.description_template import DescriptionTemplate
 from app.models.product import Product
 from app.models.feed_export import FeedExport
 
@@ -185,7 +186,7 @@ async def generate_feed(account_id: int, db: AsyncSession) -> tuple[str, int]:
     from sqlalchemy import or_, and_
     stmt = (
         select(Product)
-        .options(selectinload(Product.images))
+        .options(selectinload(Product.images), selectinload(Product.description_template))
         .where(
             Product.account_id == account_id,
             or_(
@@ -231,10 +232,18 @@ async def generate_feed(account_id: int, db: AsyncSession) -> tuple[str, int]:
         if not is_ready_for_feed(product, has_account_template=bool(account_description)):
             skipped_invalid += 1
             continue
-        # If product doesn't use custom description, substitute account template
-        effective_description = product.description
-        if not product.use_custom_description and account_description:
+        # Priority: 1) standalone template, 2) custom description, 3) account template
+        if product.description_template_id is not None:
+            if product.description_template is None:
+                raise RuntimeError(
+                    f"Product {product.id}: description_template not loaded — "
+                    f"missing selectinload? (description_template_id={product.description_template_id})"
+                )
+            effective_description = product.description_template.body
+        elif not product.use_custom_description and account_description:
             effective_description = account_description
+        else:
+            effective_description = product.description
         ad = build_ad_element(product, account, base_url, description_override=effective_description)
         root.append(ad)
         included += 1

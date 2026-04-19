@@ -5,7 +5,9 @@ import types
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import pytest_asyncio
 from lxml import etree
+from sqlalchemy import event
 
 from app.services.feed_generator import (
     is_ready_for_feed,
@@ -43,6 +45,8 @@ def _make_product(**kw):
         "image_url": None,
         "use_custom_description": False,
         "avito_id": None,
+        "description_template_id": None,
+        "description_template": None,
     }
     defaults.update(kw)
     return types.SimpleNamespace(**defaults)
@@ -449,3 +453,203 @@ class TestPendingImagesExcluded:
         imgs_el = ad.find("Images")
         assert imgs_el is not None
         assert len(imgs_el.findall("Image")) == 1
+
+
+# ── Description template priority (integration, real DB) ─────────────
+
+
+@pytest_asyncio.fixture
+async def feed_db():
+    """Isolated session for generate_feed tests.
+
+    generate_feed calls db.commit(), so we can't use the standard
+    transactional fixture (commit kills the outer transaction).
+    Instead we use a fresh connection and just delete test data after.
+    """
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+    from app.config import settings
+
+    test_engine = create_async_engine(str(settings.DATABASE_URL))
+    async with test_engine.connect() as conn:
+        trans = await conn.begin()
+        session = AsyncSession(bind=conn, expire_on_commit=False)
+        yield session
+        await session.close()
+        # Rollback — generate_feed's commit only committed a subtransaction
+        # within the connection; the outer transaction is still open.
+        if trans.is_active:
+            await trans.rollback()
+        else:
+            # If commit already finalized, start a new transaction to clean up
+            await conn.rollback()
+    await test_engine.dispose()
+
+
+async def _make_test_account(db) -> "Account":
+    """Create a test account with a unique name, avoiding PK conflicts."""
+    import uuid
+    from sqlalchemy import text
+    from app.models.account import Account
+
+    # Ensure sequence is past any manually-inserted rows
+    await db.execute(text(
+        "SELECT setval('accounts_id_seq', GREATEST(nextval('accounts_id_seq'), "
+        "(SELECT COALESCE(MAX(id), 0) FROM accounts)))"
+    ))
+    token = uuid.uuid4().hex[:16]
+    acc = Account(
+        name=f"FeedTest-{token}", client_id=f"c-{token}", client_secret="s",
+        phone="+70001111111", address="Москва", feed_token=token,
+    )
+    db.add(acc)
+    await db.flush()
+    return acc
+
+
+class TestDescriptionTemplatePriority:
+    """Test the 3-level description priority via generate_feed on real DB.
+
+    Each test seeds Account, Product, DescriptionTemplate, AccountDescriptionTemplate
+    as needed, calls generate_feed, parses the XML, and checks <Description>.
+    """
+
+    @pytest.mark.asyncio
+    async def test_template_id_wins_over_custom_and_account(self, feed_db):
+        """template_id set + use_custom_description=True + account template exists → template body."""
+        from app.models.description_template import DescriptionTemplate
+        from app.models.account_description_template import AccountDescriptionTemplate
+        from app.models.product import Product
+        from app.models.product_image import ProductImage
+        from app.services.feed_generator import generate_feed
+
+        acc = await _make_test_account(feed_db)
+
+        tpl = DescriptionTemplate(name="Standalone TPL", body="STANDALONE BODY")
+        feed_db.add(tpl)
+        await feed_db.flush()
+
+        acc_tpl = AccountDescriptionTemplate(account_id=acc.id, description_template="ACCOUNT BODY")
+        feed_db.add(acc_tpl)
+
+        p = Product(
+            title="Test Sneaker", description="CUSTOM BODY", price=5000,
+            status="active", account_id=acc.id,
+            category="Одежда, обувь, аксессуары", goods_type="Мужская обувь",
+            subcategory="Кроссовки и кеды", goods_subtype="Кроссовки",
+            brand="Nike", condition="Новое с биркой",
+            use_custom_description=True,
+            description_template_id=tpl.id,
+        )
+        feed_db.add(p)
+        await feed_db.flush()
+        feed_db.add(ProductImage(product_id=p.id, url="/media/test.jpg", filename="test.jpg",
+                            sort_order=0, is_main=True))
+        await feed_db.flush()
+
+        filepath, count = await generate_feed(acc.id, feed_db)
+        assert count == 1
+
+        tree = etree.parse(filepath)
+        desc = tree.find(".//Ad/Description").text
+        assert desc == "STANDALONE BODY"
+
+    @pytest.mark.asyncio
+    async def test_custom_description_when_no_template_id(self, feed_db):
+        """template_id=None + use_custom_description=True → product.description."""
+        from app.models.account_description_template import AccountDescriptionTemplate
+        from app.models.product import Product
+        from app.models.product_image import ProductImage
+        from app.services.feed_generator import generate_feed
+
+        acc = await _make_test_account(feed_db)
+
+        acc_tpl = AccountDescriptionTemplate(account_id=acc.id, description_template="ACCOUNT BODY")
+        feed_db.add(acc_tpl)
+
+        p = Product(
+            title="Test Sneaker 2", description="CUSTOM BODY", price=5000,
+            status="active", account_id=acc.id,
+            category="Одежда, обувь, аксессуары", goods_type="Мужская обувь",
+            subcategory="Кроссовки и кеды", goods_subtype="Кроссовки",
+            brand="Nike", condition="Новое с биркой",
+            use_custom_description=True,
+            description_template_id=None,
+        )
+        feed_db.add(p)
+        await feed_db.flush()
+        feed_db.add(ProductImage(product_id=p.id, url="/media/test2.jpg", filename="test2.jpg",
+                            sort_order=0, is_main=True))
+        await feed_db.flush()
+
+        filepath, count = await generate_feed(acc.id, feed_db)
+        assert count == 1
+
+        tree = etree.parse(filepath)
+        desc = tree.find(".//Ad/Description").text
+        assert desc == "CUSTOM BODY"
+
+    @pytest.mark.asyncio
+    async def test_account_template_fallback(self, feed_db):
+        """template_id=None + use_custom_description=False → account template."""
+        from app.models.account_description_template import AccountDescriptionTemplate
+        from app.models.product import Product
+        from app.models.product_image import ProductImage
+        from app.services.feed_generator import generate_feed
+
+        acc = await _make_test_account(feed_db)
+
+        acc_tpl = AccountDescriptionTemplate(account_id=acc.id, description_template="ACCOUNT BODY")
+        feed_db.add(acc_tpl)
+
+        p = Product(
+            title="Test Sneaker 3", description="product desc", price=5000,
+            status="active", account_id=acc.id,
+            category="Одежда, обувь, аксессуары", goods_type="Мужская обувь",
+            subcategory="Кроссовки и кеды", goods_subtype="Кроссовки",
+            brand="Nike", condition="Новое с биркой",
+            use_custom_description=False,
+            description_template_id=None,
+        )
+        feed_db.add(p)
+        await feed_db.flush()
+        feed_db.add(ProductImage(product_id=p.id, url="/media/test3.jpg", filename="test3.jpg",
+                            sort_order=0, is_main=True))
+        await feed_db.flush()
+
+        filepath, count = await generate_feed(acc.id, feed_db)
+        assert count == 1
+
+        tree = etree.parse(filepath)
+        desc = tree.find(".//Ad/Description").text
+        assert desc == "ACCOUNT BODY"
+
+    @pytest.mark.asyncio
+    async def test_product_description_when_no_account_template(self, feed_db):
+        """template_id=None + use_custom_description=False + no account template → product.description."""
+        from app.models.product import Product
+        from app.models.product_image import ProductImage
+        from app.services.feed_generator import generate_feed
+
+        acc = await _make_test_account(feed_db)
+
+        p = Product(
+            title="Test Sneaker 4", description="PRODUCT DESC FALLBACK", price=5000,
+            status="active", account_id=acc.id,
+            category="Одежда, обувь, аксессуары", goods_type="Мужская обувь",
+            subcategory="Кроссовки и кеды", goods_subtype="Кроссовки",
+            brand="Nike", condition="Новое с биркой",
+            use_custom_description=False,
+            description_template_id=None,
+        )
+        feed_db.add(p)
+        await feed_db.flush()
+        feed_db.add(ProductImage(product_id=p.id, url="/media/test4.jpg", filename="test4.jpg",
+                            sort_order=0, is_main=True))
+        await feed_db.flush()
+
+        filepath, count = await generate_feed(acc.id, feed_db)
+        assert count == 1
+
+        tree = etree.parse(filepath)
+        desc = tree.find(".//Ad/Description").text
+        assert desc == "PRODUCT DESC FALLBACK"

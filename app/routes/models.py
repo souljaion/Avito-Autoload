@@ -21,6 +21,7 @@ from app.models.listing import Listing
 from app.models.product import Product
 from app.models.product_image import ProductImage
 from app.models.pack_usage_history import PackUsageHistory
+from app.models.description_template import DescriptionTemplate
 from app.models.variant import ModelVariant
 
 router = APIRouter(prefix="/models", tags=["models"])
@@ -154,11 +155,21 @@ async def model_detail(request: Request, model_id: int, db: AsyncSession = Depen
         )
         packs_with_yd = [r[0] for r in yd_result.all()]
 
+    # Load standalone description templates for the dropdown (sorted alphabetically)
+    dt_result = await db.execute(
+        select(DescriptionTemplate).order_by(DescriptionTemplate.name.asc())
+    )
+    description_templates = [
+        {"id": t.id, "name": t.name}
+        for t in dt_result.scalars().all()
+    ]
+
     return templates.TemplateResponse("models/detail.html", {
         "request": request,
         "model": model,
         "accounts": accounts,
         "packs_with_yd": packs_with_yd,
+        "description_templates": description_templates,
         **catalog,
     })
 

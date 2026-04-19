@@ -4,12 +4,13 @@ import structlog
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.models.description_template import DescriptionTemplate
+from app.models.product import Product
 
 logger = structlog.get_logger(__name__)
 
@@ -41,10 +42,17 @@ async def templates_page(request: Request):
 
 @router.get("/api/description-templates")
 async def list_templates(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(
-        select(DescriptionTemplate).order_by(DescriptionTemplate.updated_at.desc())
+    stmt = (
+        select(
+            DescriptionTemplate,
+            func.count(Product.id).label("usage_count"),
+        )
+        .outerjoin(Product, Product.description_template_id == DescriptionTemplate.id)
+        .group_by(DescriptionTemplate.id)
+        .order_by(DescriptionTemplate.updated_at.desc())
     )
-    rows = result.scalars().all()
+    result = await db.execute(stmt)
+    rows = result.all()
     return {
         "ok": True,
         "templates": [
@@ -52,10 +60,11 @@ async def list_templates(db: AsyncSession = Depends(get_db)):
                 "id": t.id,
                 "name": t.name,
                 "body": t.body,
+                "usage_count": usage_count,
                 "created_at": t.created_at.isoformat() if t.created_at else None,
                 "updated_at": t.updated_at.isoformat() if t.updated_at else None,
             }
-            for t in rows
+            for t, usage_count in rows
         ],
     }
 
@@ -135,6 +144,38 @@ async def delete_template(template_id: int, db: AsyncSession = Depends(get_db)):
     tpl = await db.get(DescriptionTemplate, template_id)
     if not tpl:
         return JSONResponse({"ok": False, "error": "Not found"}, status_code=404)
+
+    # Check if any products reference this template
+    count_result = await db.execute(
+        select(func.count(Product.id)).where(Product.description_template_id == template_id)
+    )
+    usage_count = count_result.scalar() or 0
+    if usage_count > 0:
+        return JSONResponse(
+            {
+                "error": "template_in_use",
+                "message": f"Шаблон используется в {usage_count} объявлениях",
+                "usage_count": usage_count,
+            },
+            status_code=409,
+        )
+
     await db.delete(tpl)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        # Race condition: someone added a reference between COUNT and DELETE
+        recount = await db.execute(
+            select(func.count(Product.id)).where(Product.description_template_id == template_id)
+        )
+        n = recount.scalar() or 0
+        return JSONResponse(
+            {
+                "error": "template_in_use",
+                "message": f"Шаблон используется в {n} объявлениях",
+                "usage_count": n,
+            },
+            status_code=409,
+        )
     logger.info("template_deleted", template_id=template_id)

@@ -52,6 +52,9 @@
 .listings-table select:focus, .listings-table input:focus { border-color:#534AB7; outline:none; box-shadow:0 0 0 2px rgba(83,74,183,0.1); }
 .listings-table input[type="number"] { width:80px; }
 .listings-table input[type="text"] { width:70px; }
+.desc-template-select { max-width:240px; text-overflow:ellipsis; overflow:hidden; white-space:nowrap; }
+.create-template-link { color:#534AB7; font-size:12px; text-decoration:none; white-space:nowrap; }
+.create-template-link:hover { text-decoration:underline; }
 
 .status-badge { display:inline-flex; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:500; white-space:nowrap; }
 .status-active { background:#dcfce7; color:#166534; }
@@ -222,10 +225,16 @@
                 <td><input type="text" value="{{ p.size or '' }}" data-field="size" oninput="debounceSave({{ p.id }},this)"></td>
                 <td><input type="number" value="{{ p.price or '' }}" data-field="price" oninput="debounceSave({{ p.id }},this)"></td>
                 <td>
-                    <select data-field="use_custom_description" onchange="autoSave({{ p.id }},this)">
-                        <option value="false" {{ '' if p.use_custom_description else 'selected' }}>Шаблон{{ ' ' + p.account.name if p.account else '' }}</option>
-                        <option value="true" {{ 'selected' if p.use_custom_description else '' }}>Своё</option>
+                    {% if description_templates %}
+                    <select class="desc-template-select" data-product-id="{{ p.id }}" onchange="updateDescriptionTemplate(this)">
+                        <option value="">— не выбран —</option>
+                        {% for t in description_templates %}
+                        <option value="{{ t.id }}" {% if p.description_template_id == t.id %}selected{% endif %}>{{ t.name }}</option>
+                        {% endfor %}
                     </select>
+                    {% else %}
+                    <a href="/settings/description-templates" class="create-template-link">+ Создать шаблон</a>
+                    {% endif %}
                 </td>
                 <td>
                     {% if p.status in ('active','published') %}<span class="status-badge status-active">активно</span>
@@ -420,6 +429,32 @@ async function autoSave(pid, el) {
             updateStatusPills();
         } else showToast(data.error || 'Ошибка', true);
     } catch(e) { showToast('Ошибка сети', true); }
+}
+
+async function updateDescriptionTemplate(selectEl) {
+    const pid = selectEl.dataset.productId;
+    const prevValue = selectEl.dataset.prevValue ?? selectEl.value;
+    const newValue = selectEl.value ? parseInt(selectEl.value) : null;
+
+    try {
+        const resp = await fetch('/products/' + pid, {
+            method: 'PATCH', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ description_template_id: newValue }),
+        });
+        const data = await resp.json();
+        if (data.ok) {
+            selectEl.dataset.prevValue = selectEl.value;
+            showToast('Шаблон обновлён');
+            const ind = document.getElementById('saved-' + pid);
+            if (ind) { ind.classList.add('visible'); setTimeout(() => ind.classList.remove('visible'), 2000); }
+        } else {
+            selectEl.value = prevValue;
+            showToast(data.error || 'Ошибка', true);
+        }
+    } catch(e) {
+        selectEl.value = prevValue;
+        showToast('Ошибка сети', true);
+    }
 }
 
 // ── Pack change ──

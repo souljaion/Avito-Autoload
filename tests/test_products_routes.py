@@ -338,6 +338,65 @@ class TestPatchProduct:
         assert resp.status_code == 200
         assert product.price is None
 
+    @pytest.mark.asyncio
+    async def test_patch_description_template_id_valid(self):
+        """PATCH with valid description_template_id saves FK."""
+        product = _make_product(id=1)
+        product.description_template_id = None
+        tpl = MagicMock()
+        tpl.id = 10
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(side_effect=lambda model, pk: product if model.__name__ == "Product" else tpl)
+        mock_db.commit = AsyncMock()
+        app = _make_app(mock_db)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.patch("/products/1", json={"description_template_id": 10})
+
+        assert resp.status_code == 200
+        assert product.description_template_id == 10
+
+    @pytest.mark.asyncio
+    async def test_patch_description_template_id_not_found(self):
+        """PATCH with nonexistent template_id returns 404."""
+        product = _make_product(id=1)
+        product.description_template_id = None
+
+        mock_db = AsyncMock()
+
+        async def mock_get(model, pk):
+            if hasattr(model, "__tablename__") and model.__tablename__ == "products":
+                return product
+            return None
+
+        mock_db.get = AsyncMock(side_effect=mock_get)
+        mock_db.commit = AsyncMock()
+        app = _make_app(mock_db)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.patch("/products/1", json={"description_template_id": 999})
+
+        assert resp.status_code == 404
+        assert "Шаблон с id=999 не найден" in resp.json()["error"]
+
+    @pytest.mark.asyncio
+    async def test_patch_description_template_id_null_clears(self):
+        """PATCH with description_template_id=null clears the FK."""
+        product = _make_product(id=1)
+        product.description_template_id = 10
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=product)
+        mock_db.commit = AsyncMock()
+        app = _make_app(mock_db)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.patch("/products/1", json={"description_template_id": None})
+
+        assert resp.status_code == 200
+        assert product.description_template_id is None
+
 
 # ── DELETE /products/{id} ───────────────────────────────────────────
 
@@ -1230,8 +1289,10 @@ class TestProductEditPage:
     @pytest.mark.asyncio
     async def test_edit_not_found(self):
         """GET /products/999/edit returns 404."""
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
         mock_db = AsyncMock()
-        mock_db.get = AsyncMock(return_value=None)
+        mock_db.execute = AsyncMock(return_value=mock_result)
         app = _make_app(mock_db)
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -1253,17 +1314,18 @@ class TestProductEditPage:
         def make_result(*args, **kwargs):
             call_count[0] += 1
             r = MagicMock()
-            if call_count[0] == 1:  # accounts
+            if call_count[0] == 1:  # product query (now via execute)
+                r.scalar_one_or_none.return_value = product
+            elif call_count[0] == 2:  # accounts
                 r.scalars.return_value.all.return_value = [account]
-            elif call_count[0] == 2:  # models
+            elif call_count[0] == 3:  # models
                 r.scalars.return_value.all.return_value = [model_obj]
-            else:  # catalog
+            else:  # catalog + yandex folders
                 r.scalars.return_value.all.return_value = []
                 r.all.return_value = []
             return r
 
         mock_db = AsyncMock()
-        mock_db.get = AsyncMock(return_value=product)
         mock_db.execute = AsyncMock(side_effect=make_result)
         app = _make_app(mock_db)
 
@@ -1281,6 +1343,79 @@ class TestProductEditPage:
         assert call_args[0][0] == "products/form.html"
         ctx = call_args[0][1]
         assert ctx["product"] == product
+
+
+    @pytest.mark.asyncio
+    async def test_edit_page_renders_200_with_images(self, db):
+        """Regression: /products/{id}/edit must load without MissingGreenlet.
+
+        Protects against forgetting selectinload(Product.images) — a bug that
+        reached prod on 2026-04-19 and was caught only by manual smoke test.
+        """
+        from sqlalchemy import text
+        from app.models.account import Account
+        from app.models.product import Product as ProductModel
+        from app.models.product_image import ProductImage
+
+        # Ensure sequence is past any manually-inserted rows
+        await db.execute(text(
+            "SELECT setval('accounts_id_seq', GREATEST(nextval('accounts_id_seq'), "
+            "(SELECT COALESCE(MAX(id), 0) FROM accounts)))"
+        ))
+
+        import uuid
+        token = uuid.uuid4().hex[:16]
+        acc = Account(name=f"EditTest-{token}", client_id=f"c-{token}",
+                      client_secret="s", feed_token=token)
+        db.add(acc)
+        await db.flush()
+
+        p = ProductModel(
+            title="Edit Regression Test", price=1000, status="draft",
+            account_id=acc.id, description="Test desc",
+            category="Одежда, обувь, аксессуары", goods_type="Мужская обувь",
+            subcategory="Кроссовки и кеды", goods_subtype="Кроссовки",
+            brand="Nike", condition="Новое с биркой",
+        )
+        db.add(p)
+        await db.flush()
+
+        for i in range(2):
+            db.add(ProductImage(
+                product_id=p.id, url=f"/media/test_{i}.jpg",
+                filename=f"test_{i}.jpg", sort_order=i, is_main=(i == 0),
+            ))
+        await db.flush()
+
+        # Build real app with this DB session (no mocks)
+        from fastapi import FastAPI
+        from app.db import get_db
+        from app.routes.products import router as prod_router
+        from app.middleware.auth import BasicAuthMiddleware
+
+        app = FastAPI()
+        app.add_middleware(BasicAuthMiddleware)
+        app.include_router(prod_router)
+
+        async def override_db():
+            yield db
+
+        app.dependency_overrides[get_db] = override_db
+
+        from base64 import b64encode
+        from app.config import settings
+        creds = b64encode(
+            f"{settings.BASIC_AUTH_USER}:{settings.BASIC_AUTH_PASSWORD}".encode()
+        ).decode()
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test",
+            headers={"Authorization": f"Basic {creds}"},
+        ) as client:
+            resp = await client.get(f"/products/{p.id}/edit")
+
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}"
+        assert "MissingGreenlet" not in resp.text
 
 
 # ── POST /products/new (create product) ────────────────────────────
