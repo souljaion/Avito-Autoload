@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.catalog import requires_subtype
 from app.config import settings
 
 logger = structlog.get_logger(__name__)
@@ -113,7 +114,9 @@ def get_missing_fields(product: Product, has_account_template: bool = False) -> 
         missing.append("Тип товара")
     if not product.subcategory:
         missing.append("Вид одежды/обуви")
-    if not product.goods_subtype:
+    if not product.goods_subtype and requires_subtype(
+        product.category, product.goods_type, product.subcategory
+    ):
         missing.append("Подтип")
     if not product.images:
         missing.append("Фото")

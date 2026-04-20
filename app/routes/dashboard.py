@@ -34,7 +34,10 @@ def _product_problems(p, has_images: bool) -> list[str]:
         problems.append("нет цены")
     if not p.category or not p.goods_type:
         problems.append("не заполнена категория")
-    if not p.subcategory or not p.goods_subtype:
+    from app.catalog import requires_subtype
+    if not p.subcategory:
+        problems.append("не заполнен подтип")
+    elif not p.goods_subtype and requires_subtype(p.category, p.goods_type, p.subcategory):
         problems.append("не заполнен подтип")
     if not has_images:
         problems.append("нет фото")

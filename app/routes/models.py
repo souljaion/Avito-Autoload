@@ -164,14 +164,18 @@ async def model_detail(request: Request, model_id: int, db: AsyncSession = Depen
     ]
 
     # Model readiness check
+    from app.catalog import requires_subtype
     _required = {
         "brand": "Бренд",
         "category": "Категория",
         "goods_type": "Тип товара",
         "subcategory": "Вид одежды/обуви",
-        "goods_subtype": "Подтип",
     }
     missing_fields = [ru for key, ru in _required.items() if not getattr(model, key)]
+    if not model.goods_subtype and requires_subtype(
+        model.category, model.goods_type, model.subcategory
+    ):
+        missing_fields.append("Подтип")
     model_is_complete = not missing_fields
 
     return templates.TemplateResponse("models/detail.html", {

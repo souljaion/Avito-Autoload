@@ -72,6 +72,16 @@ async def sync_tree(client: AvitoClient, db: AsyncSession) -> int:
     count = await _insert_nodes(root_nodes, None)
     await db.commit()
     logger.info("Synced %d categories from Avito", count)
+
+    # Refresh the in-memory subtype availability set.
+    # get_catalog() updates _subcategories_with_subtypes on each call;
+    # we trigger it here so the set is fresh immediately after sync.
+    try:
+        from app.catalog import get_catalog
+        await get_catalog(db)
+    except Exception:
+        logger.debug("catalog refresh after sync_tree skipped (non-critical)")
+
     return count
 
 

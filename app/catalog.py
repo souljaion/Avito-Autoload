@@ -115,6 +115,23 @@ _FALLBACK = {
     "catalog_source": "fallback",
 }
 
+# ── Subtype availability (updated by get_catalog) ───────────────
+# Set of subcategory names that have at least one goods_subtype child.
+# Initialized from hardcoded fallback, refreshed each time get_catalog()
+# loads from the DB.
+_subcategories_with_subtypes: set[str] = set(GOODS_SUBTYPES.keys())
+
+
+def requires_subtype(category: str | None, goods_type: str | None, subcategory: str | None) -> bool:
+    """True if this taxonomy combo has subtypes in avito_categories.
+
+    Returns False if any arg is None/empty — incomplete taxonomy can't
+    require a subtype.
+    """
+    if not category or not goods_type or not subcategory:
+        return False
+    return subcategory in _subcategories_with_subtypes
+
 
 # ── DB-backed getter (with fallback) ──────────────────────────────
 
@@ -168,6 +185,10 @@ async def get_catalog(db: AsyncSession) -> dict:
             subtype_nodes = children.get(ap_node.id, [])
             if subtype_nodes:
                 goods_subtypes[ap_node.name] = [s.name for s in subtype_nodes]
+
+    # Refresh the module-level subtype availability set
+    global _subcategories_with_subtypes
+    _subcategories_with_subtypes = set(goods_subtypes.keys())
 
     return {
         "categories": categories,

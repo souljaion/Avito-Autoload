@@ -362,7 +362,17 @@ function populateSelect(sel, items, val) {
 }
 function onCategoryChange() { populateSelect(document.getElementById('editGoodsType'), goodsTypesMap[document.getElementById('editCategory').value]||[], modelGoodsType); onGoodsTypeChange(); }
 function onGoodsTypeChange() { populateSelect(document.getElementById('editSubcategory'), apparelsMap[document.getElementById('editGoodsType').value]||[], modelSubcategory); onSubcategoryChange(); }
-function onSubcategoryChange() { populateSelect(document.getElementById('editGoodsSubtype'), subtypesMap[document.getElementById('editSubcategory').value]||[], modelGoodsSubtype); }
+function onSubcategoryChange() {
+    const sel = document.getElementById('editGoodsSubtype');
+    const items = subtypesMap[document.getElementById('editSubcategory').value] || [];
+    if (items.length === 0) {
+        sel.innerHTML = '<option value="">Не требуется</option>';
+        sel.disabled = true; sel.style.opacity = '0.6';
+    } else {
+        sel.disabled = false; sel.style.opacity = '';
+        populateSelect(sel, items, modelGoodsSubtype);
+    }
+}
 onCategoryChange();
 
 function toggleEditForm() { document.getElementById('editForm').classList.toggle('visible'); }

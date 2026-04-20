@@ -378,7 +378,17 @@ function updateApparels() {
 
 function updateGoodsSubtypes() {
     const ap = document.getElementById("subcategory").value;
-    fillSelect(document.getElementById("goods_subtype"), goodsSubtypes[ap], saved.goodsSubtype);
+    const sel = document.getElementById("goods_subtype");
+    const items = goodsSubtypes[ap] || [];
+    if (items.length === 0) {
+        sel.innerHTML = '<option value="">Не требуется для этой категории</option>';
+        sel.disabled = true;
+        sel.style.opacity = '0.6';
+    } else {
+        sel.disabled = false;
+        sel.style.opacity = '';
+        fillSelect(sel, items, saved.goodsSubtype);
+    }
 }
 
 function applyPreset(goodsType, apparel, goodsSubtype) {

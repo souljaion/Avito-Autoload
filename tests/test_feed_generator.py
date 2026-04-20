@@ -11,6 +11,7 @@ from sqlalchemy import event
 
 from app.services.feed_generator import (
     is_ready_for_feed,
+    get_missing_fields,
     build_ad_element,
     _add_element,
     _add_images,
@@ -87,8 +88,12 @@ class TestIsReadyForFeed:
         p = _make_product(subcategory=None)
         assert is_ready_for_feed(p) is False
 
-    def test_no_goods_subtype_returns_false(self):
-        p = _make_product(goods_subtype=None)
+    def test_no_goods_subtype_with_required_subtype_returns_false(self):
+        # "Верхняя одежда" has subtypes in the catalog → goods_subtype is required
+        p = _make_product(
+            goods_type="Мужская одежда", subcategory="Верхняя одежда",
+            goods_subtype=None,
+        )
         assert is_ready_for_feed(p) is False
 
     def test_no_description_returns_false(self):
@@ -122,6 +127,45 @@ class TestIsReadyForFeed:
         p = _make_product(description=None, description_template_id=5)
         p.use_custom_description = False
         assert is_ready_for_feed(p, has_account_template=False) is True
+
+
+class TestGoodsSubtypeConditional:
+    """goods_subtype is only required when the catalog has subtypes for
+    the product's subcategory.  Footwear categories (Кроссовки, Кеды, etc.)
+    have no subtypes in Avito; clothing categories like Верхняя одежда do."""
+
+    def test_no_subtype_combo_ready(self):
+        """Кроссовки has no subtypes → goods_subtype=None is OK → ready."""
+        p = _make_product(
+            goods_type="Мужская обувь",
+            subcategory="Кроссовки",
+            goods_subtype=None,
+        )
+        missing = get_missing_fields(p)
+        assert "Подтип" not in missing
+        assert is_ready_for_feed(p) is True
+
+    def test_has_subtype_combo_not_ready(self):
+        """Верхняя одежда has subtypes → goods_subtype=None → not ready."""
+        p = _make_product(
+            goods_type="Мужская одежда",
+            subcategory="Верхняя одежда",
+            goods_subtype=None,
+        )
+        missing = get_missing_fields(p)
+        assert "Подтип" in missing
+        assert is_ready_for_feed(p) is False
+
+    def test_has_subtype_combo_filled_ready(self):
+        """Верхняя одежда + goods_subtype="Куртки" → ready."""
+        p = _make_product(
+            goods_type="Мужская одежда",
+            subcategory="Верхняя одежда",
+            goods_subtype="Куртки",
+        )
+        missing = get_missing_fields(p)
+        assert "Подтип" not in missing
+        assert is_ready_for_feed(p) is True
 
 
 # ── build_ad_element ──
