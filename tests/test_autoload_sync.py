@@ -1,7 +1,9 @@
 """Tests for autoload_sync: sync applied ads from Avito reports into products."""
 
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient, ASGITransport
@@ -66,7 +68,7 @@ class TestSyncAdsFromAvito:
         r3 = MagicMock()
         r3.all.return_value = []
 
-        mock_db.execute = AsyncMock(side_effect=[r1, r2, r3])
+        mock_db.execute = AsyncMock(side_effect=[r3, r1, r2])
         mock_db.add = MagicMock()
         mock_db.commit = AsyncMock()
 
@@ -117,7 +119,7 @@ class TestSyncAdsFromAvito:
         r3 = MagicMock()
         r3.all.return_value = []
 
-        mock_db.execute = AsyncMock(side_effect=[r1, r2, r3])
+        mock_db.execute = AsyncMock(side_effect=[r3, r1, r2])
         mock_db.commit = AsyncMock()
 
         mock_client = AsyncMock()
@@ -153,7 +155,7 @@ class TestSyncAdsFromAvito:
         r3 = MagicMock()
         r3.all.return_value = []
 
-        mock_db.execute = AsyncMock(side_effect=[r1, r2, r3])
+        mock_db.execute = AsyncMock(side_effect=[r3, r1, r2])
         mock_db.commit = AsyncMock()
 
         mock_client = AsyncMock()
@@ -190,7 +192,7 @@ class TestSyncAdsFromAvito:
         r3 = MagicMock()
         r3.all.return_value = []
 
-        mock_db.execute = AsyncMock(side_effect=[r1, r2, r3])
+        mock_db.execute = AsyncMock(side_effect=[r3, r1, r2])
         mock_db.add = MagicMock()
         mock_db.commit = AsyncMock()
 
@@ -216,6 +218,9 @@ class TestSyncAdsFromAvito:
         mock_db = AsyncMock()
         mock_db.get = AsyncMock(return_value=account)
         mock_db.rollback = AsyncMock()
+        # all_avito_ids query runs before get_reports
+        r_avito = MagicMock(); r_avito.all.return_value = []
+        mock_db.execute = AsyncMock(return_value=r_avito)
 
         mock_client = AsyncMock()
         mock_client.get_reports = AsyncMock(side_effect=Exception("Connection timeout"))
@@ -228,20 +233,29 @@ class TestSyncAdsFromAvito:
         assert result["created"] == 0
 
     @pytest.mark.asyncio
-    async def test_no_reports_returns_error(self):
-        """Empty reports list should return error, not crash."""
+    async def test_no_reports_skips_pass1_continues(self):
+        """Empty reports list skips Pass 1 but continues to Pass 2/3."""
         account = _make_account()
 
         mock_db = AsyncMock()
         mock_db.get = AsyncMock(return_value=account)
+        mock_db.commit = AsyncMock()
+        # all_avito_ids + Pass 2 null products
+        r_avito = MagicMock(); r_avito.all.return_value = []
+        r_null_scalars = MagicMock(); r_null_scalars.all.return_value = []
+        r_null = MagicMock(); r_null.scalars.return_value = r_null_scalars
+        mock_db.execute = AsyncMock(side_effect=[r_avito, r_null])
 
         mock_client = AsyncMock()
         mock_client.get_reports = AsyncMock(return_value={"reports": []})
+        mock_client.get_all_items = AsyncMock(return_value=[])
 
         result = await sync_ads_from_avito(1, mock_db, client=mock_client)
 
-        assert result["error"] == "No reports found"
+        assert result["error"] is None
         assert result["created"] == 0
+        # Pass 2 was reached (get_all_items called)
+        mock_client.get_all_items.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_skips_duplicate_avito_id_across_accounts(self):
@@ -265,7 +279,7 @@ class TestSyncAdsFromAvito:
         r3 = MagicMock()
         r3.all.return_value = [(12345,)]
 
-        mock_db.execute = AsyncMock(side_effect=[r1, r2, r3])
+        mock_db.execute = AsyncMock(side_effect=[r3, r1, r2])
         mock_db.commit = AsyncMock()
 
         mock_client = AsyncMock()
@@ -304,7 +318,7 @@ class TestSyncAdsFromAvito:
         r4_scalars = MagicMock(); r4_scalars.all.return_value = [existing_product]
         r4 = MagicMock(); r4.scalars.return_value = r4_scalars
 
-        mock_db.execute = AsyncMock(side_effect=[r1, r2, r3, r4])
+        mock_db.execute = AsyncMock(side_effect=[r3, r1, r2, r4])
         mock_db.commit = AsyncMock()
 
         mock_client = AsyncMock()
@@ -342,7 +356,7 @@ class TestSyncAdsFromAvito:
         r4_scalars = MagicMock(); r4_scalars.all.return_value = [existing_product]
         r4 = MagicMock(); r4.scalars.return_value = r4_scalars
 
-        mock_db.execute = AsyncMock(side_effect=[r1, r2, r3, r4])
+        mock_db.execute = AsyncMock(side_effect=[r3, r1, r2, r4])
         mock_db.commit = AsyncMock()
 
         mock_client = AsyncMock()
@@ -383,7 +397,7 @@ class TestSyncAdsFromAvito:
         r3 = MagicMock()
         r3.all.return_value = [(12345,)]
 
-        mock_db.execute = AsyncMock(side_effect=[r1, r2, r3])
+        mock_db.execute = AsyncMock(side_effect=[r3, r1, r2])
         mock_db.commit = AsyncMock()
 
         mock_client = AsyncMock()
@@ -421,9 +435,9 @@ class TestSyncAdsFromAvito:
             return r
 
         return [
+            _rows_with([(x,) for x in (all_avito_ids or [])]),  # all_avito_ids (before Pass1)
             _scalars_with([]),                          # Pass1: existing_by_avito_id
             _scalars_with([]),                          # Pass1: existing_by_sku
-            _rows_with([(x,) for x in (all_avito_ids or [])]),  # Pass1: all_avito_ids
             _scalars_with(pass2_null_products or []),   # Pass2: null avito_id
             _rows_with([(x,) for x in (pass3_acc_avito_ids or [])]),  # Pass3: per-account avito_ids
             _scalars_with(pass3_null_products or []),   # Pass3: null avito_id reload
@@ -672,6 +686,113 @@ class TestSyncAdsFromAvito:
         assert matchable.avito_id == 800001
         assert len(added) == 1
         assert added[0].avito_id == 800002
+
+    # ── Reports API 404 handling ──
+
+    @pytest.mark.asyncio
+    async def test_reports_404_skips_pass1_runs_pass2(self):
+        """When get_reports returns 404, Pass 1 is skipped but Pass 2/3 run."""
+        from app.services import autoload_sync
+        # Reset the module-level flag so warning fires
+        autoload_sync._reports_api_404_logged.clear()
+
+        account = _make_account()
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=account)
+        mock_db.commit = AsyncMock()
+
+        # all_avito_ids (before Pass 1) + Pass 2 null products query
+        r_avito = MagicMock(); r_avito.all.return_value = []
+        r_null_scalars = MagicMock(); r_null_scalars.all.return_value = []
+        r_null = MagicMock(); r_null.scalars.return_value = r_null_scalars
+        mock_db.execute = AsyncMock(side_effect=[r_avito, r_null])
+
+        # Client: get_reports raises 404
+        resp_404 = httpx.Response(404, request=httpx.Request("GET", "https://api.avito.ru/autoload/v3/reports"))
+        mock_client = AsyncMock()
+        mock_client.get_reports = AsyncMock(
+            side_effect=httpx.HTTPStatusError("404", request=resp_404.request, response=resp_404)
+        )
+        mock_client.get_all_items = AsyncMock(return_value=[])
+
+        result = await sync_ads_from_avito(1, mock_db, client=mock_client)
+
+        assert result["error"] is None
+        assert result["created"] == 0
+        # Pass 2 was reached
+        mock_client.get_all_items.assert_called_once()
+        # Warning was logged (flag set)
+        assert autoload_sync._reports_api_404_logged.get(1) is True
+
+    @pytest.mark.asyncio
+    async def test_reports_404_warning_fires_once(self):
+        """Second call for same account_id does NOT log warning again."""
+        from app.services import autoload_sync
+        autoload_sync._reports_api_404_logged.clear()
+
+        account = _make_account()
+
+        def _make_mock_db():
+            db = AsyncMock()
+            db.get = AsyncMock(return_value=account)
+            db.commit = AsyncMock()
+            r_avito = MagicMock(); r_avito.all.return_value = []
+            r_null_scalars = MagicMock(); r_null_scalars.all.return_value = []
+            r_null = MagicMock(); r_null.scalars.return_value = r_null_scalars
+            db.execute = AsyncMock(side_effect=[r_avito, r_null])
+            return db
+
+        resp_404 = httpx.Response(404, request=httpx.Request("GET", "https://api.avito.ru/autoload/v3/reports"))
+
+        def _make_mock_client():
+            c = AsyncMock()
+            c.get_reports = AsyncMock(
+                side_effect=httpx.HTTPStatusError("404", request=resp_404.request, response=resp_404)
+            )
+            c.get_all_items = AsyncMock(return_value=[])
+            return c
+
+        # First call — warning fires
+        with patch.object(autoload_sync.logger, "warning") as mock_warn:
+            await sync_ads_from_avito(1, _make_mock_db(), client=_make_mock_client())
+            warn_calls = [c for c in mock_warn.call_args_list
+                          if c[0][0] == "autoload_sync.reports_api_unavailable"]
+            assert len(warn_calls) == 1
+
+        # Second call — warning suppressed
+        with patch.object(autoload_sync.logger, "warning") as mock_warn:
+            await sync_ads_from_avito(1, _make_mock_db(), client=_make_mock_client())
+            warn_calls = [c for c in mock_warn.call_args_list
+                          if c[0][0] == "autoload_sync.reports_api_unavailable"]
+            assert len(warn_calls) == 0
+
+    @pytest.mark.asyncio
+    async def test_reports_500_still_raises(self):
+        """Non-404 HTTP errors still propagate to outer handler."""
+        from app.services import autoload_sync
+        autoload_sync._reports_api_404_logged.clear()
+
+        account = _make_account()
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=account)
+        mock_db.rollback = AsyncMock()
+        r_avito = MagicMock(); r_avito.all.return_value = []
+        mock_db.execute = AsyncMock(return_value=r_avito)
+
+        resp_500 = httpx.Response(500, request=httpx.Request("GET", "https://api.avito.ru/autoload/v3/reports"))
+        mock_client = AsyncMock()
+        mock_client.get_reports = AsyncMock(
+            side_effect=httpx.HTTPStatusError("500", request=resp_500.request, response=resp_500)
+        )
+        mock_client.close = AsyncMock()
+
+        result = await sync_ads_from_avito(1, mock_db, client=mock_client)
+
+        # Should hit outer except → error returned
+        assert result["error"] is not None
+        assert "500" in result["error"]
 
 
 # ── Route tests ──

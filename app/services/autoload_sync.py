@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 
+import httpx
 import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +12,9 @@ from app.models.product import Product
 from app.services.avito_client import AvitoClient
 
 logger = structlog.get_logger(__name__)
+
+# Suppress repeated 404 warnings for dead reports API (one per account per process)
+_reports_api_404_logged: dict[int, bool] = {}
 
 
 # Map Avito param names → product columns. Match by case-insensitive substring
@@ -118,46 +122,7 @@ async def sync_ads_from_avito(
         client = AvitoClient(account, db)
 
     try:
-        # Get latest report
-        reports_data = await client.get_reports()
-        reports = reports_data.get("reports") or []
-        if not reports:
-            return {
-                "synced": 0, "created": 0, "skipped": 0,
-                "pass3_matched": 0, "pass3_created": 0,
-                "error": "No reports found",
-            }
-
-        report_id = reports[0].get("id")
-        if not report_id:
-            return {
-                "synced": 0, "created": 0, "skipped": 0,
-                "pass3_matched": 0, "pass3_created": 0,
-                "error": "Report has no id",
-            }
-
-        # Fetch all items from report
-        items = await client.get_report_items_all(report_id)
-
-        # Get existing products for this account by avito_id
-        existing_result = await db.execute(
-            select(Product).where(
-                Product.account_id == account_id,
-                Product.avito_id.isnot(None),
-            )
-        )
-        existing_by_avito_id = {p.avito_id: p for p in existing_result.scalars().all()}
-
-        # Also get products by sku (ad_id) for matching
-        sku_result = await db.execute(
-            select(Product).where(
-                Product.account_id == account_id,
-                Product.sku.isnot(None),
-            )
-        )
-        existing_by_sku = {p.sku: p for p in sku_result.scalars().all()}
-
-        # All avito_ids across all accounts to avoid dupes
+        # All avito_ids across all accounts to avoid dupes (needed by all passes)
         all_avito_result = await db.execute(
             select(Product.avito_id).where(Product.avito_id.isnot(None))
         )
@@ -166,63 +131,100 @@ async def sync_ads_from_avito(
         created = 0
         synced = 0
         skipped = 0
+        report_id = None
+        items: list = []
 
-        for item in items:
-            try:
-                status = item.get("status", "")
-                if status != "applied":
-                    skipped += 1
-                    continue
+        # ── Pass 1: Reports API — sync applied ads from autoload report ──
+        try:
+            reports_data = await client.get_reports()
+            reports = reports_data.get("reports") or []
 
-                avito_id = item.get("avito_id")
-                ad_id = str(item.get("ad_id", "")) or None
+            if reports:
+                report_id = reports[0].get("id")
 
-                if not avito_id:
-                    skipped += 1
-                    continue
+            if report_id:
+                items = await client.get_report_items_all(report_id)
 
-                avito_id = int(avito_id)
-
-                # Check if already exists by avito_id
-                if avito_id in existing_by_avito_id:
-                    synced += 1
-                    continue
-
-                # Check if exists by sku (ad_id) and fill avito_id
-                if ad_id and ad_id in existing_by_sku:
-                    product = existing_by_sku[ad_id]
-                    if product.avito_id is None and avito_id not in all_avito_ids:
-                        product.avito_id = avito_id
-                        all_avito_ids.add(avito_id)
-                        synced += 1
-                    else:
-                        skipped += 1
-                    continue
-
-                # Skip if avito_id exists on another account
-                if avito_id in all_avito_ids:
-                    skipped += 1
-                    continue
-
-                # Create new product
-                product = Product(
-                    avito_id=avito_id,
-                    sku=ad_id,
-                    account_id=account_id,
-                    status="imported",
-                    title=f"[Авито] {avito_id}",
-                    published_at=datetime.now(timezone.utc).replace(tzinfo=None),
+                existing_result = await db.execute(
+                    select(Product).where(
+                        Product.account_id == account_id,
+                        Product.avito_id.isnot(None),
+                    )
                 )
-                db.add(product)
-                all_avito_ids.add(avito_id)
-                existing_by_avito_id[avito_id] = product
-                created += 1
+                existing_by_avito_id = {p.avito_id: p for p in existing_result.scalars().all()}
 
-            except Exception as e:
-                logger.warning("autoload_sync.item_error", avito_id=item.get("avito_id"), error=str(e))
-                skipped += 1
+                sku_result = await db.execute(
+                    select(Product).where(
+                        Product.account_id == account_id,
+                        Product.sku.isnot(None),
+                    )
+                )
+                existing_by_sku = {p.sku: p for p in sku_result.scalars().all()}
 
-        await db.commit()
+                for item in items:
+                    try:
+                        status = item.get("status", "")
+                        if status != "applied":
+                            skipped += 1
+                            continue
+
+                        avito_id = item.get("avito_id")
+                        ad_id = str(item.get("ad_id", "")) or None
+
+                        if not avito_id:
+                            skipped += 1
+                            continue
+
+                        avito_id = int(avito_id)
+
+                        if avito_id in existing_by_avito_id:
+                            synced += 1
+                            continue
+
+                        if ad_id and ad_id in existing_by_sku:
+                            product = existing_by_sku[ad_id]
+                            if product.avito_id is None and avito_id not in all_avito_ids:
+                                product.avito_id = avito_id
+                                all_avito_ids.add(avito_id)
+                                synced += 1
+                            else:
+                                skipped += 1
+                            continue
+
+                        if avito_id in all_avito_ids:
+                            skipped += 1
+                            continue
+
+                        product = Product(
+                            avito_id=avito_id,
+                            sku=ad_id,
+                            account_id=account_id,
+                            status="imported",
+                            title=f"[Авито] {avito_id}",
+                            published_at=datetime.now(timezone.utc).replace(tzinfo=None),
+                        )
+                        db.add(product)
+                        all_avito_ids.add(avito_id)
+                        created += 1
+
+                    except Exception as e:
+                        logger.warning("autoload_sync.item_error", avito_id=item.get("avito_id"), error=str(e))
+                        skipped += 1
+
+                await db.commit()
+
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                if not _reports_api_404_logged.get(account_id):
+                    logger.warning(
+                        "autoload_sync.reports_api_unavailable",
+                        account_id=account_id,
+                        url=str(e.request.url),
+                    )
+                    _reports_api_404_logged[account_id] = True
+                # Pass 1 skipped — continue to Pass 2/3
+            else:
+                raise
 
         # ── Pass 2: Items API — fill avito_id for products with NULL ──
         avito_ids_filled = 0
