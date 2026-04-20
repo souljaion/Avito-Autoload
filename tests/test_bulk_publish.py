@@ -4,13 +4,14 @@ Uses isolated_db because the endpoint calls db.commit().
 """
 
 import os
+import re
 import uuid
 import tempfile
 from datetime import datetime, timezone
 
 import pytest
 from httpx import AsyncClient, ASGITransport
-from sqlalchemy import text, select as sa_select
+from sqlalchemy import text, select as sa_select, event
 
 from app.models.account import Account
 from app.models.model import Model as ModelORM
@@ -235,6 +236,53 @@ class TestBulkPublish:
             assert data["published"] == 1
             assert len(data["skipped"]) == 1
             assert data["skipped"][0]["product_id"] == products[0].id
+        finally:
+            for f in tmp_files:
+                os.unlink(f)
+
+    @pytest.mark.asyncio
+    async def test_bulk_publish_no_n_plus_one(self, isolated_db):
+        """ADT and Listing queries are batched: at most 1 each regardless of product count."""
+        acc, model, tpl, products, tmp_files = await _seed(isolated_db, count=5)
+        try:
+            app = _make_app(isolated_db)
+            pids = [p.id for p in products]
+
+            # Track SQL statements executed during the request
+            queries: list[str] = []
+            bind = isolated_db.get_bind()
+
+            def _capture(conn, cursor, statement, parameters, context, executemany):
+                queries.append(statement)
+
+            event.listen(bind, "before_cursor_execute", _capture)
+
+            try:
+                async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+                    resp = await c.post(f"/models/{model.id}/bulk-publish", json={
+                        "product_ids": pids,
+                    })
+
+                assert resp.status_code == 200
+                data = resp.json()
+                assert data["published"] == 5
+
+                # Count queries hitting account_description_templates
+                adt_queries = [q for q in queries if "account_description_templates" in q.lower()]
+                listing_select_queries = [
+                    q for q in queries
+                    if "listings" in q.lower()
+                    and q.strip().upper().startswith("SELECT")
+                ]
+
+                assert len(adt_queries) <= 1, (
+                    f"Expected ≤1 ADT query, got {len(adt_queries)}: {adt_queries}"
+                )
+                assert len(listing_select_queries) <= 1, (
+                    f"Expected ≤1 Listing SELECT, got {len(listing_select_queries)}: {listing_select_queries}"
+                )
+            finally:
+                event.remove(bind, "before_cursor_execute", _capture)
         finally:
             for f in tmp_files:
                 os.unlink(f)

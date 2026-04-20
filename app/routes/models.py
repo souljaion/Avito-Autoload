@@ -1332,12 +1332,33 @@ async def bulk_publish(model_id: int, request: Request, db: AsyncSession = Depen
     if not product_ids:
         return JSONResponse({"ok": False, "error": "Не выбраны объявления"}, status_code=400)
 
+    int_ids = [int(p) for p in product_ids]
+
     result = await db.execute(
         select(Product)
         .options(selectinload(Product.images))
-        .where(Product.id.in_([int(p) for p in product_ids]))
+        .where(Product.id.in_(int_ids))
     )
     products = {p.id: p for p in result.scalars().all()}
+
+    # Prefetch ADTs for all relevant accounts (1 query instead of N)
+    unique_account_ids = {p.account_id for p in products.values() if p.account_id}
+    adt_set: set[int] = set()
+    if unique_account_ids:
+        adt_result = await db.execute(
+            select(ADT.account_id).where(ADT.account_id.in_(unique_account_ids))
+        )
+        adt_set = {row[0] for row in adt_result.all()}
+
+    # Prefetch existing listings for all products (1 query instead of N)
+    listings_result = await db.execute(
+        select(Listing).where(
+            Listing.product_id.in_(int_ids),
+        )
+    )
+    listings_map: dict[tuple[int, int], Listing] = {
+        (ls.product_id, ls.account_id): ls for ls in listings_result.scalars().all()
+    }
 
     now = dt.now(timezone.utc).replace(tzinfo=None)
     published = []
@@ -1354,13 +1375,7 @@ async def bulk_publish(model_id: int, request: Request, db: AsyncSession = Depen
             skipped.append({"product_id": pid, "reason": f"Статус: {product.status}"})
             continue
 
-        # Check account description template for readiness
-        has_acct_tpl = False
-        if product.account_id:
-            tmpl_res = await db.execute(
-                select(ADT).where(ADT.account_id == product.account_id)
-            )
-            has_acct_tpl = tmpl_res.scalar_one_or_none() is not None
+        has_acct_tpl = product.account_id in adt_set
 
         missing = get_missing_fields(product, has_account_template=has_acct_tpl)
         if missing:
@@ -1372,13 +1387,7 @@ async def bulk_publish(model_id: int, request: Request, db: AsyncSession = Depen
         product.scheduled_at = now
 
         # Find or create listing
-        ls_result = await db.execute(
-            select(Listing).where(
-                Listing.product_id == pid,
-                Listing.account_id == product.account_id,
-            )
-        )
-        listing = ls_result.scalar_one_or_none()
+        listing = listings_map.get((pid, product.account_id))
         if listing:
             listing.status = "scheduled"
             listing.scheduled_at = now
