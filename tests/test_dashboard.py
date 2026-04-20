@@ -216,7 +216,7 @@ class TestCommandCenterWithData:
     @pytest.mark.asyncio
     async def test_scheduled_today_with_sync_minute(self):
         """Scheduled products display time based on account sync_minute."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         today_10am = now.replace(hour=10, minute=0, second=0, microsecond=0)
         product = _make_product(
             id=1, status="scheduled", scheduled_at=today_10am, title="Test Shoe"
@@ -333,7 +333,7 @@ class TestCommandCenterWithData:
     @pytest.mark.asyncio
     async def test_sync_stale_flag(self):
         """sync_stale is True when last sync was more than 4 hours ago."""
-        stale_time = datetime.utcnow() - timedelta(hours=5)
+        stale_time = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=5)
 
         call_count = [0]
         def make_result(*args, **kwargs):

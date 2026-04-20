@@ -5,7 +5,7 @@ Verifies the diagnosis: imported items WITH avito_id end up in the feed as
 for Avito to remove); items removed >48h ago are excluded by the cutoff.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -140,7 +140,7 @@ class TestFeedAfterDelete:
         account.address = None
 
         removed_product = _make_product(id=42, avito_id=900_111, account_id=1, status="removed")
-        removed_product.removed_at = datetime.utcnow() - timedelta(hours=2)
+        removed_product.removed_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=2)
 
         mock_db = AsyncMock()
         mock_db.get = AsyncMock(return_value=account)

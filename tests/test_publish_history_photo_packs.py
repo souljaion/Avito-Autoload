@@ -1,6 +1,6 @@
 """Tests for PhotoPackPublishHistory recording in publish_scheduled."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -14,7 +14,7 @@ def _make_account(acc_id=1, name="TestAcc"):
         id=acc_id, name=name,
         client_id="cid", client_secret="sec",
         access_token="tok",
-        token_expires_at=datetime.utcnow() + timedelta(hours=1),
+        token_expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=1),
         phone="+79001234567", address="Москва",
     )
 
@@ -51,7 +51,7 @@ def _make_listing(listing_id=1, account_id=1, product=None, account=None):
     ls.id = listing_id
     ls.account_id = account_id
     ls.status = "scheduled"
-    ls.scheduled_at = datetime.utcnow() - timedelta(minutes=10)
+    ls.scheduled_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=10)
     ls.published_at = None
     ls.product = product or _make_product()
     ls.account = account or _make_account(acc_id=account_id)

@@ -59,7 +59,7 @@ def _make_product(id=1, status="scheduled", account_id=1, title="Nike Air",
     p.account_id = account_id
     p.title = title
     p.price = price
-    p.scheduled_at = scheduled_at or (datetime.utcnow() + timedelta(hours=1))
+    p.scheduled_at = scheduled_at or (datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=1))
     p.published_at = None
     p.images = []
     p.account = _make_account(id=account_id)

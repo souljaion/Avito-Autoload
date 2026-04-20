@@ -124,7 +124,7 @@ def _make_efficiency_db(products_data):
 
     # Result 8: last_sync
     r8 = MagicMock()
-    r8.scalar.return_value = datetime.utcnow()
+    r8.scalar.return_value = datetime.now(timezone.utc).replace(tzinfo=None)
 
     mock_db = AsyncMock()
     mock_db.execute = AsyncMock(side_effect=[r1, r2, r3, r4, r5, r6, r7, r8])

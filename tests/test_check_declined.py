@@ -1,6 +1,6 @@
 """Tests for _job_check_declined_ads: blocked/rejected/removed detection."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 from contextlib import asynccontextmanager
 
@@ -284,7 +284,7 @@ class TestCheckDeclinedAds:
     @pytest.mark.asyncio
     async def test_already_removed_product_skipped(self):
         """Product already removed (status=removed, removed_at set) should not be updated."""
-        product = _make_product(60, status="removed", removed_at=datetime.utcnow())
+        product = _make_product(60, status="removed", removed_at=datetime.now(timezone.utc).replace(tzinfo=None))
         account = _make_account()
         product.account = account
 

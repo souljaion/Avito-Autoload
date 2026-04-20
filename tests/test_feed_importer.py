@@ -1,6 +1,6 @@
 """Tests for app/services/feed_importer.py + POST /sync-from-feed."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -29,7 +29,7 @@ def _make_account(id=1, name="Zulla"):
     acc.client_id = "cid"
     acc.client_secret = "sec"
     acc.access_token = "tok"
-    acc.token_expires_at = datetime.utcnow() + timedelta(hours=1)
+    acc.token_expires_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=1)
     return acc
 
 

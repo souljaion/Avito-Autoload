@@ -1,6 +1,6 @@
 """Tests for feeds routes: delete, upload, report with dedup fix."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -42,8 +42,8 @@ def _make_feed_export(feed_id=1, account_id=1, status="generated", account=None)
     f.status = status
     f.file_path = f"/tmp/feeds/{account_id}.xml"
     f.products_count = 10
-    f.created_at = datetime.utcnow()
-    f.uploaded_at = datetime.utcnow() if status == "uploaded" else None
+    f.created_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    f.uploaded_at = datetime.now(timezone.utc).replace(tzinfo=None) if status == "uploaded" else None
     f.upload_response = {"status": "ok"} if status == "uploaded" else None
     f.account = account or _make_account(acc_id=account_id)
     return f

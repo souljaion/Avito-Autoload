@@ -254,11 +254,11 @@ class TestPatchProduct:
     @pytest.mark.asyncio
     async def test_patch_cancel_scheduled(self):
         """PATCH scheduled->draft clears scheduled_at and updates listings."""
-        product = _make_product(id=1, status="scheduled", scheduled_at=datetime.utcnow())
+        product = _make_product(id=1, status="scheduled", scheduled_at=datetime.now(timezone.utc).replace(tzinfo=None))
 
         listing = MagicMock()
         listing.status = "scheduled"
-        listing.scheduled_at = datetime.utcnow()
+        listing.scheduled_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
         listing_result = MagicMock()
         listing_result.scalars.return_value.all.return_value = [listing]
@@ -683,7 +683,7 @@ class TestCancelSchedule:
         """Cancel schedule sets listings to draft."""
         listing = MagicMock()
         listing.status = "scheduled"
-        listing.scheduled_at = datetime.utcnow()
+        listing.scheduled_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
         listing_result = MagicMock()
         listing_result.scalars.return_value.all.return_value = [listing]

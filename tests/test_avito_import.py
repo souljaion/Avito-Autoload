@@ -16,7 +16,7 @@ def _make_account(**kw):
     acc.client_secret = kw.get("client_secret", "sec")
     acc.access_token = kw.get("access_token", "tok")
     acc.avito_user_id = kw.get("avito_user_id", 999)
-    acc.token_expires_at = kw.get("token_expires_at", datetime.utcnow() + timedelta(hours=1))
+    acc.token_expires_at = kw.get("token_expires_at", datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=1))
     acc.autoload_enabled = kw.get("autoload_enabled", True)
     return acc
 
@@ -175,7 +175,7 @@ class TestAvitoImport:
         account = _make_account()
         removed_product = _make_product(
             1, avito_id=55555, status="removed",
-            removed_at=datetime.utcnow(),
+            removed_at=datetime.now(timezone.utc).replace(tzinfo=None),
         )
         avito_items = [_make_avito_item(55555, "Adidas", 3000)]
 
