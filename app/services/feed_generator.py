@@ -75,31 +75,28 @@ _APPAREL_TYPE_MAP = {
 # We use goods_subtype which already contains the correct value.
 
 
-def is_ready_for_feed(product: Product, has_account_template: bool = False) -> bool:
-    """Товар считается готовым к выгрузке, если заполнены все обязательные поля.
+def get_missing_fields(product: Product, has_account_template: bool = False) -> list[str]:
+    """Return human-readable list of missing fields preventing feed readiness.
 
-    Status is NOT checked — scheduled/active/draft products can all be ready.
-    If has_account_template=True and use_custom_description=False,
-    description is considered filled (comes from account template at feed time).
-
-    Imported products require avito_id + at least one image source + brand +
-    goods_type. Avito validates the full <Ad> block in the feed regardless of
-    <AvitoId>, so missing required fields cause Avito to reject the whole feed.
+    Empty list = product is ready.  Used by schedule endpoints, dashboard,
+    and is_ready_for_feed() wrapper.
     """
-    # Imported products: minimal viable Ad — Avito won't accept feed entries
-    # without GoodsType / Brand / Images even if AvitoId is present.
+    missing: list[str] = []
+
     if product.status == "imported":
         if not product.avito_id:
-            return False
+            missing.append("Avito ID")
         has_image = bool(product.images) or bool(product.image_url)
         if not has_image:
-            return False
-        if not product.brand or not product.goods_type:
-            return False
-        return True
+            missing.append("Фото")
+        if not product.brand:
+            missing.append("Бренд")
+        if not product.goods_type:
+            missing.append("Тип товара")
+        return missing
 
     if not product.title:
-        return False
+        missing.append("Название")
     has_description = (
         bool(product.description)
         or product.description_template_id is not None
@@ -107,16 +104,28 @@ def is_ready_for_feed(product: Product, has_account_template: bool = False) -> b
     if not has_description and not product.use_custom_description and has_account_template:
         has_description = True
     if not has_description:
-        return False
+        missing.append("Описание")
     if product.price is None:
-        return False
-    if not product.category or not product.goods_type:
-        return False
-    if not product.subcategory or not product.goods_subtype:
-        return False
+        missing.append("Цена")
+    if not product.category:
+        missing.append("Категория")
+    if not product.goods_type:
+        missing.append("Тип товара")
+    if not product.subcategory:
+        missing.append("Вид одежды/обуви")
+    if not product.goods_subtype:
+        missing.append("Подтип")
     if not product.images:
-        return False
-    return True
+        missing.append("Фото")
+    return missing
+
+
+def is_ready_for_feed(product: Product, has_account_template: bool = False) -> bool:
+    """Товар считается готовым к выгрузке, если заполнены все обязательные поля.
+
+    Thin wrapper around get_missing_fields().
+    """
+    return not get_missing_fields(product, has_account_template)
 
 
 def build_ad_element(product: Product, account: Account, base_url: str, description_override: str | None = None) -> etree._Element:

@@ -393,8 +393,11 @@ function setDraftFilter(f, btn) {
 
 function _readinessBadge(p) {
     if (p.ready) return '<span class="ready-badge ready-ok">Готов</span>';
-    if (p.missing && p.missing.includes('фото')) return '<span class="ready-badge ready-nophoto">Нет фото</span>';
-    if (p.missing && p.missing.includes('бренд')) return '<span class="ready-badge ready-nobrand">Нет бренда</span>';
+    if (p.missing && p.missing.length) {
+        const cls = p.missing.includes('Фото') ? 'ready-nophoto' : 'ready-nodata';
+        const label = 'Нет: ' + p.missing.join(', ');
+        return `<span class="ready-badge ${cls}" title="${label}">${label}</span>`;
+    }
     return '<span class="ready-badge ready-nodata">Нет данных</span>';
 }
 
@@ -493,7 +496,11 @@ async function publishDraft(pid) {
         });
         const data = await resp.json();
         if (data.ok) { showToast('Запланировано к публикации', false); loadData(); }
-        else showToast(data.error || 'Не удалось выложить', true);
+        else {
+            let msg = data.error || 'Не удалось выложить';
+            if (data.problems && data.problems.length) msg += ': ' + data.problems.join(', ');
+            showToast(msg, true);
+        }
     } catch(e) { showToast('Ошибка сети', true); }
 }
 
@@ -568,7 +575,11 @@ async function updateTime(productId) {
         });
         const data = await resp.json();
         if (data.ok) showToast('Время обновлено', false);
-        else showToast(data.error, true);
+        else {
+            let msg = data.error || 'Ошибка';
+            if (data.problems && data.problems.length) msg += ': ' + data.problems.join(', ');
+            showToast(msg, true);
+        }
     } catch(e) { showToast('Ошибка сети', true); }
 }
 

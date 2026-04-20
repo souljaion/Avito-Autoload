@@ -21,7 +21,7 @@ from app.models.product_image import ProductImage
 from app.models.model import Model
 from app.models.photo_pack_image import PhotoPackImage
 from app.rate_limit import limiter
-from app.services.feed_generator import is_ready_for_feed
+from app.services.feed_generator import is_ready_for_feed, get_missing_fields
 
 MSK = ZoneInfo("Europe/Moscow")
 
@@ -34,28 +34,11 @@ def _to_utc_naive(val: dt) -> dt:
 
 
 def _get_feed_problems(product: Product, has_account_template: bool = False) -> list[str]:
-    """Return list of human-readable problems preventing feed readiness."""
-    problems = []
-    if not product.title:
-        problems.append("Не заполнено название")
-    has_description = bool(product.description)
-    if not has_description and not product.use_custom_description and has_account_template:
-        has_description = True
-    if not has_description:
-        problems.append("Не заполнено описание")
-    if product.price is None:
-        problems.append("Не указана цена")
-    if not product.category:
-        problems.append("Не указана категория")
-    if not product.goods_type:
-        problems.append("Не указан тип товара (goods_type)")
-    if not product.subcategory:
-        problems.append("Не указана подкатегория")
-    if not product.goods_subtype:
-        problems.append("Не указан подтип товара (goods_subtype)")
-    if not product.images:
-        problems.append("Нет фотографий")
-    return problems
+    """Return list of human-readable problems preventing feed readiness.
+
+    Delegates to get_missing_fields() — single source of truth.
+    """
+    return get_missing_fields(product, has_account_template)
 from app.schemas.product import ProductCreateForm
 from app.services.avito_client import AvitoClient
 from app.services.photo_uniquifier import uniquify_image_async

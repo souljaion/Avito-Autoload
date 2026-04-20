@@ -488,7 +488,7 @@ async function scheduleAllDrafts() {
     const time = _getScheduleTime();
     if (!time) { showToast('Укажите время', true); return; }
     const rows = document.querySelectorAll('#listings-body tr[data-product-id]');
-    let ok = 0, total = 0;
+    let ok = 0, total = 0, lastProblems = [];
     for (const row of rows) {
         const badge = row.querySelector('.status-badge');
         if (!badge || !badge.classList.contains('status-draft')) continue;
@@ -498,11 +498,18 @@ async function scheduleAllDrafts() {
         total++;
         try {
             const resp = await fetch('/products/' + pid + '/schedule', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ account_id: parseInt(accId), scheduled_at: time }) });
-            if ((await resp.json()).ok) ok++;
+            const data = await resp.json();
+            if (data.ok) ok++;
+            else if (data.problems) lastProblems = data.problems;
         } catch(e) {}
     }
     if (total === 0) showToast('Нет черновиков', false);
-    else { showToast(`Запланировано: ${ok}/${total}`, ok < total); if (ok > 0) location.reload(); }
+    else {
+        let msg = `Запланировано: ${ok}/${total}`;
+        if (ok < total && lastProblems.length) msg += '. Не хватает: ' + lastProblems.join(', ');
+        showToast(msg, ok < total);
+        if (ok > 0) location.reload();
+    }
 }
 
 // ── Actions ──

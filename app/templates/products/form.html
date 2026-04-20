@@ -87,8 +87,8 @@
         </div>
 
         <div class="field">
-            <label style="display:flex;align-items:center;gap:8px;">
-                Описание *
+            <div style="display:flex;align-items:center;gap:8px;">
+                <label>Описание *</label>
                 <div style="position:relative;display:inline-block;" id="tpl-dropdown-wrap">
                     <button type="button" class="btn btn-sm" style="font-size:11px;padding:2px 8px;" onclick="toggleTplDropdown()">Вставить шаблон &#x25BE;</button>
                     <div id="tpl-dropdown" style="display:none;position:absolute;top:100%;left:0;z-index:100;background:#fff;border:1px solid #d1d5db;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.1);min-width:240px;max-height:260px;overflow-y:auto;margin-top:4px;">
@@ -100,7 +100,7 @@
                         </div>
                     </div>
                 </div>
-            </label>
+            </div>
             <textarea name="description" rows="10" required placeholder="Описание обязательно для Avito">{{ product.description if product and product.description else '' }}</textarea>
         </div>
 

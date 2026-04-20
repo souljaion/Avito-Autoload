@@ -14,6 +14,7 @@ from app.models.item_stats import ItemStats
 from app.models.model import Model
 from app.models.photo_pack import PhotoPack
 from app.models.product import Product
+from app.services.feed_generator import get_missing_fields
 
 MSK = ZoneInfo("Europe/Moscow")
 
@@ -550,18 +551,8 @@ async def schedule_dashboard(account_id: int, db: AsyncSession = Depends(get_db)
     draft_items = []
     drafts_ready = 0
     for p in drafts:
-        has_image = bool(p.images) or bool(p.image_url)
-        missing: list[str] = []
-        if not has_image:
-            missing.append("фото")
-        if not p.brand:
-            missing.append("бренд")
-        if not p.category:
-            missing.append("категория")
-        if not p.goods_type:
-            missing.append("goods_type")
-        # Per spec: ready = image + brand + goods_type + title + price
-        ready = bool(has_image and p.brand and p.goods_type and p.title and p.price is not None)
+        missing = get_missing_fields(p)
+        ready = not missing
         if ready:
             drafts_ready += 1
 

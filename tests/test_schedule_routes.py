@@ -531,6 +531,8 @@ class TestPerAccountMetrics:
 
 def _make_draft_product(id, account_id=1, title="Nike Dunk", price=5000,
                         brand="Nike", category="Обувь", goods_type="Мужская обувь",
+                        subcategory="Кроссовки", goods_subtype="Кроссовки",
+                        description="Описание товара",
                         model_id=None, model_name="Nike Dunk Low",
                         has_image=True, image_url=None):
     """Build a Product mock shaped for the dashboard endpoint."""
@@ -543,6 +545,11 @@ def _make_draft_product(id, account_id=1, title="Nike Dunk", price=5000,
     p.brand = brand
     p.category = category
     p.goods_type = goods_type
+    p.subcategory = subcategory
+    p.goods_subtype = goods_subtype
+    p.description = description
+    p.description_template_id = None
+    p.use_custom_description = False
     p.model_id = model_id
     p.image_url = image_url
     if has_image:
@@ -698,7 +705,7 @@ class TestScheduleDashboard:
         assert drafts_by_id[1]["ready"] is True
         assert drafts_by_id[1]["missing"] == []
         assert drafts_by_id[2]["ready"] is False
-        assert "фото" in drafts_by_id[2]["missing"]
+        assert "Фото" in drafts_by_id[2]["missing"]
 
     @pytest.mark.asyncio
     async def test_dashboard_alive_on_accounts_only_alive_marker(self):
