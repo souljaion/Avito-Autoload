@@ -1417,6 +1417,53 @@ class TestProductEditPage:
         assert resp.status_code == 200, f"Expected 200, got {resp.status_code}"
         assert "MissingGreenlet" not in resp.text
 
+    def test_form_template_no_json_stringify_in_onclick(self):
+        """Regression: inline onclick must never embed JSON.stringify output.
+
+        JSON.stringify wraps values in double-quotes which break HTML attribute
+        parsing (onclick="fn("value")"), causing SyntaxError at click time.
+        Template dropdown items must use event delegation (data-tpl-index).
+
+        Checks the template source directly — no DB needed.
+        """
+        import re
+        from pathlib import Path
+
+        form_path = Path("app/templates/products/form.html")
+        assert form_path.exists(), f"{form_path} not found"
+        html = form_path.read_text()
+
+        # No onclick should contain JSON.stringify (the pattern that broke handlers)
+        onclicks = re.findall(r'onclick="([^"]*)"', html)
+        for handler in onclicks:
+            assert "JSON.stringify" not in handler, \
+                f"onclick must not embed JSON.stringify: {handler[:80]}"
+
+        # Template dropdown items must use data-tpl-index for event delegation
+        assert "data-tpl-index" in html, \
+            "Template dropdown must use event delegation via data-tpl-index"
+
+        # fetchTemplates must NOT build onclick with JSON.stringify
+        assert 'onclick="applyTemplate(${JSON.stringify' not in html, \
+            "fetchTemplates must not embed JSON.stringify in onclick attributes"
+
+        # Extract JS from template (replace Jinja vars with dummies for syntax check)
+        scripts = re.findall(r'<script[^>]*>(.*?)</script>', html, re.DOTALL)
+        assert scripts, "Page must contain at least one <script> block"
+
+        import subprocess
+        for i, script_body in enumerate(scripts):
+            # Replace Jinja template vars with valid JS values
+            js = re.sub(r'\{\{[^}]*tojson[^}]*\}\}', '{}', script_body)
+            js = re.sub(r'\{\{[^}]*\}\}', '"dummy"', js)
+            js = re.sub(r'\{%[^%]*%\}', '', js)
+            result = subprocess.run(
+                ["node", "--check"],
+                input=js, capture_output=True, text=True,
+            )
+            assert result.returncode == 0, \
+                f"Script block {i} has syntax error: {result.stderr}"
+
 
 # ── POST /products/new (create product) ────────────────────────────
 

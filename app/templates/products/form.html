@@ -674,6 +674,8 @@ document.querySelectorAll('.yd-folder').forEach(async el => {
 
 // Description template dropdown
 let _tplLoaded = false;
+let _tplBodies = [];
+
 function toggleTplDropdown() {
     const dd = document.getElementById('tpl-dropdown');
     if (dd.style.display === 'none') {
@@ -694,21 +696,37 @@ async function fetchTemplates() {
             list.innerHTML = '<div style="padding:8px 12px;color:#9ca3af;font-size:12px;">Нет шаблонов</div>';
             return;
         }
-        list.innerHTML = data.templates.map(t =>
-            `<div style="padding:6px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid #f3f4f6;"
-                  onmouseover="this.style.background='#f0f2ff'"
-                  onmouseout="this.style.background=''"
-                  onclick="applyTemplate(${JSON.stringify(t.body)})">${t.name}</div>`
+        _tplBodies = data.templates.map(t => t.body);
+        list.innerHTML = data.templates.map((t, i) =>
+            `<div class="tpl-item" data-tpl-index="${i}"
+                  style="padding:6px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid #f3f4f6;">${t.name}</div>`
         ).join('');
     } catch(e) { list.innerHTML = '<div style="padding:8px 12px;color:#dc2626;font-size:12px;">Ошибка</div>'; }
 }
 
-function applyTemplate(body) {
+// Event delegation: handle clicks on template items via stable parent
+document.getElementById('tpl-dropdown-list').addEventListener('mousedown', function(e) {
+    const item = e.target.closest('.tpl-item');
+    if (!item) return;
+    e.preventDefault();
+    const idx = parseInt(item.dataset.tplIndex, 10);
+    const body = _tplBodies[idx];
+    if (body === undefined) return;
     const ta = document.querySelector('textarea[name="description"]');
     if (ta.value.trim() && !confirm('Заменить текущее описание?')) return;
     ta.value = body;
     document.getElementById('tpl-dropdown').style.display = 'none';
-}
+});
+
+// Hover effect via CSS class (delegation-friendly)
+document.getElementById('tpl-dropdown-list').addEventListener('mouseover', function(e) {
+    const item = e.target.closest('.tpl-item');
+    if (item) item.style.background = '#f0f2ff';
+});
+document.getElementById('tpl-dropdown-list').addEventListener('mouseout', function(e) {
+    const item = e.target.closest('.tpl-item');
+    if (item) item.style.background = '';
+});
 
 // Close dropdown on outside click
 document.addEventListener('click', function(e) {
