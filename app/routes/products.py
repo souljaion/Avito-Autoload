@@ -740,7 +740,7 @@ async def delete_product(product_id: int, db: AsyncSession = Depends(get_db)):
         return JSONResponse({"ok": False, "error": "Товар не найден"}, status_code=404)
 
     product.status = "removed"
-    product.removed_at = dt.utcnow()
+    product.removed_at = dt.now(timezone.utc).replace(tzinfo=None)
 
     # Update related listings
     listing_result = await db.execute(
@@ -980,7 +980,7 @@ async def delete_from_avito(product_id: int, db: AsyncSession = Depends(get_db))
         return JSONResponse({"ok": False, "error": "Товар не найден"}, status_code=404)
 
     product.status = "removed"
-    product.removed_at = dt.utcnow()
+    product.removed_at = dt.now(timezone.utc).replace(tzinfo=None)
 
     # Also update related listings
     listing_result = await db.execute(

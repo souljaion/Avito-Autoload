@@ -47,7 +47,7 @@ async def schedule_overview(db: AsyncSession = Depends(get_db)):
     accs = await db.execute(select(Account).order_by(Account.name))
     accounts = accs.scalars().all()
 
-    today = datetime.utcnow().date()
+    today = datetime.now(timezone.utc).replace(tzinfo=None).date()
 
     # Per-account counts
     counts_result = await db.execute(
@@ -177,7 +177,7 @@ async def schedule_account_page(request: Request, account_id: int, db: AsyncSess
 @router.get("/api/schedule/{account_id}")
 async def schedule_account_data(account_id: int, db: AsyncSession = Depends(get_db)):
     """Full data for per-account schedule page: metrics, hourly, queue, drafts, active."""
-    today = datetime.utcnow().date()
+    today = datetime.now(timezone.utc).replace(tzinfo=None).date()
     yesterday = today - timedelta(days=1)
 
     # ── Metrics ──
@@ -198,7 +198,7 @@ async def schedule_account_data(account_id: int, db: AsyncSession = Depends(get_
     m = metrics_result.one()
 
     # ── Dead count (marker logic) ──
-    cutoff_5d = datetime.utcnow() - timedelta(days=5)
+    cutoff_5d = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=5)
     active_pids_result = await db.execute(
         select(Product.id).where(
             Product.account_id == account_id,
@@ -477,7 +477,7 @@ async def schedule_dashboard(account_id: int, db: AsyncSession = Depends(get_db)
     Returns counts, dead/weak marker totals (5-day window), and a rich drafts
     list with per-draft readiness, missing fields, and alive-on-other-accounts.
     """
-    cutoff_5d = datetime.utcnow() - timedelta(days=5)
+    cutoff_5d = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=5)
 
     # ── Counts per status for this account ──
     counts_result = await db.execute(

@@ -749,8 +749,8 @@ async def accounts_status(model_id: int, db: AsyncSession = Depends(get_db)):
     product_ids = [p.id for p in model.products if p.avito_id is not None]
     markers_map: dict[int, dict] = {}  # product_id -> {marker, views_total, views_today}
     if product_ids:
-        cutoff_5d = datetime.utcnow() - timedelta(days=5)
-        today = datetime.utcnow().date()
+        cutoff_5d = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=5)
+        today = datetime.now(timezone.utc).replace(tzinfo=None).date()
         yesterday = today - timedelta(days=1)
 
         # 5-day window
@@ -1049,7 +1049,7 @@ async def model_analytics(model_id: int, db: AsyncSession = Depends(get_db)):
     product_ids = [p.id for p in products]
 
     # 5-day window for marker calculation (same logic as analytics efficiency)
-    cutoff = datetime.utcnow() - timedelta(days=5)
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=5)
 
     window_stmt = (
         select(
@@ -1101,7 +1101,7 @@ async def model_analytics(model_id: int, db: AsyncSession = Depends(get_db)):
     totals_map = {r.product_id: (r.views_total or 0, r.contacts_total or 0) for r in totals_result.all()}
 
     # Today deltas
-    today = datetime.utcnow().date()
+    today = datetime.now(timezone.utc).replace(tzinfo=None).date()
     yesterday = today - timedelta(days=1)
 
     today_stmt = (
@@ -1120,7 +1120,7 @@ async def model_analytics(model_id: int, db: AsyncSession = Depends(get_db)):
     yesterday_result = await db.execute(yesterday_stmt)
     yesterday_map = {r.product_id: r.v or 0 for r in yesterday_result.all()}
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     items = []
     dead_count = 0
     weak_count = 0
@@ -1229,7 +1229,7 @@ async def model_history(model_id: int, db: AsyncSession = Depends(get_db)):
     )
     stats_map = {r.product_id: (r.views or 0, r.contacts or 0) for r in stats_result.all()}
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     items = []
     for p in products:
         pub_naive = p.published_at.replace(tzinfo=None) if p.published_at.tzinfo else p.published_at

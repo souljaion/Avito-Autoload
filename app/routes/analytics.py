@@ -197,8 +197,8 @@ async def trigger_stats_sync(db: AsyncSession = Depends(get_db)):
 async def analytics_efficiency(db: AsyncSession = Depends(get_db)):
     """Efficiency markers for active ads based on views delta in last 5 days."""
     from sqlalchemy import cast, Date
-    cutoff = datetime.utcnow() - timedelta(days=5)
-    today = datetime.utcnow().date()
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=5)
+    today = datetime.now(timezone.utc).replace(tzinfo=None).date()
     yesterday = today - timedelta(days=1)
 
     # Within the 5-day window: MAX, MIN views and count per product
@@ -323,7 +323,7 @@ async def analytics_efficiency(db: AsyncSession = Depends(get_db)):
     )
     products = products_result.scalars().all()
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     items = []
     summary = {"dead": 0, "weak": 0, "alive": 0, "unknown": 0}
     for p in products:

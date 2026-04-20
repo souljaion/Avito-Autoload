@@ -46,7 +46,7 @@ def _product_problems(p, has_images: bool) -> list[str]:
 
 @router.get("/api/dashboard/command-center")
 async def command_center(db: AsyncSession = Depends(get_db)):
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     today_end = today_start + timedelta(days=1)
 
@@ -95,7 +95,7 @@ async def command_center(db: AsyncSession = Depends(get_db)):
         })
 
     # Dead ads (< 20 views delta in 5 days)
-    cutoff_5d = datetime.utcnow() - timedelta(days=5)
+    cutoff_5d = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=5)
     window_stmt = select(
         ItemStats.product_id,
         func.max(ItemStats.views).label("mx"),
@@ -188,7 +188,7 @@ async def command_center(db: AsyncSession = Depends(get_db)):
     if last_sync_val:
         last_sync_msk = last_sync_val.replace(tzinfo=timezone.utc).astimezone(MSK)
         last_sync_str = last_sync_msk.strftime("%d.%m.%Y %H:%M")
-        hours_ago = (datetime.utcnow() - last_sync_val).total_seconds() / 3600
+        hours_ago = (datetime.now(timezone.utc).replace(tzinfo=None) - last_sync_val).total_seconds() / 3600
         sync_stale = hours_ago > 4
 
     # ── Block 4: recommendations ──
