@@ -495,7 +495,12 @@ class AvitoClient:
         return result
 
     async def get_avito_ids_by_ad_ids(self, ad_ids: list[str]) -> dict[str, int]:
-        """Map internal ad_ids to Avito IDs. Batches by 200."""
+        """Map internal ad_ids to Avito IDs. Batches by 200.
+
+        DEPRECATED: Avito removed /autoload/v1/items/ad-ids-to-avito-ids
+        (404 for all accounts, confirmed 2026-04-20). Kept for potential
+        future restore.
+        """
         headers = await self._headers()
         result: dict[str, int] = {}
         batch_size = 200

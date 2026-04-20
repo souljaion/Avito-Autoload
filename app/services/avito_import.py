@@ -124,38 +124,7 @@ async def import_account_items(account: Account, db: AsyncSession) -> dict:
             all_avito_ids.add(avito_id)
             imported += 1
 
-        # --- Reconcile: fill missing avito_ids via ad_id → avito_id mapping ---
-        reconciled = 0
-        try:
-            unmatched_result = await db.execute(
-                select(Product).where(
-                    Product.account_id == account.id,
-                    Product.avito_id.is_(None),
-                    Product.sku.isnot(None),
-                    Product.status.notin_(["sold", "removed"]),
-                )
-            )
-            unmatched = unmatched_result.scalars().all()
-            if unmatched:
-                ad_ids = [p.sku for p in unmatched if p.sku]
-                if ad_ids:
-                    mapping = await client.get_avito_ids_by_ad_ids(ad_ids)
-                    for p in unmatched:
-                        if p.sku and p.sku in mapping:
-                            resolved_avito_id = mapping[p.sku]
-                            if resolved_avito_id not in all_avito_ids:
-                                p.avito_id = resolved_avito_id
-                                all_avito_ids.add(resolved_avito_id)
-                                reconciled += 1
-                    if reconciled:
-                        logger.info("avito_import.reconciled",
-                                    account=account.name, resolved=reconciled,
-                                    total_unmatched=len(unmatched))
-        except Exception as e:
-            logger.warning("avito_import.reconciliation_failed",
-                           account=account.name, error=str(e))
-
-        # --- Mark stale items as sold ---
+        # --- Mark stale items as removed ---
         stale_result = await db.execute(
             select(Product).where(
                 Product.account_id == account.id,
@@ -205,7 +174,6 @@ async def import_account_items(account: Account, db: AsyncSession) -> dict:
             "imported": imported,
             "updated": updated,
             "marked_removed": marked_removed,
-            "reconciled": reconciled,
             "total": len(avito_items),
         }
 

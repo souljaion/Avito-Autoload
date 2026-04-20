@@ -55,8 +55,7 @@ def _mock_db_for_import(existing_products=None, all_avito_ids=None, stale_produc
     Query order:
       1. select(Product) WHERE avito_id IS NOT NULL AND account_id = X  → existing_products
       2. select(Product.avito_id) WHERE avito_id IS NOT NULL            → all_avito_ids
-      3. select(Product) WHERE avito_id IS NULL AND sku IS NOT NULL      → unmatched (reconciliation)
-      4. select(Product) WHERE account_id AND avito_id AND status IN... → stale_products
+      3. select(Product) WHERE account_id AND avito_id AND status IN... → stale_products
     """
     existing = existing_products or []
     all_ids = all_avito_ids if all_avito_ids is not None else [p.avito_id for p in existing]
@@ -72,20 +71,14 @@ def _mock_db_for_import(existing_products=None, all_avito_ids=None, stale_produc
     all_ids_result = MagicMock()
     all_ids_result.all.return_value = [(aid,) for aid in all_ids]
 
-    # Result 3: unmatched products for reconciliation (empty by default)
-    unmatched_scalars = MagicMock()
-    unmatched_scalars.all.return_value = []
-    unmatched_result = MagicMock()
-    unmatched_result.scalars.return_value = unmatched_scalars
-
-    # Result 4: stale products for sold marking
+    # Result 3: stale products for removed marking
     stale_scalars = MagicMock()
     stale_scalars.all.return_value = stale
     stale_result = MagicMock()
     stale_result.scalars.return_value = stale_scalars
 
     mock_db = AsyncMock()
-    mock_db.execute = AsyncMock(side_effect=[existing_result, all_ids_result, unmatched_result, stale_result])
+    mock_db.execute = AsyncMock(side_effect=[existing_result, all_ids_result, stale_result])
     mock_db.add = MagicMock()
     mock_db.flush = AsyncMock()
     mock_db.commit = AsyncMock()
