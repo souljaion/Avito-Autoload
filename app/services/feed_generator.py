@@ -216,7 +216,7 @@ async def generate_feed(account_id: int, db: AsyncSession) -> tuple[str, int]:
 
     # Also load recently removed products (within 48h) for removal from Avito
     from datetime import timedelta
-    removal_cutoff = datetime.utcnow() - timedelta(hours=48)
+    removal_cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=48)
     removed_stmt = (
         select(Product)
         .where(

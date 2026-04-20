@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 
 import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -21,7 +21,7 @@ _job_last_success: dict[str, datetime] = {}
 
 
 def _record_job_success(job_name: str) -> None:
-    _job_last_success[job_name] = datetime.utcnow()
+    _job_last_success[job_name] = datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def get_job_health() -> dict[str, str]:
@@ -120,12 +120,12 @@ async def _job_cleanup_removed():
     async def run(db):
         import os
         import shutil
-        from datetime import datetime, timedelta
+        from datetime import datetime, timedelta, timezone
         from sqlalchemy import select
         from app.config import settings
         from app.models.product import Product
 
-        cutoff = datetime.utcnow() - timedelta(hours=48)
+        cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=48)
         result = await db.execute(
             select(Product).where(Product.status == "removed", Product.removed_at < cutoff)
         )
@@ -145,7 +145,7 @@ async def _job_cleanup_removed():
 
 async def _job_auto_generate_feeds():
     """Background job: generate feeds for accounts based on avito_sync_minute."""
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
     from zoneinfo import ZoneInfo
     from sqlalchemy import select, func
     from app.models.account import Account
@@ -176,7 +176,7 @@ async def _job_auto_generate_feeds():
                 recent = await db.execute(
                     select(func.count()).select_from(FeedExport).where(
                         FeedExport.account_id == acc.id,
-                        FeedExport.created_at >= datetime.utcnow() - timedelta(minutes=50),
+                        FeedExport.created_at >= datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=50),
                     )
                 )
                 if (recent.scalar() or 0) > 0:
@@ -195,7 +195,7 @@ async def _job_auto_generate_feeds():
 
 async def _job_auto_generate_feeds_fallback():
     """Background job: hourly feed generation for accounts without sync_minute."""
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
     from sqlalchemy import select, func
     from app.models.account import Account
     from app.models.feed_export import FeedExport
@@ -216,7 +216,7 @@ async def _job_auto_generate_feeds_fallback():
                 recent = await db.execute(
                     select(func.count()).select_from(FeedExport).where(
                         FeedExport.account_id == acc.id,
-                        FeedExport.created_at >= datetime.utcnow() - timedelta(minutes=50),
+                        FeedExport.created_at >= datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=50),
                     )
                 )
                 if (recent.scalar() or 0) > 0:
@@ -235,7 +235,7 @@ async def _job_auto_generate_feeds_fallback():
 
 async def _job_check_declined_ads():
     """Background job: check for blocked/rejected/removed ads on Avito."""
-    from datetime import datetime
+    from datetime import datetime, timezone
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
     from app.models.account import Account
@@ -315,7 +315,7 @@ async def _job_check_declined_ads():
                         if product.status != "removed" and product.removed_at is None:
                             success = await safe_update_status(
                                 db, product.id, "removed", product.version,
-                                extra_fields={"removed_at": datetime.utcnow()},
+                                extra_fields={"removed_at": datetime.now(timezone.utc).replace(tzinfo=None)},
                             )
                             if not success:
                                 logger.warning("check_declined.skipped_conflict", product_id=product.id)
