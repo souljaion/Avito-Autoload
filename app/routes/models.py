@@ -27,6 +27,19 @@ router = APIRouter(prefix="/models", tags=["models"])
 templates = Jinja2Templates(directory="app/templates")
 
 
+def _default_ad_title(model) -> str:
+    """Build default ad title from model. Don't duplicate brand if already in name."""
+    name = (model.name or "").strip()
+    brand = (model.brand or "").strip()
+    if not brand:
+        return name
+    if not name:
+        return brand
+    if name.lower().startswith(brand.lower() + " ") or name.lower() == brand.lower():
+        return name
+    return f"{brand} {name}"
+
+
 @router.get("", response_class=HTMLResponse)
 async def model_list(request: Request, db: AsyncSession = Depends(get_db)):
     """Models dashboard with account matrix."""
@@ -473,7 +486,7 @@ async def create_all_listings(model_id: int, request: Request, db: AsyncSession 
         and p.account_id is not None
     }
 
-    title = f"{model.brand} {model.name}" if model.brand else model.name
+    title = _default_ad_title(model)
 
     created = 0
     skipped = 0
@@ -626,7 +639,7 @@ async def schedule_matrix(request: Request, db: AsyncSession = Depends(get_db)):
             model = await db.get(Model, model_id)
             if not model:
                 continue
-            title = f"{model.brand} {model.name}" if model.brand else model.name
+            title = _default_ad_title(model)
             has_model_desc = bool(model.description)
             product = Product(
                 title=title,
@@ -923,7 +936,7 @@ async def create_one(model_id: int, request: Request, db: AsyncSession = Depends
     if existing:
         return JSONResponse({"ok": False, "error": "Объявление уже существует"}, status_code=400)
 
-    title = f"{model.brand} {model.name}" if model.brand else model.name
+    title = _default_ad_title(model)
 
     # Copy description from model; protect with use_custom_description
     has_model_desc = bool(model.description)
@@ -1238,6 +1251,8 @@ async def model_history(model_id: int, db: AsyncSession = Depends(get_db)):
 @router.post("/{model_id}/products")
 async def create_model_product(model_id: int, request: Request, db: AsyncSession = Depends(get_db)):
     """Create a draft product for a model from the listings table."""
+    from app.routes.products import _apply_pack_to_product
+
     model = await db.get(Model, model_id)
     if not model:
         return JSONResponse({"ok": False, "error": "Модель не найдена"}, status_code=404)
@@ -1247,12 +1262,18 @@ async def create_model_product(model_id: int, request: Request, db: AsyncSession
     if not account_id:
         return JSONResponse({"ok": False, "error": "account_id обязателен"}, status_code=400)
 
-    title = f"{model.brand} {model.name}" if model.brand else model.name
+    # Title: use explicit value from request, or auto-generate from model
+    title = (body.get("title") or "").strip() or _default_ad_title(model)
 
     # description_template_id from request (if provided)
     desc_tpl_id = body.get("description_template_id")
     if desc_tpl_id is not None:
         desc_tpl_id = int(desc_tpl_id)
+
+    # pack_id from request (if provided) — Bug #5 fix
+    pack_id = body.get("pack_id")
+    if pack_id is not None:
+        pack_id = int(pack_id)
 
     # Copy description from model; protect with use_custom_description
     has_model_desc = bool(model.description)
@@ -1275,7 +1296,13 @@ async def create_model_product(model_id: int, request: Request, db: AsyncSession
         price=int(body["price"]) if body.get("price") else None,
     )
     db.add(product)
+    # Flush to get product.id before applying pack (ProductImage FK needs it)
     await db.flush()
+
+    # Apply pack photos if specified (Bug #5: was missing before)
+    if pack_id is not None:
+        await _apply_pack_to_product(db, product.id, pack_id, do_uniquify=False)
+
     db.add(Listing(product_id=product.id, account_id=int(account_id), status="draft"))
     await db.commit()
 
@@ -1286,6 +1313,93 @@ async def create_model_product(model_id: int, request: Request, db: AsyncSession
         "status": product.status,
     })
 
+
+
+# ── Bulk actions from matrix ──
+
+@router.post("/{model_id}/bulk-publish")
+async def bulk_publish(model_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+    """Bulk publish drafts from the matrix. Sets status=scheduled with scheduled_at=now.
+
+    Products must be draft and ready for feed. Returns per-product results.
+    """
+    from datetime import datetime as dt, timezone
+    from app.services.feed_generator import get_missing_fields
+    from app.models.account_description_template import AccountDescriptionTemplate as ADT
+
+    body = await request.json()
+    product_ids = body.get("product_ids", [])
+    if not product_ids:
+        return JSONResponse({"ok": False, "error": "Не выбраны объявления"}, status_code=400)
+
+    result = await db.execute(
+        select(Product)
+        .options(selectinload(Product.images))
+        .where(Product.id.in_([int(p) for p in product_ids]))
+    )
+    products = {p.id: p for p in result.scalars().all()}
+
+    now = dt.now(timezone.utc).replace(tzinfo=None)
+    published = []
+    not_ready = []
+    skipped = []
+
+    for pid in product_ids:
+        pid = int(pid)
+        product = products.get(pid)
+        if not product:
+            skipped.append({"product_id": pid, "reason": "Не найден"})
+            continue
+        if product.status != "draft":
+            skipped.append({"product_id": pid, "reason": f"Статус: {product.status}"})
+            continue
+
+        # Check account description template for readiness
+        has_acct_tpl = False
+        if product.account_id:
+            tmpl_res = await db.execute(
+                select(ADT).where(ADT.account_id == product.account_id)
+            )
+            has_acct_tpl = tmpl_res.scalar_one_or_none() is not None
+
+        missing = get_missing_fields(product, has_account_template=has_acct_tpl)
+        if missing:
+            not_ready.append({"product_id": pid, "title": product.title, "missing": missing})
+            continue
+
+        # Set product status
+        product.status = "scheduled"
+        product.scheduled_at = now
+
+        # Find or create listing
+        ls_result = await db.execute(
+            select(Listing).where(
+                Listing.product_id == pid,
+                Listing.account_id == product.account_id,
+            )
+        )
+        listing = ls_result.scalar_one_or_none()
+        if listing:
+            listing.status = "scheduled"
+            listing.scheduled_at = now
+        else:
+            db.add(Listing(
+                product_id=pid,
+                account_id=product.account_id,
+                status="scheduled",
+                scheduled_at=now,
+            ))
+
+        published.append(pid)
+
+    await db.commit()
+    return JSONResponse({
+        "ok": True,
+        "published": len(published),
+        "published_ids": published,
+        "not_ready": not_ready,
+        "skipped": skipped,
+    })
 
 
 # ── Link existing products ──

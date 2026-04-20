@@ -7,6 +7,10 @@
 .compact h3 { margin:12px 0 8px; font-size:14px; color:var(--text-secondary); }
 .compact .grid-2 { gap:8px; }
 .compact .grid-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; }
+.tpl-preview-panel { background:#f4f4f5; border:1px solid #e2e4f0; border-radius:8px; padding:10px 14px; margin-bottom:8px; font-size:13px; }
+.tpl-preview-panel summary { cursor:pointer; color:#374151; font-weight:500; }
+.tpl-preview-panel summary:hover { color:#534AB7; }
+.tpl-preview-body { white-space:pre-wrap; font-size:12px; color:#6b7280; margin-top:8px; max-height:300px; overflow-y:auto; background:#fff; border:1px solid #e2e4f0; border-radius:6px; padding:10px; font-family:inherit; }
 </style>
 <h1 style="font-size:20px;">{{ "Редактировать" if product else "Новый" }} товар</h1>
 <div class="card compact">
@@ -101,7 +105,13 @@
                     </div>
                 </div>
             </div>
-            <textarea name="description" rows="10" required placeholder="Описание обязательно для Avito">{{ product.description if product and product.description else '' }}</textarea>
+            {% if product and product.description_template %}
+            <details class="tpl-preview-panel" id="tpl-preview-panel">
+                <summary>Будет использован шаблон: &laquo;{{ product.description_template.name }}&raquo;</summary>
+                <pre class="tpl-preview-body">{{ product.description_template.body }}</pre>
+            </details>
+            {% endif %}
+            <textarea name="description" rows="10" required placeholder="{{ 'Описание берётся из шаблона. Чтобы написать своё — выберите «— не выбран —» в поле «Описание» выше.' if product and product.description_template else 'Описание обязательно для Avito' }}">{{ product.description if product and product.description else '' }}</textarea>
         </div>
 
         <h3>Параметры Avito</h3>

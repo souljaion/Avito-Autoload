@@ -486,9 +486,11 @@ async def product_avito_status(
 
 
 @router.get("/{product_id}/edit", response_class=HTMLResponse)
-async def product_edit(request: Request, product_id: int, db: AsyncSession = Depends(get_db)):
+async def product_edit(request: Request, product_id: int, inline: int = 0, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
-        select(Product).options(selectinload(Product.images)).where(Product.id == product_id)
+        select(Product)
+        .options(selectinload(Product.images), selectinload(Product.description_template))
+        .where(Product.id == product_id)
     )
     product = result.scalar_one_or_none()
     if not product:
@@ -506,11 +508,13 @@ async def product_edit(request: Request, product_id: int, db: AsyncSession = Dep
     )
     yandex_folders = yf_result.scalars().all()
 
-    return templates.TemplateResponse("products/form.html", {
+    template_name = "products/form_inline.html" if inline else "products/form.html"
+    return templates.TemplateResponse(template_name, {
         "request": request, "product": product, "accounts": accs.scalars().all(),
         "models": models.scalars().all(),
         "statuses": PRODUCT_STATUSES,
         "yandex_folders": yandex_folders,
+        "inline": bool(inline),
         **catalog, **EXTRA_FIELD_OPTIONS,
     })
 
@@ -545,6 +549,7 @@ async def product_update(
     scheduled_at: str = Form(""),
     scheduled_account_id: str = Form(""),
     model_id: str = Form(""),
+    inline: str = Form(""),
     db: AsyncSession = Depends(get_db),
 ):
     product = await db.get(Product, product_id)
@@ -595,6 +600,15 @@ async def product_update(
         product.scheduled_account_id = None
 
     await db.commit()
+
+    if inline == "1":
+        return HTMLResponse(
+            f'<html><body><script>'
+            f'window.parent.postMessage({{type:"product-saved",productId:{product.id}}},"*");'
+            f'</script><p style="text-align:center;padding:40px;font-family:sans-serif;color:#166534;">'
+            f'Сохранено</p></body></html>'
+        )
+
     return RedirectResponse(f"/products/{product.id}", status_code=303)
 
 

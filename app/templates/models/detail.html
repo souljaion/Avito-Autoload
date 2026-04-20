@@ -52,6 +52,7 @@
 .listings-table select:focus, .listings-table input:focus { border-color:#534AB7; outline:none; box-shadow:0 0 0 2px rgba(83,74,183,0.1); }
 .listings-table input[type="number"] { width:80px; }
 .listings-table input[type="text"] { width:70px; }
+.ad-title-input { width:180px !important; font-size:12px; }
 .desc-template-select { max-width:240px; text-overflow:ellipsis; overflow:hidden; white-space:nowrap; }
 .create-template-link { color:#534AB7; font-size:12px; text-decoration:none; white-space:nowrap; }
 .create-template-link:hover { text-decoration:underline; }
@@ -78,6 +79,24 @@
 
 .saved-indicator { font-size:10px; color:#22c55e; opacity:0; transition:opacity 0.3s; }
 .saved-indicator.visible { opacity:1; }
+
+.bulk-bar { display:none; padding:12px 16px; background:#f0f2ff; border-top:1px solid #e2e4f0; align-items:center; gap:12px; flex-wrap:wrap; }
+.bulk-bar.visible { display:flex; }
+.bulk-bar .bulk-count { font-size:13px; font-weight:500; color:#1e1b4b; }
+.bulk-bar .bulk-clear { font-size:12px; color:#6b7280; cursor:pointer; text-decoration:underline; margin-left:auto; }
+.bulk-bar .bulk-clear:hover { color:#374151; }
+
+.bulk-modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:1000; align-items:center; justify-content:center; }
+.bulk-modal-overlay.visible { display:flex; }
+.bulk-modal { background:#fff; border-radius:12px; padding:24px; max-width:520px; width:90%; max-height:80vh; overflow-y:auto; box-shadow:0 8px 32px rgba(0,0,0,0.2); }
+.bulk-modal h3 { margin:0 0 16px; font-size:16px; color:#1e1b4b; }
+.bulk-modal-item { display:flex; align-items:center; gap:10px; padding:6px 0; border-bottom:1px solid #f3f4f6; font-size:13px; }
+.bulk-modal-item img { width:40px; height:40px; object-fit:cover; border-radius:6px; }
+.bulk-modal-item .placeholder-icon { width:40px; height:40px; background:#f3f4f6; border-radius:6px; display:flex; align-items:center; justify-content:center; color:#9ca3af; font-size:16px; }
+.bulk-modal-footer { margin-top:16px; font-size:11px; color:#9ca3af; }
+.bulk-modal-actions { margin-top:16px; display:flex; gap:8px; justify-content:flex-end; }
+.bulk-warn { background:#fef3c7; border:1px solid #fbbf24; border-radius:8px; padding:10px 12px; margin-top:12px; font-size:12px; color:#92400e; }
+.row-checkbox { width:16px; height:16px; cursor:pointer; }
 
 .link-count-badge { background:#eef2ff; color:#534AB7; font-size:11px; font-weight:500; padding:1px 8px; border-radius:10px; margin-left:6px; }
 
@@ -207,6 +226,8 @@
     <div class="section-card-body" style="overflow-x:auto;">
         <table class="listings-table" id="listings-table">
             <thead><tr>
+                <th style="width:30px;"><input type="checkbox" class="row-checkbox" id="select-all-cb" onchange="toggleSelectAll(this)"></th>
+                <th>Название</th>
                 <th>Аккаунт</th>
                 <th>Фотопак</th>
                 <th>Размер</th>
@@ -218,7 +239,9 @@
             <tbody id="listings-body">
             {% set active_products = model.products | selectattr('status', 'ne', 'removed') | list %}
             {% for p in active_products | sort(attribute='id') %}
-            <tr id="row-{{ p.id }}" data-product-id="{{ p.id }}">
+            <tr id="row-{{ p.id }}" data-product-id="{{ p.id }}" data-status="{{ p.status }}">
+                <td><input type="checkbox" class="row-checkbox row-cb" data-product-id="{{ p.id }}" onchange="updateBulkBar()"></td>
+                <td><input type="text" value="{{ p.title }}" data-field="title" data-last-value="{{ p.title }}" class="ad-title-input" oninput="debounceSave({{ p.id }},this)"></td>
                 <td>
                     <select data-field="account_id" onchange="autoSave({{ p.id }},this)">
                         <option value="">—</option>
@@ -269,8 +292,43 @@
             {% endfor %}
             </tbody>
         </table>
+        <div class="bulk-bar" id="bulk-bar">
+            <span class="bulk-count" id="bulk-count">Выбрано: 0</span>
+            <button class="btn btn-sm btn-green" onclick="bulkSchedule()">В расписание</button>
+            <button class="btn btn-sm btn-purple" onclick="bulkPublishModal()">Выложить сразу</button>
+            <span class="bulk-clear" onclick="clearSelection()">Снять выделение</span>
+        </div>
         <div class="add-row">
             <button class="add-row-btn" onclick="addNewRow()">+ Добавить объявление</button>
+        </div>
+    </div>
+</div>
+
+<!-- Bulk publish modal -->
+<div class="bulk-modal-overlay" id="bulk-modal-overlay" onclick="if(event.target===this)closeBulkModal()">
+    <div class="bulk-modal" id="bulk-modal-content">
+        <h3 id="bulk-modal-title">Опубликовать сразу</h3>
+        <div id="bulk-modal-items"></div>
+        <div id="bulk-modal-warn" class="bulk-warn" style="display:none;"></div>
+        <p class="bulk-modal-footer">Объявления попадут в фид автозагрузки. Авито заберёт фид в ближайший час по расписанию аккаунта.</p>
+        <div class="bulk-modal-actions">
+            <button class="btn btn-sm btn-outline" onclick="closeBulkModal()">Отмена</button>
+            <button class="btn btn-sm btn-purple" id="bulk-confirm-btn" onclick="bulkPublishConfirm()">Подтвердить</button>
+        </div>
+    </div>
+</div>
+
+<!-- Inline edit+publish modal (single product) -->
+<div class="bulk-modal-overlay" id="inline-edit-overlay" onclick="if(event.target===this)closeInlineEdit()">
+    <div class="bulk-modal" style="max-width:900px;width:95%;padding:0;overflow:hidden;">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid #e2e4f0;">
+            <h3 style="margin:0;font-size:15px;" id="inline-edit-title">Редактировать и опубликовать</h3>
+            <span style="cursor:pointer;font-size:18px;color:#9ca3af;" onclick="closeInlineEdit()">&times;</span>
+        </div>
+        <iframe id="inline-edit-iframe" style="width:100%;height:70vh;border:none;"></iframe>
+        <div style="padding:12px 20px;border-top:1px solid #e2e4f0;display:flex;gap:8px;justify-content:flex-end;">
+            <button class="btn btn-sm btn-outline" onclick="closeInlineEdit()">Отмена</button>
+            <button class="btn btn-sm btn-purple" id="inline-publish-btn" onclick="inlinePublishConfirm()">Сохранить и опубликовать</button>
         </div>
     </div>
 </div>
@@ -522,6 +580,196 @@ async function scheduleAllDrafts() {
     }
 }
 
+// ── Bulk actions ──
+function getSelectedDraftIds() {
+    const checked = document.querySelectorAll('.row-cb:checked');
+    const ids = [];
+    const nonDraft = [];
+    checked.forEach(cb => {
+        const row = cb.closest('tr');
+        const status = row.dataset.status;
+        if (status === 'draft') {
+            ids.push(parseInt(cb.dataset.productId));
+        } else {
+            nonDraft.push(cb);
+        }
+    });
+    // Uncheck non-drafts
+    if (nonDraft.length > 0) {
+        nonDraft.forEach(cb => cb.checked = false);
+        showToast(`Только черновики могут быть опубликованы. Снято выделение: ${nonDraft.length} строк`, true);
+        updateBulkBar();
+    }
+    return ids;
+}
+
+function toggleSelectAll(master) {
+    const cbs = document.querySelectorAll('.row-cb');
+    cbs.forEach(cb => cb.checked = master.checked);
+    updateBulkBar();
+}
+
+function updateBulkBar() {
+    const count = document.querySelectorAll('.row-cb:checked').length;
+    const bar = document.getElementById('bulk-bar');
+    const countEl = document.getElementById('bulk-count');
+    if (count > 0) {
+        bar.classList.add('visible');
+        countEl.textContent = `Выбрано: ${count}`;
+    } else {
+        bar.classList.remove('visible');
+    }
+    // Update master checkbox state
+    const allCbs = document.querySelectorAll('.row-cb');
+    document.getElementById('select-all-cb').checked = allCbs.length > 0 && count === allCbs.length;
+}
+
+function clearSelection() {
+    document.querySelectorAll('.row-cb').forEach(cb => cb.checked = false);
+    document.getElementById('select-all-cb').checked = false;
+    updateBulkBar();
+}
+
+async function bulkSchedule() {
+    const ids = getSelectedDraftIds();
+    if (!ids.length) { showToast('Нет выбранных черновиков', true); return; }
+    const time = document.getElementById('schedule-time').value;
+    if (!time) { showToast('Укажите время в поле расписания', true); return; }
+    let ok = 0;
+    for (const pid of ids) {
+        const row = document.getElementById('row-' + pid);
+        const accId = row?.querySelector('[data-field="account_id"]')?.value;
+        if (!accId) continue;
+        try {
+            const resp = await fetch('/products/' + pid + '/schedule', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ account_id: parseInt(accId), scheduled_at: time }),
+            });
+            const data = await resp.json();
+            if (data.ok) ok++;
+        } catch(e) {}
+    }
+    showToast(`Запланировано: ${ok}/${ids.length}`, ok < ids.length);
+    if (ok > 0) location.reload();
+}
+
+async function bulkPublishModal() {
+    const ids = getSelectedDraftIds();
+    if (!ids.length) { showToast('Нет выбранных черновиков', true); return; }
+
+    // Single product: open full inline edit modal
+    if (ids.length === 1) {
+        openInlineEdit(ids[0]);
+        return;
+    }
+
+    // 2+ products: toast and cancel
+    showToast('Полноценный предпросмотр доступен только для одного объявления. Выберите одно или используйте «В расписание» для публикации нескольких.', true);
+}
+
+function closeBulkModal() {
+    document.getElementById('bulk-modal-overlay').classList.remove('visible');
+}
+
+// ── Inline edit + publish (single product) ──
+let _inlineProductId = null;
+
+function openInlineEdit(productId) {
+    _inlineProductId = productId;
+    const iframe = document.getElementById('inline-edit-iframe');
+    iframe.src = '/products/' + productId + '/edit?inline=1';
+    document.getElementById('inline-edit-title').textContent = 'Редактировать и опубликовать';
+    document.getElementById('inline-publish-btn').disabled = false;
+    document.getElementById('inline-publish-btn').textContent = 'Сохранить и опубликовать';
+    document.getElementById('inline-edit-overlay').classList.add('visible');
+}
+
+function closeInlineEdit() {
+    document.getElementById('inline-edit-overlay').classList.remove('visible');
+    document.getElementById('inline-edit-iframe').src = '';
+    _inlineProductId = null;
+}
+
+// Listen for postMessage from iframe after form save
+window.addEventListener('message', function(e) {
+    if (e.data && e.data.type === 'product-saved' && _inlineProductId) {
+        // Form saved successfully, now publish
+        _doPublishAfterSave(e.data.productId || _inlineProductId);
+    }
+});
+
+async function inlinePublishConfirm() {
+    const btn = document.getElementById('inline-publish-btn');
+    btn.disabled = true;
+    btn.textContent = 'Сохраняем...';
+    // Tell iframe to submit its form
+    const iframe = document.getElementById('inline-edit-iframe');
+    iframe.contentWindow.postMessage({type: 'submit-form'}, '*');
+    // Wait for postMessage back (handled by event listener above)
+}
+
+async function _doPublishAfterSave(productId) {
+    const btn = document.getElementById('inline-publish-btn');
+    btn.textContent = 'Публикуем...';
+    try {
+        const resp = await fetch('/models/' + MODEL_ID + '/bulk-publish', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ product_ids: [productId] }),
+        });
+        const data = await resp.json();
+        closeInlineEdit();
+        if (data.ok && data.published > 0) {
+            showToast('Опубликовано. Появится на Авито в течение часа.', false);
+            setTimeout(() => location.reload(), 1500);
+        } else if (data.not_ready?.length) {
+            const missing = data.not_ready[0].missing.join(', ');
+            showToast(`Не готово к публикации: ${missing}`, true);
+        } else {
+            showToast(data.error || 'Ошибка публикации', true);
+        }
+    } catch(e) {
+        closeInlineEdit();
+        showToast('Ошибка сети', true);
+    }
+}
+
+async function bulkPublishConfirm() {
+    const ids = JSON.parse(document.getElementById('bulk-confirm-btn').dataset.ids || '[]');
+    if (!ids.length) return;
+
+    document.getElementById('bulk-confirm-btn').disabled = true;
+    document.getElementById('bulk-confirm-btn').textContent = 'Публикуем...';
+
+    try {
+        const resp = await fetch('/models/' + MODEL_ID + '/bulk-publish', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ product_ids: ids }),
+        });
+        const data = await resp.json();
+        closeBulkModal();
+
+        if (data.ok) {
+            let msg = `Опубликовано: ${data.published} объявлений. Появятся на Авито в течение часа.`;
+            if (data.not_ready?.length) {
+                msg += ` Не готовы: ${data.not_ready.length}`;
+                const problems = data.not_ready.map(r => `${r.title}: ${r.missing.join(', ')}`).join('; ');
+                msg += ` (${problems})`;
+            }
+            showToast(msg, data.not_ready?.length > 0);
+            if (data.published > 0) setTimeout(() => location.reload(), 1500);
+        } else {
+            showToast(data.error || 'Ошибка', true);
+        }
+    } catch(e) {
+        closeBulkModal();
+        showToast('Ошибка сети', true);
+    } finally {
+        const btn = document.getElementById('bulk-confirm-btn');
+        btn.disabled = false;
+        btn.textContent = 'Подтвердить';
+    }
+}
+
 // ── Actions ──
 async function repostProduct(pid) {
     if (!confirm('Перевыложить?')) return;
@@ -571,6 +819,9 @@ async function addNewRow() {
     // Copy description_template_id from last row's dropdown (if exists)
     const lastDescTpl = lastRow?.querySelector('.desc-template-select')?.value || null;
 
+    // Copy pack_id from last row's pack dropdown (if exists)
+    const lastPackId = lastRow?.querySelector('[data-field="pack_id"]')?.value || null;
+
     // Pick first account (allow duplicates — multiple listings per account)
     const firstAcc = ACCOUNTS.length ? ACCOUNTS[0].id : null;
 
@@ -582,6 +833,7 @@ async function addNewRow() {
                 size: lastSize,
                 price: lastPrice || null,
                 description_template_id: lastDescTpl ? parseInt(lastDescTpl) : null,
+                pack_id: lastPackId ? parseInt(lastPackId) : null,
             }),
         });
         const data = await resp.json();

@@ -1,0 +1,133 @@
+"""Tests for Bug #5: photo pack not applied when creating products
+from /models/{id} matrix row (addNewRow → create_model_product).
+
+Tests use isolated_db because the endpoint calls db.commit().
+"""
+
+import os
+import uuid
+import tempfile
+
+import pytest
+from httpx import AsyncClient, ASGITransport
+from sqlalchemy import text, select as sa_select
+
+from app.models.account import Account
+from app.models.model import Model as ModelORM
+from app.models.product import Product as ProductORM
+from app.models.product_image import ProductImage
+from app.models.photo_pack import PhotoPack
+from app.models.photo_pack_image import PhotoPackImage
+
+
+def _make_app(isolated_db):
+    from fastapi import FastAPI
+    from app.db import get_db
+    from app.routes.models import router as models_router
+    from app.routes.products import router as products_router
+
+    app = FastAPI()
+    app.include_router(models_router)
+    app.include_router(products_router)
+
+    async def override_db():
+        yield isolated_db
+
+    app.dependency_overrides[get_db] = override_db
+    return app
+
+
+async def _seed(db):
+    """Create account + model for tests. Returns (account, model)."""
+    await db.execute(text(
+        "SELECT setval('accounts_id_seq', GREATEST(nextval('accounts_id_seq'), "
+        "(SELECT COALESCE(MAX(id), 0) FROM accounts)))"
+    ))
+    token = uuid.uuid4().hex[:8]
+    acc = Account(name=f"Bug5-{token}", client_id=f"b5-{token}",
+                  client_secret="s", feed_token=f"b5ft-{token}")
+    db.add(acc)
+    await db.flush()
+
+    model = ModelORM(
+        name=f"Bug5Model-{token}", brand="TestBrand",
+        category="Одежда, обувь, аксессуары", goods_type="Мужская обувь",
+        subcategory="Кроссовки и кеды", goods_subtype="Кроссовки",
+    )
+    db.add(model)
+    await db.flush()
+    return acc, model
+
+
+class TestCreateModelProductPack:
+    """Bug #5: pack_id from matrix row must be applied to new product."""
+
+    @pytest.mark.asyncio
+    async def test_pack_applied_creates_product_images(self, isolated_db):
+        """POST with pack_id → product has images from that pack."""
+        acc, model = await _seed(isolated_db)
+
+        pack = PhotoPack(name="TestPack", model_id=model.id)
+        isolated_db.add(pack)
+        await isolated_db.flush()
+
+        # Create a real temp file so _apply_pack_to_product finds it on disk
+        tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+        tmp.write(b"\xff\xd8\xff\xe0" + b"\x00" * 100)
+        tmp.close()
+        try:
+            isolated_db.add(PhotoPackImage(
+                pack_id=pack.id, file_path=tmp.name,
+                url="/media/packs/test.jpg", sort_order=0,
+            ))
+            await isolated_db.flush()
+
+            app = _make_app(isolated_db)
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+                resp = await c.post(f"/models/{model.id}/products", json={
+                    "account_id": acc.id,
+                    "size": "42",
+                    "price": 3790,
+                    "pack_id": pack.id,
+                })
+
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["ok"] is True
+
+            # Verify product_images were created from pack
+            result = await isolated_db.execute(
+                sa_select(ProductImage).where(
+                    ProductImage.product_id == data["product_id"]
+                )
+            )
+            images = result.scalars().all()
+            assert len(images) == 1
+            assert images[0].is_main is True
+        finally:
+            os.unlink(tmp.name)
+
+    @pytest.mark.asyncio
+    async def test_no_pack_creates_no_images(self, isolated_db):
+        """POST without pack_id → product has no product_images."""
+        acc, model = await _seed(isolated_db)
+
+        app = _make_app(isolated_db)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            resp = await c.post(f"/models/{model.id}/products", json={
+                "account_id": acc.id,
+                "size": "43",
+                "price": 4000,
+            })
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+
+        result = await isolated_db.execute(
+            sa_select(ProductImage).where(
+                ProductImage.product_id == data["product_id"]
+            )
+        )
+        images = result.scalars().all()
+        assert len(images) == 0

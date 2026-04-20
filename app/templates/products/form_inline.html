@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Редактировать товар</title>
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; background:#fff; color:#374151; padding:16px; }
+        .field { margin-bottom:10px; }
+        .field label { display:block; font-size:13px; font-weight:500; color:#6b7280; margin-bottom:3px; }
+        .field input, .field select, .field textarea { width:100%; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; font-family:inherit; }
+        .field textarea { resize:vertical; }
+        .field input:focus, .field select:focus, .field textarea:focus { border-color:#534AB7; outline:none; box-shadow:0 0 0 2px rgba(83,74,183,0.1); }
+        .grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+        .grid-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; }
+        h3 { margin:16px 0 8px; font-size:14px; color:#6b7280; }
+        .btn { display:inline-flex; align-items:center; padding:6px 14px; border-radius:6px; font-size:13px; cursor:pointer; border:none; font-family:inherit; }
+        .btn-primary { background:#534AB7; color:#fff; }
+        .btn-primary:hover { background:#4338ca; }
+        .btn-secondary { background:#f3f4f6; color:#374151; }
+        .btn-sm { padding:4px 10px; font-size:12px; }
+        .compact .field { margin-bottom:6px; }
+        .compact label { font-size:0.85rem; }
+        .compact h3 { margin:12px 0 8px; font-size:14px; color:#6b7280; }
+        .compact .grid-2 { gap:8px; }
+        .compact .grid-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; }
+        .actions { display:none; } /* Hide save/cancel buttons — parent modal handles submit */
+        .flash { padding:8px 12px; border-radius:6px; margin-bottom:8px; font-size:13px; }
+        .flash-success { background:#dcfce7; color:#166534; }
+        .tpl-preview-panel { background:#f4f4f5; border:1px solid #e2e4f0; border-radius:8px; padding:10px 14px; margin-bottom:8px; font-size:13px; }
+        .tpl-preview-panel summary { cursor:pointer; color:#374151; font-weight:500; }
+        .tpl-preview-panel summary:hover { color:#534AB7; }
+        .tpl-preview-body { white-space:pre-wrap; font-size:12px; color:#6b7280; margin-top:8px; max-height:300px; overflow-y:auto; background:#fff; border:1px solid #e2e4f0; border-radius:6px; padding:10px; font-family:inherit; }
+    </style>
+</head>
+<body>
+<div class="card compact">
+    <form method="post" id="inline-edit-form">
+        <input type="hidden" name="inline" value="1">
+        <div class="field">
+            <label>Название *</label>
+            <input name="title" value="{{ product.title if product else '' }}" required>
+        </div>
+        <div class="grid-2">
+            <div class="field">
+                <label>Цена *</label>
+                <input name="price" type="number" value="{{ product.price if product and product.price else '' }}" required>
+            </div>
+            <div class="field">
+                <label>SKU</label>
+                <input name="sku" value="{{ product.sku if product and product.sku else '' }}">
+            </div>
+        </div>
+        <div class="grid-3">
+            <div class="field">
+                <label>Бренд</label>
+                <input name="brand" value="{{ product.brand if product and product.brand else '' }}">
+            </div>
+            <div class="field">
+                <label>Размер</label>
+                <input name="size" value="{{ product.size if product and product.size else '' }}">
+            </div>
+            <div class="field">
+                <label>Цвет</label>
+                <input name="color" value="{{ product.color if product and product.color else '' }}">
+            </div>
+        </div>
+        <div class="grid-2">
+            <div class="field">
+                <label>Модель</label>
+                <input name="model" value="{{ product.model if product and product.model else '' }}">
+            </div>
+            <div class="field">
+                <label>Материал</label>
+                <input name="material" value="{{ product.material if product and product.material else '' }}">
+            </div>
+        </div>
+
+        <h3>Категория Avito</h3>
+        <div class="grid-2">
+            <div class="field">
+                <label>Категория</label>
+                <select name="category" id="category" onchange="updateGoodsTypes()">
+                    <option value="">— Выберите —</option>
+                    {% for cat in categories %}
+                    <option value="{{ cat }}" {{ "selected" if product and product.category == cat else "" }}>{{ cat }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="field">
+                <label>Тип товара</label>
+                <select name="goods_type" id="goods_type" onchange="updateApparels()">
+                    <option value="">— Выберите —</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>Вид одежды/обуви</label>
+                <select name="subcategory" id="subcategory" onchange="updateGoodsSubtypes()">
+                    <option value="">— Выберите —</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>Подтип</label>
+                <select name="goods_subtype" id="goods_subtype">
+                    <option value="">— Выберите —</option>
+                </select>
+            </div>
+        </div>
+
+        <h3>Описание</h3>
+        <div class="field">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+                <div style="position:relative;display:inline-block;" id="tpl-dropdown-wrap">
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="toggleTplDropdown()">Вставить шаблон &#x25BE;</button>
+                    <div id="tpl-dropdown" style="display:none;position:absolute;top:100%;left:0;z-index:100;background:#fff;border:1px solid #d1d5db;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.1);min-width:240px;max-height:200px;overflow-y:auto;margin-top:4px;">
+                        <div id="tpl-dropdown-list" style="padding:4px 0;">
+                            <div style="padding:8px 12px;color:#9ca3af;font-size:12px;">Загрузка...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% if product and product.description_template %}
+            <details class="tpl-preview-panel" id="tpl-preview-panel">
+                <summary>Будет использован шаблон: &laquo;{{ product.description_template.name }}&raquo;</summary>
+                <pre class="tpl-preview-body">{{ product.description_template.body }}</pre>
+            </details>
+            {% endif %}
+            <textarea name="description" rows="6" required placeholder="{{ 'Описание берётся из шаблона. Чтобы написать своё — выберите «— не выбран —» в поле «Описание» выше.' if product and product.description_template else 'Описание обязательно для Avito' }}">{{ product.description if product and product.description else '' }}</textarea>
+        </div>
+
+        <h3>Параметры Avito</h3>
+        <div class="grid-2">
+            <div class="field">
+                <label>Состояние</label>
+                <select name="condition">
+                    {% for c in conditions %}
+                    <option value="{{ c }}" {{ "selected" if product and product.condition == c else "" }}>{{ c }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="field">
+                <label>Наличие</label>
+                <select name="availability">
+                    {% for v in availabilities %}
+                    <option value="{{ v }}" {{ "selected" if product and product.extra and product.extra.get("availability") == v else ("selected" if v == default_availability and (not product or not product.extra) else "") }}>{{ v }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="field">
+                <label>Доставка</label>
+                <select name="delivery">
+                    {% for v in delivery_options %}
+                    <option value="{{ v }}" {{ "selected" if product and product.extra and product.extra.get("delivery") == v else ("selected" if v == default_delivery and (not product or not product.extra) else "") }}>{{ v }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="field">
+                <label>Примерка</label>
+                <select name="try_on">
+                    {% for v in try_on_options %}
+                    <option value="{{ v }}" {{ "selected" if product and product.extra and product.extra.get("try_on") == v else ("selected" if v == default_try_on and (not product or not product.extra) else "") }}>{{ v }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        <div class="grid-2">
+            <div class="field">
+                <label>Аккаунт</label>
+                <select name="account_id">
+                    <option value="">— Не привязан —</option>
+                    {% for acc in accounts %}
+                    <option value="{{ acc.id }}" {{ "selected" if product and product.account_id == acc.id else "" }}>{{ acc.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="field">
+                <label>Статус</label>
+                <select name="status">
+                    {% for s in statuses %}
+                    {% if s not in ('scheduled', 'published', 'sold') %}
+                    <option value="{{ s }}" {{ "selected" if product and product.status == s else "" }}>{{ s }}</option>
+                    {% endif %}
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        <!-- Hidden fields for defaults that the full form has -->
+        <input type="hidden" name="ad_type" value="{{ product.extra.get('ad_type', '') if product and product.extra else '' }}">
+        <input type="hidden" name="delivery_subsidy" value="{{ product.extra.get('delivery_subsidy', '') if product and product.extra else '' }}">
+        <input type="hidden" name="multi_item" value="{{ product.extra.get('multi_item', '') if product and product.extra else '' }}">
+        <input type="hidden" name="model_id" value="{{ product.model_id if product and product.model_id else '' }}">
+    </form>
+</div>
+
+<script>
+const goodsTypes = {{ goods_types | tojson }};
+const apparels = {{ apparels | tojson }};
+const goodsSubtypes = {{ goods_subtypes | tojson }};
+const saved = {
+    goodsType: {{ (product.goods_type if product and product.goods_type else "") | tojson }},
+    apparel: {{ (product.subcategory if product and product.subcategory else "") | tojson }},
+    goodsSubtype: {{ (product.goods_subtype if product and product.goods_subtype else "") | tojson }},
+};
+
+function fillSelect(sel, items, savedVal) {
+    sel.innerHTML = '<option value="">— Выберите —</option>';
+    (items || []).forEach(function(val) {
+        const opt = document.createElement("option");
+        opt.value = val; opt.textContent = val;
+        if (val === savedVal) opt.selected = true;
+        sel.appendChild(opt);
+    });
+}
+function updateGoodsTypes() {
+    const cat = document.getElementById("category").value;
+    fillSelect(document.getElementById("goods_type"), goodsTypes[cat], saved.goodsType);
+    updateApparels();
+}
+function updateApparels() {
+    const gt = document.getElementById("goods_type").value;
+    fillSelect(document.getElementById("subcategory"), apparels[gt], saved.apparel);
+    updateGoodsSubtypes();
+}
+function updateGoodsSubtypes() {
+    const ap = document.getElementById("subcategory").value;
+    const sel = document.getElementById("goods_subtype");
+    const items = goodsSubtypes[ap] || [];
+    if (items.length === 0) {
+        sel.innerHTML = '<option value="">Не требуется</option>';
+        sel.disabled = true; sel.style.opacity = '0.6';
+    } else {
+        sel.disabled = false; sel.style.opacity = '';
+        fillSelect(sel, items, saved.goodsSubtype);
+    }
+}
+
+// Description template dropdown
+let _tplLoaded = false, _tplBodies = [];
+function toggleTplDropdown() {
+    const dd = document.getElementById('tpl-dropdown');
+    if (dd.style.display === 'none') { dd.style.display = 'block'; if (!_tplLoaded) fetchTemplates(); }
+    else dd.style.display = 'none';
+}
+async function fetchTemplates() {
+    const list = document.getElementById('tpl-dropdown-list');
+    try {
+        const resp = await fetch('/api/description-templates');
+        const data = await resp.json();
+        _tplLoaded = true;
+        if (!data.ok || !data.templates.length) { list.innerHTML = '<div style="padding:8px 12px;color:#9ca3af;font-size:12px;">Нет шаблонов</div>'; return; }
+        _tplBodies = data.templates.map(t => t.body);
+        list.innerHTML = data.templates.map((t, i) =>
+            `<div class="tpl-item" data-tpl-index="${i}" style="padding:6px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid #f3f4f6;">${t.name}</div>`
+        ).join('');
+    } catch(e) { list.innerHTML = '<div style="padding:8px 12px;color:#dc2626;font-size:12px;">Ошибка</div>'; }
+}
+document.getElementById('tpl-dropdown-list').addEventListener('mousedown', function(e) {
+    const item = e.target.closest('.tpl-item');
+    if (!item) return;
+    e.preventDefault();
+    const body = _tplBodies[parseInt(item.dataset.tplIndex, 10)];
+    if (body === undefined) return;
+    const ta = document.querySelector('textarea[name="description"]');
+    if (ta.value.trim() && !confirm('Заменить текущее описание?')) return;
+    ta.value = body;
+    document.getElementById('tpl-dropdown').style.display = 'none';
+});
+
+// Listen for parent requesting form submit
+window.addEventListener('message', function(e) {
+    if (e.data && e.data.type === 'submit-form') {
+        document.getElementById('inline-edit-form').submit();
+    }
+});
+
+// Init cascading selects
+updateGoodsTypes();
+</script>
+</body>
+</html>
