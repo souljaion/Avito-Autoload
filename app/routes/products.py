@@ -604,7 +604,7 @@ async def product_update(
     if inline == "1":
         return HTMLResponse(
             f'<html><body><script>'
-            f'window.parent.postMessage({{type:"product-saved",productId:{product.id}}},"*");'
+            f'window.parent.postMessage({{type:"product-saved",productId:{product.id}}},window.location.origin);'
             f'</script><p style="text-align:center;padding:40px;font-family:sans-serif;color:#166534;">'
             f'Сохранено</p></body></html>'
         )

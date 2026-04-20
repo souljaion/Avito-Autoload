@@ -271,6 +271,7 @@ document.getElementById('tpl-dropdown-list').addEventListener('mousedown', funct
 
 // Listen for parent requesting form submit
 window.addEventListener('message', function(e) {
+    if (e.origin !== window.location.origin) return;
     if (e.data && e.data.type === 'submit-form') {
         document.getElementById('inline-edit-form').submit();
     }

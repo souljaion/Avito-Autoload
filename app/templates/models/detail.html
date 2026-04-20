@@ -692,6 +692,7 @@ function closeInlineEdit() {
 
 // Listen for postMessage from iframe after form save
 window.addEventListener('message', function(e) {
+    if (e.origin !== window.location.origin) return;
     if (e.data && e.data.type === 'product-saved' && _inlineProductId) {
         // Form saved successfully, now publish
         _doPublishAfterSave(e.data.productId || _inlineProductId);
@@ -704,7 +705,7 @@ async function inlinePublishConfirm() {
     btn.textContent = 'Сохраняем...';
     // Tell iframe to submit its form
     const iframe = document.getElementById('inline-edit-iframe');
-    iframe.contentWindow.postMessage({type: 'submit-form'}, '*');
+    iframe.contentWindow.postMessage({type: 'submit-form'}, window.location.origin);
     // Wait for postMessage back (handled by event listener above)
 }
 

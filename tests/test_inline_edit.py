@@ -115,3 +115,41 @@ class TestInlineEdit:
             resp = await c.get("/products/99999/edit?inline=1")
 
         assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_inline_post_uses_origin_not_wildcard(self, isolated_db):
+        """POST with inline=1 returns postMessage with window.location.origin, not '*'."""
+        acc, product = await _seed(isolated_db)
+        app = _make_app(isolated_db)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            resp = await c.post(
+                f"/products/{product.id}/edit",
+                data={
+                    "title": product.title,
+                    "price": str(product.price),
+                    "brand": product.brand or "",
+                    "category": product.category or "",
+                    "goods_type": product.goods_type or "",
+                    "subcategory": product.subcategory or "",
+                    "goods_subtype": "",
+                    "size": "",
+                    "color": "",
+                    "material": "",
+                    "condition": product.condition or "",
+                    "description": "test desc",
+                    "status": "draft",
+                    "scheduled_at": "",
+                    "scheduled_account_id": "",
+                    "model_id": "",
+                    "inline": "1",
+                },
+                follow_redirects=False,
+            )
+
+        assert resp.status_code == 200
+        html = resp.text
+        assert "window.location.origin" in html
+        # Must NOT contain '"*"' as targetOrigin in postMessage
+        assert 'postMessage(' in html
+        assert '"*"' not in html
