@@ -673,6 +673,26 @@ function closeBulkModal() {
 
 // ── Inline edit + publish (single product) ──
 let _inlineProductId = null;
+let _inlineTimeoutId = null;
+const INLINE_TIMEOUT_MS = 10000;
+
+function _armInlineTimeout() {
+    _clearInlineTimeout();
+    const btn = document.getElementById('inline-publish-btn');
+    _inlineTimeoutId = setTimeout(() => {
+        _inlineTimeoutId = null;
+        btn.disabled = false;
+        btn.textContent = 'Сохранить и опубликовать';
+        showToast('Не удалось сохранить — iframe не ответил за 10 секунд. Проверьте подключение и попробуйте снова.', true);
+    }, INLINE_TIMEOUT_MS);
+}
+
+function _clearInlineTimeout() {
+    if (_inlineTimeoutId) {
+        clearTimeout(_inlineTimeoutId);
+        _inlineTimeoutId = null;
+    }
+}
 
 function openInlineEdit(productId) {
     _inlineProductId = productId;
@@ -685,6 +705,7 @@ function openInlineEdit(productId) {
 }
 
 function closeInlineEdit() {
+    _clearInlineTimeout();
     document.getElementById('inline-edit-overlay').classList.remove('visible');
     document.getElementById('inline-edit-iframe').src = '';
     _inlineProductId = null;
@@ -694,7 +715,7 @@ function closeInlineEdit() {
 window.addEventListener('message', function(e) {
     if (e.origin !== window.location.origin) return;
     if (e.data && e.data.type === 'product-saved' && _inlineProductId) {
-        // Form saved successfully, now publish
+        _clearInlineTimeout();
         _doPublishAfterSave(e.data.productId || _inlineProductId);
     }
 });
@@ -703,10 +724,9 @@ async function inlinePublishConfirm() {
     const btn = document.getElementById('inline-publish-btn');
     btn.disabled = true;
     btn.textContent = 'Сохраняем...';
-    // Tell iframe to submit its form
+    _armInlineTimeout();
     const iframe = document.getElementById('inline-edit-iframe');
     iframe.contentWindow.postMessage({type: 'submit-form'}, window.location.origin);
-    // Wait for postMessage back (handled by event listener above)
 }
 
 async function _doPublishAfterSave(productId) {
