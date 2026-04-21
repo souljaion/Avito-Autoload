@@ -284,3 +284,45 @@ async def test_pack_images():
     assert len(data["images"]) == 2
     assert data["images"][0]["id"] == 1
     assert data["images"][1]["sort_order"] == 1
+
+
+@pytest.mark.asyncio
+async def test_rename_pack_success():
+    pack = _mock_pack(pack_id=5, name="Old Name")
+    db = AsyncMock()
+    db.get = AsyncMock(return_value=pack)
+    db.commit = AsyncMock()
+
+    app = _make_app(db)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        resp = await ac.patch("/photo-packs/5", json={"name": "New Name"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["name"] == "New Name"
+    assert pack.name == "New Name"
+    db.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_rename_pack_empty_name():
+    pack = _mock_pack(pack_id=5, name="Old Name")
+    db = AsyncMock()
+    db.get = AsyncMock(return_value=pack)
+
+    app = _make_app(db)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        resp = await ac.patch("/photo-packs/5", json={"name": "  "})
+    assert resp.status_code == 400
+    assert pack.name == "Old Name"
+
+
+@pytest.mark.asyncio
+async def test_rename_pack_not_found():
+    db = AsyncMock()
+    db.get = AsyncMock(return_value=None)
+
+    app = _make_app(db)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        resp = await ac.patch("/photo-packs/999", json={"name": "Test"})
+    assert resp.status_code == 404

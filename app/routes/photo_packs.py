@@ -79,6 +79,20 @@ async def create_pack(
     return JSONResponse({"ok": True, "id": pack.id, "name": pack.name})
 
 
+@router.patch("/{pack_id}")
+async def rename_pack(pack_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+    pack = await db.get(PhotoPack, pack_id)
+    if not pack:
+        return JSONResponse({"ok": False, "error": "Пак не найден"}, status_code=404)
+    body = await request.json()
+    name = (body.get("name") or "").strip()
+    if not name or len(name) > 100:
+        return JSONResponse({"ok": False, "error": "Имя должно быть от 1 до 100 символов"}, status_code=400)
+    pack.name = name
+    await db.commit()
+    return JSONResponse({"ok": True, "id": pack.id, "name": pack.name})
+
+
 async def _process_one_file(raw: bytes) -> tuple[bytes, bytes]:
     """Process main image + thumbnail in threadpool. Returns (main_data, thumb_data)."""
     main_data = await process_image_async(raw, max_side=1200, quality=82)

@@ -183,7 +183,7 @@
                         <span class="pack-item-count">{% if pack.images|length %}{{ pack.images|length }} фото{% else %}пустой{% endif %}</span>
                     </div>
                     <div class="pack-item-actions">
-                        <button class="btn btn-sm btn-outline" disabled title="Скоро будет" onclick="event.stopPropagation()">Переименовать</button>
+                        <button class="btn btn-sm btn-outline" onclick="event.stopPropagation();renamePack({{ pack.id }},'{{ pack.name|e }}')">Переименовать</button>
                         <button class="btn btn-sm btn-outline-danger" onclick="event.stopPropagation();deletePack({{ pack.id }})">Удалить</button>
                     </div>
                 </summary>
@@ -1064,6 +1064,23 @@ async function createPack() {
             if (files.length > 0) { const uf = new FormData(); for (const f of files) uf.append('files', f); await fetch('/photo-packs/' + data.id + '/upload', { method: 'POST', body: uf }); }
         }
         location.reload();
+    } catch(e) { showToast('Ошибка сети', true); }
+}
+
+async function renamePack(packId, currentName) {
+    var newName = prompt('Новое имя пака:', currentName);
+    if (newName === null || newName.trim() === '' || newName.trim() === currentName) return;
+    try {
+        var resp = await fetch('/photo-packs/' + packId, {
+            method: 'PATCH', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name: newName.trim()}),
+        });
+        var data = await resp.json();
+        if (data.ok) {
+            var el = document.querySelector('#pack-' + packId + ' .pack-item-name');
+            if (el) el.textContent = data.name;
+            showToast('Переименовано', false);
+        } else { showToast(data.error || 'Ошибка', true); }
     } catch(e) { showToast('Ошибка сети', true); }
 }
 
