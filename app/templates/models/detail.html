@@ -38,9 +38,20 @@
 .section-card-header h2 { font-size:14px; font-weight:500; color:#1e1b4b; margin:0; }
 .section-card-body { border-top:0.5px solid #e2e4f0; }
 
-.pack-card { background:#fafafa; border:0.5px solid #e2e4f0; border-radius:8px; padding:14px; min-width:260px; flex-shrink:0; }
-.pack-thumbs { display:flex; gap:6px; margin-bottom:8px; }
-.pack-thumbs img { width:48px; height:48px; object-fit:cover; border-radius:6px; border:0.5px solid #e2e4f0; }
+.pack-item { border-bottom:0.5px solid #e2e4f0; }
+.pack-item:last-child { border-bottom:none; }
+.pack-item summary { list-style:none; cursor:pointer; padding:10px 16px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.pack-item summary::-webkit-details-marker { display:none; }
+.pack-item summary::marker { display:none; content:""; }
+.pack-item-left { display:flex; align-items:center; gap:8px; font-size:13px; }
+.pack-item-arrow { font-size:10px; color:#9ca3af; transition:transform 0.15s; }
+.pack-item[open] .pack-item-arrow { transform:rotate(90deg); }
+.pack-item-name { font-weight:500; color:#1e1b4b; }
+.pack-item-count { color:#9ca3af; font-weight:400; font-size:12px; }
+.pack-item-actions { display:flex; gap:6px; }
+.pack-item-body { padding:0 16px 14px 16px; }
+.pack-yd-grid { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px; }
+.pack-yd-grid img { width:72px; height:72px; object-fit:cover; border-radius:6px; border:0.5px solid #e2e4f0; }
 .pack-drop-zone { border:2px dashed #e2e4f0; border-radius:6px; padding:10px; text-align:center; color:#9ca3af; font-size:12px; margin-top:8px; transition:border-color 0.15s; }
 .pack-drop-zone.dragover { border-color:#534AB7; color:#534AB7; }
 
@@ -104,10 +115,6 @@
 .yd-badge-pending { background:#f3f4f6; color:#6b7280; }
 .yd-badge-downloading { background:#dbeafe; color:#1e40af; }
 .yd-badge-failed { background:#fef2f2; color:#991b1b; }
-.yd-thumb-wrap { display:inline-block; position:relative; cursor:pointer; }
-.yd-thumb-wrap img { width:80px; height:80px; object-fit:cover; border-radius:6px; border:2px solid #e5e7eb; }
-.yd-thumb-wrap input[type=checkbox] { position:absolute; top:3px; left:3px; z-index:2; }
-.yd-thumb-wrap.selected img { border-color:#534AB7; }
 
 @media (max-width:768px) {
     .m-title-row { flex-direction:column; gap:12px; }
@@ -166,28 +173,25 @@
             <h2>Фотопаки</h2>
             <button class="btn btn-primary btn-sm" onclick="document.getElementById('addPackModal').style.display='flex'">+ Добавить пак</button>
         </div>
-        <div style="display:flex;gap:14px;overflow-x:auto;padding:14px 16px;" id="packsRibbon">
+        <div class="section-card-body" id="packsList">
             {% for pack in model.photo_packs %}
-            <div class="pack-card" id="pack-{{ pack.id }}">
-                <div style="font-weight:500;font-size:13px;color:#1e1b4b;margin-bottom:6px;">{{ pack.name }} <span style="color:#9ca3af;font-weight:400;">({{ pack.images|length }})</span></div>
-                <div class="pack-thumbs">
-                    {% for img in pack.images[:6] %}{% set turl = img.url.rsplit('.', 1) %}<img src="{{ turl[0] }}_thumb.{{ turl[1] }}">{% endfor %}
-                    {% if pack.images|length > 6 %}<span style="font-size:11px;color:#9ca3af;align-self:center;">+{{ pack.images|length - 6 }}</span>{% endif %}
-                </div>
-                <div style="display:flex;gap:6px;">
-                    <label class="btn btn-secondary btn-sm" style="cursor:pointer;">&#x1F4F7; Фото<input type="file" multiple accept="image/*,.heic,.heif" style="display:none;" onchange="uploadToPack({{ pack.id }},this.files)"></label>
-                    <button class="btn btn-sm btn-outline-danger" onclick="deletePack({{ pack.id }})">&#x1F5D1;</button>
-                </div>
-                <div class="pack-drop-zone" ondragover="event.preventDefault();this.classList.add('dragover')" ondragleave="this.classList.remove('dragover')" ondrop="event.preventDefault();this.classList.remove('dragover');uploadToPack({{ pack.id }},event.dataTransfer.files)">Перетащите фото</div>
-                <!-- Y.Disk section -->
-                <div class="yd-pack-section" data-pack-id="{{ pack.id }}" style="margin-top:10px;">
-                    <div style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:#6b7280;" onclick="toggleYdSection({{ pack.id }})">
-                        <span id="yd-toggle-{{ pack.id }}">&#x25B6;</span> <span>Я.Диск</span>
-                        <span id="yd-folder-count-{{ pack.id }}" style="display:none;" class="link-count-badge"></span>
+            <details class="pack-item" id="pack-{{ pack.id }}"{% if loop.first %} open{% endif %}>
+                <summary>
+                    <div class="pack-item-left">
+                        <span class="pack-item-arrow">&#x25B6;</span>
+                        <span class="pack-item-name">{{ pack.name }}</span>
+                        <span class="pack-item-count">{% if pack.images|length %}{{ pack.images|length }} фото{% else %}пустой{% endif %}</span>
                     </div>
-                    <div id="yd-body-{{ pack.id }}" style="display:none;margin-top:8px;">
+                    <div class="pack-item-actions">
+                        <button class="btn btn-sm btn-outline" disabled title="Скоро будет" onclick="event.stopPropagation()">Переименовать</button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="event.stopPropagation();deletePack({{ pack.id }})">Удалить</button>
+                    </div>
+                </summary>
+                <div class="pack-item-body">
+                    <!-- Y.Disk section -->
+                    <div class="yd-pack-section" data-pack-id="{{ pack.id }}">
                         <div id="yd-folders-{{ pack.id }}"></div>
-                        <button type="button" class="btn btn-sm btn-outline" style="font-size:11px;margin-top:6px;" onclick="showAddYdFolderForPack({{ pack.id }})">+ Добавить папку</button>
+                        <button type="button" class="btn btn-sm btn-outline" style="font-size:11px;margin-top:6px;" onclick="showAddYdFolderForPack({{ pack.id }})">+ Добавить папку Я.Диска</button>
                         <div id="yd-add-{{ pack.id }}" style="display:none;margin-top:8px;padding:10px;border:1px solid #e2e4f0;border-radius:6px;">
                             <input type="text" id="yd-url-{{ pack.id }}" placeholder="https://disk.yandex.ru/d/..." style="width:100%;margin-bottom:6px;padding:6px 8px;border:1px solid #e2e4f0;border-radius:6px;font-size:12px;">
                             <input type="text" id="yd-name-{{ pack.id }}" placeholder="Имя папки (необязательно)" style="width:100%;margin-bottom:6px;padding:6px 8px;border:1px solid #e2e4f0;border-radius:6px;font-size:12px;">
@@ -197,10 +201,18 @@
                             </div>
                         </div>
                     </div>
+                    <!-- Local upload (collapsed) -->
+                    <details style="margin-top:10px;">
+                        <summary style="font-size:12px;color:#6b7280;cursor:pointer;">Загрузить с компьютера</summary>
+                        <div style="margin-top:8px;">
+                            <label class="btn btn-secondary btn-sm" style="cursor:pointer;">&#x1F4F7; Выбрать файлы<input type="file" multiple accept="image/*,.heic,.heif" style="display:none;" onchange="uploadToPack({{ pack.id }},this.files)"></label>
+                            <div class="pack-drop-zone" ondragover="event.preventDefault();this.classList.add('dragover')" ondragleave="this.classList.remove('dragover')" ondrop="event.preventDefault();this.classList.remove('dragover');uploadToPack({{ pack.id }},event.dataTransfer.files)">Перетащите фото сюда</div>
+                        </div>
+                    </details>
                 </div>
-            </div>
+            </details>
             {% endfor %}
-            {% if not model.photo_packs %}<div style="color:#9ca3af;font-size:13px;padding:20px;">Нет фотопаков.</div>{% endif %}
+            {% if not model.photo_packs %}<div style="color:#9ca3af;font-size:13px;padding:16px;">Нет фотопаков.</div>{% endif %}
         </div>
     </div>
 
@@ -1043,6 +1055,10 @@ async function createPack() {
             });
             const fData = await fResp.json();
             if (!fData.ok) { document.getElementById('packError').textContent = fData.error || 'Ошибка'; document.getElementById('packError').style.display = 'block'; return; }
+            // Auto-select all files from the new folder
+            if (fData.files && fData.files.length) {
+                await _autoSelectAllFiles(data.id, fData.folder_id, fData.files);
+            }
         } else {
             const files = document.getElementById('packFiles').files;
             if (files.length > 0) { const uf = new FormData(); for (const f of files) uf.append('files', f); await fetch('/photo-packs/' + data.id + '/upload', { method: 'POST', body: uf }); }
@@ -1053,7 +1069,7 @@ async function createPack() {
 
 async function deletePack(packId) {
     if (!confirm('Удалить фотопак?')) return;
-    const resp = await fetch('/photo-packs/' + packId, { method: 'DELETE' });
+    var resp = await fetch('/photo-packs/' + packId, { method: 'DELETE' });
     if ((await resp.json()).ok) { document.getElementById('pack-' + packId)?.remove(); showToast('Удалён', false); }
     else showToast('Ошибка', true);
 }
@@ -1070,37 +1086,45 @@ async function uploadToPack(packId, files) {
 // ── Yandex.Disk on pack cards ──
 const _ydPollingTimers = {};
 
-function toggleYdSection(packId) {
-    const body = document.getElementById('yd-body-' + packId);
-    const icon = document.getElementById('yd-toggle-' + packId);
-    if (body.style.display === 'none') {
-        body.style.display = 'block'; icon.innerHTML = '&#x25BC;';
-        loadYdFolders(packId);
-    } else {
-        body.style.display = 'none'; icon.innerHTML = '&#x25B6;';
-    }
-}
-
 function showAddYdFolderForPack(packId) {
     document.getElementById('yd-add-' + packId).style.display = 'block';
 }
 
 async function addYdFolderForPack(packId) {
-    const url = document.getElementById('yd-url-' + packId).value.trim();
-    const name = document.getElementById('yd-name-' + packId).value.trim();
-    const errEl = document.getElementById('yd-add-err-' + packId);
+    var url = document.getElementById('yd-url-' + packId).value.trim();
+    var name = document.getElementById('yd-name-' + packId).value.trim();
+    var errEl = document.getElementById('yd-add-err-' + packId);
     errEl.textContent = '';
     if (!url) { errEl.textContent = 'Введите ссылку'; return; }
     try {
-        const resp = await fetch('/api/photo-packs/' + packId + '/yandex-folders', {
+        var resp = await fetch('/api/photo-packs/' + packId + '/yandex-folders', {
             method: 'POST', headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({public_url: url, folder_name: name || null}),
         });
-        const data = await resp.json();
+        var data = await resp.json();
         if (!data.ok) { errEl.textContent = data.error || 'Ошибка'; return; }
         document.getElementById('yd-add-' + packId).style.display = 'none';
+        // Auto-select all files from the new folder
+        if (data.files && data.files.length) {
+            await _autoSelectAllFiles(packId, data.folder_id, data.files);
+        }
         loadYdFolders(packId);
     } catch(e) { errEl.textContent = 'Ошибка сети'; }
+}
+
+async function _autoSelectAllFiles(packId, folderId, files) {
+    var paths = files.map(function(f) { return f.path; });
+    try {
+        var resp = await fetch('/api/photo-packs/' + packId + '/yandex-folders/' + folderId + '/selection', {
+            method: 'PUT', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({selected_paths: paths}),
+        });
+        var data = await resp.json();
+        if (data.ok && data.added > 0) {
+            showToast(data.added + ' фото добавлено. Загрузка начнётся автоматически.', false);
+            checkYdDownloadStatus(packId);
+        }
+    } catch(e) {}
 }
 
 async function deleteYdFolderForPack(packId, folderId) {
@@ -1110,65 +1134,34 @@ async function deleteYdFolderForPack(packId, folderId) {
 }
 
 async function loadYdFolders(packId) {
-    const container = document.getElementById('yd-folders-' + packId);
+    var container = document.getElementById('yd-folders-' + packId);
     container.innerHTML = '<span style="color:#9ca3af;font-size:11px;">Загрузка...</span>';
     try {
-        const resp = await fetch('/api/photo-packs/' + packId + '/yandex-folders');
-        const data = await resp.json();
+        var resp = await fetch('/api/photo-packs/' + packId + '/yandex-folders');
+        var data = await resp.json();
         if (!data.ok) { container.innerHTML = '<span style="color:#dc2626;font-size:11px;">Ошибка</span>'; return; }
 
-        // Update folder count badge
-        const badge = document.getElementById('yd-folder-count-' + packId);
-        if (data.folders.length > 0) { badge.textContent = data.folders.length; badge.style.display = 'inline'; }
-        else { badge.style.display = 'none'; }
+        if (!data.folders.length) { container.innerHTML = ''; return; }
 
-        if (!data.folders.length) { container.innerHTML = '<span style="color:#9ca3af;font-size:11px;">Нет папок</span>'; return; }
+        var html = '';
+        for (var folder of data.folders) {
+            html += '<div style="border:1px solid #e2e4f0;border-radius:6px;padding:8px;margin-bottom:6px;">';
+            html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">';
+            html += '<span style="font-size:12px;font-weight:500;">' + (folder.folder_name || 'Папка') + '</span>';
+            html += '<button class="btn btn-sm btn-outline-danger" style="font-size:10px;padding:2px 6px;" onclick="deleteYdFolderForPack(' + packId + ',' + folder.folder_id + ')">&#x2715;</button>';
+            html += '</div>';
+            if (folder.error) html += '<div style="color:#dc2626;font-size:10px;margin-bottom:4px;">' + folder.error + '</div>';
 
-        let html = '';
-        let hasPending = false;
-        for (const folder of data.folders) {
-            html += `<div style="border:1px solid #e2e4f0;border-radius:6px;padding:8px;margin-bottom:6px;">`;
-            html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">`;
-            html += `<span style="font-size:12px;font-weight:500;">${folder.folder_name || 'Папка'}</span>`;
-            html += `<button class="btn btn-sm btn-outline-danger" style="font-size:10px;padding:2px 6px;" onclick="deleteYdFolderForPack(${packId},${folder.folder_id})">&#x2715;</button>`;
-            html += `</div>`;
-            if (folder.error) html += `<div style="color:#dc2626;font-size:10px;margin-bottom:4px;">${folder.error}</div>`;
-
-            html += `<div class="yd-grid" id="yd-grid-${packId}-${folder.folder_id}" style="display:flex;gap:4px;flex-wrap:wrap;">`;
-            for (const f of folder.files) {
-                const cls = f.selected ? 'yd-thumb-wrap selected' : 'yd-thumb-wrap';
-                html += `<label class="${cls}">`;
-                html += `<input type="checkbox" value="${f.path}" ${f.selected ? 'checked' : ''}>`;
-                html += `<img src="/api/yandex-preview?url=${encodeURIComponent(f.preview_url)}" alt="${f.name}" loading="lazy" title="${f.name} (${Math.round(f.size/1024)} KB)">`;
-                html += `</label>`;
+            html += '<div class="pack-yd-grid">';
+            for (var f of folder.files) {
+                html += '<img src="/api/yandex-preview?url=' + encodeURIComponent(f.preview_url) + '" alt="' + f.name + '" loading="lazy" title="' + f.name + ' (' + Math.round(f.size/1024) + ' KB)">';
             }
-            if (!folder.files.length) html += `<span style="color:#9ca3af;font-size:11px;">Пусто</span>`;
-            html += `</div>`;
-
-            html += `<button type="button" class="btn btn-sm btn-primary" style="font-size:11px;margin-top:6px;" onclick="saveYdSelectionForPack(${packId},${folder.folder_id})">Сохранить выбор</button>`;
-            html += `</div>`;
+            if (!folder.files.length) html += '<span style="color:#9ca3af;font-size:11px;">Пусто</span>';
+            html += '</div>';
+            html += '</div>';
         }
         container.innerHTML = html;
-        // Polling is NOT started here — only by explicit triggers
-        // (saveYdSelectionForPack, retryPackDownload, page init for packs with pending images)
     } catch(e) { container.innerHTML = '<span style="color:#dc2626;font-size:11px;">Ошибка</span>'; }
-}
-
-async function saveYdSelectionForPack(packId, folderId) {
-    const grid = document.getElementById('yd-grid-' + packId + '-' + folderId);
-    const checks = grid.querySelectorAll('input[type=checkbox]:checked');
-    const paths = Array.from(checks).map(c => c.value);
-    try {
-        const resp = await fetch('/api/photo-packs/' + packId + '/yandex-folders/' + folderId + '/selection', {
-            method: 'PUT', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({selected_paths: paths}),
-        });
-        const data = await resp.json();
-        if (data.ok) {
-            showToast(`Выбрано фото: ${data.added} новых. Загрузка начнётся автоматически.`, false);
-            checkYdDownloadStatus(packId);
-        } else showToast(data.error || 'Ошибка', true);
-    } catch(e) { showToast('Ошибка сети', true); }
 }
 
 async function retryPackDownload(packId, imageId) {
@@ -1227,15 +1220,8 @@ async function checkYdDownloadStatus(packId) {
                 clearTimeout(_ydPollingTimers[packId]);
                 delete _ydPollingTimers[packId];
             }
-            // Surgical refresh: reload Я.Диск section ONCE so thumbnails
-            // appear without a full page reload. loadYdFolders does NOT
-            // call checkYdDownloadStatus (Bug B invariant — prevents the
-            // 162 req/min polling storm that occurred when loadYdFolders
-            // triggered checkYdDownloadStatus in a loop).
-            const ydBody = document.getElementById('yd-body-' + packId);
-            if (ydBody && ydBody.style.display !== 'none') {
-                loadYdFolders(packId);
-            }
+            // Refresh folder previews once downloads complete
+            loadYdFolders(packId);
         }
     } catch(e) {
         // Retry on network error, but with the standard interval (not immediately)
@@ -1416,26 +1402,19 @@ updateStatusPills();
 loadAnalytics();
 loadUnlinkedCount();
 
-// Auto-expand Y.Disk section only for packs that have folders (server-rendered list)
-const _packsWithYd = {{ packs_with_yd | tojson }};
-for (const packId of _packsWithYd) {
-    const body = document.getElementById('yd-body-' + packId);
-    const icon = document.getElementById('yd-toggle-' + packId);
-    if (body) {
-        body.style.display = 'block';
-        icon.innerHTML = '&#x25BC;';
-        loadYdFolders(packId);
-        // Check if any images are pending — only then start polling
-        (async () => {
-            try {
-                const resp = await fetch('/photo-packs/' + packId + '/images');
-                const data = await resp.json();
-                if (data.ok && data.images.some(i => i.source_type === 'yandex_disk' && (i.download_status === 'pending' || i.download_status === 'downloading'))) {
-                    checkYdDownloadStatus(packId);
-                }
-            } catch(e) {}
-        })();
-    }
+// Load Y.Disk folders for all packs and check download status
+const _allPackIds = [{% for pack in model.photo_packs %}{{ pack.id }},{% endfor %}];
+for (const packId of _allPackIds) {
+    loadYdFolders(packId);
+    (async (pid) => {
+        try {
+            var resp = await fetch('/photo-packs/' + pid + '/images');
+            var data = await resp.json();
+            if (data.ok && data.images.some(function(i) { return i.source_type === 'yandex_disk' && (i.download_status === 'pending' || i.download_status === 'downloading'); })) {
+                checkYdDownloadStatus(pid);
+            }
+        } catch(e) {}
+    })(packId);
 }
 </script>
 {% endblock %}

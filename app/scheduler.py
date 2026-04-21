@@ -704,8 +704,13 @@ def _delete_local_media_file(url, cfg):
             pass
 
 
-async def _sync_one_folder_kind(db, folder_model_cls, image_model_cls, folder_id_attr, cfg):
-    """Sync folders of one kind (product or photo_pack). Returns count of synced folders."""
+async def _sync_one_folder_kind(db, folder_model_cls, image_model_cls, folder_id_attr, cfg,
+                                *, parent_id_attr=None, folder_parent_id_attr=None):
+    """Sync folders of one kind (product or photo_pack). Returns count of synced folders.
+
+    If parent_id_attr and folder_parent_id_attr are provided, new files
+    discovered in the folder are auto-added as pending images.
+    """
     from sqlalchemy import select as sa_select
     from app.services.yandex_disk import list_folder as yd_list
     from app.db import utc_now
@@ -728,10 +733,43 @@ async def _sync_one_folder_kind(db, folder_model_cls, image_model_cls, folder_id
                     getattr(image_model_cls, folder_id_attr) == folder.id,
                 )
             )
-            for img in imgs_result.scalars().all():
+            existing_imgs = imgs_result.scalars().all()
+            existing_paths = {img.yandex_file_path for img in existing_imgs if img.yandex_file_path}
+
+            # Remove images whose files were deleted from the folder
+            for img in existing_imgs:
                 if img.yandex_file_path and img.yandex_file_path not in current_paths:
                     _delete_local_media_file(img.url, cfg)
                     await db.delete(img)
+
+            # Auto-add new files discovered in the folder
+            if parent_id_attr and folder_parent_id_attr:
+                new_paths = current_paths - existing_paths
+                if new_paths:
+                    max_order_result = await db.execute(
+                        sa_select(image_model_cls.sort_order)
+                        .where(getattr(image_model_cls, parent_id_attr) == getattr(folder, folder_parent_id_attr))
+                        .order_by(image_model_cls.sort_order.desc())
+                        .limit(1)
+                    )
+                    next_order = (max_order_result.scalar_one_or_none() or -1) + 1
+                    parent_id_val = getattr(folder, folder_parent_id_attr)
+                    for i, path in enumerate(sorted(new_paths)):
+                        kwargs = {
+                            parent_id_attr: parent_id_val,
+                            "file_path": "",
+                            "url": "",
+                            "sort_order": next_order + i,
+                            "source_type": "yandex_disk",
+                            folder_id_attr: folder.id,
+                            "yandex_file_path": path,
+                            "download_status": "pending",
+                        }
+                        # ProductImage requires 'filename'
+                        if hasattr(image_model_cls, "filename"):
+                            kwargs["filename"] = path.rsplit("/", 1)[-1] if "/" in path else path
+                        db.add(image_model_cls(**kwargs))
+                    logger.info("yandex_sync.auto_added", folder_id=folder.id, count=len(new_paths))
 
             folder.last_synced_at = utc_now()
             folder.error = None
@@ -754,9 +792,11 @@ async def _job_sync_yandex_folders():
     async def run(db):
         prod_synced, prod_total = await _sync_one_folder_kind(
             db, ProductYandexFolder, ProductImage, "yandex_folder_id", cfg,
+            parent_id_attr="product_id", folder_parent_id_attr="product_id",
         )
         pack_synced, pack_total = await _sync_one_folder_kind(
             db, PhotoPackYandexFolder, PhotoPackImage, "yandex_folder_id", cfg,
+            parent_id_attr="pack_id", folder_parent_id_attr="photo_pack_id",
         )
         await db.commit()
 

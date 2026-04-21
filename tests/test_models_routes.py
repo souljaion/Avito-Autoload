@@ -424,6 +424,47 @@ class TestModelDetail:
             ctx = mock_templates.TemplateResponse.call_args[0][1]
             assert "description_templates" in ctx
 
+    @pytest.mark.asyncio
+    async def test_detail_photo_packs_in_context(self):
+        """Model detail passes photo_packs with name and images to template."""
+        img = _make_image(url="/media/photo_packs/1/photo.jpg", sort_order=0)
+        pack = _make_photo_pack(id=1, name="Main Pack", images=[img])
+        model = _make_model(id=3, products=[], photo_packs=[pack])
+
+        call_count = 0
+
+        async def mock_execute(stmt, *args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = model
+            elif call_count == 2:
+                result.scalars.return_value.all.return_value = [_make_account()]
+            else:
+                result.scalar_one_or_none.return_value = None
+                result.scalars.return_value.all.return_value = []
+                result.all.return_value = []
+            return result
+
+        mock_db = AsyncMock()
+        mock_db.execute = mock_execute
+        app = _make_app(mock_db)
+
+        with patch("app.routes.models.templates") as mock_templates:
+            mock_templates.TemplateResponse.return_value = HTMLResponse("<html></html>")
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                resp = await client.get("/models/3")
+
+            assert resp.status_code == 200
+            ctx = mock_templates.TemplateResponse.call_args[0][1]
+            packs = ctx["model"].photo_packs
+            assert len(packs) == 1
+            assert packs[0].name == "Main Pack"
+            assert len(packs[0].images) == 1
+
 
 # ── POST /models/{id}/add-variant ────────────────────────────────────
 
