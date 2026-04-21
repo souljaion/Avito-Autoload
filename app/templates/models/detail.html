@@ -279,13 +279,13 @@
                     {% if p.status == 'draft' %}
                         <a href="/schedule?product_id={{ p.id }}" class="btn btn-sm btn-outline">В расписание</a>
                         <button class="btn btn-sm btn-purple" onclick="publishOneNow({{ p.id }})">Выложить сразу</button>
-                        <button class="btn btn-sm btn-outline-danger" onclick="softDelete({{ p.id }},'{{ p.title[:30] }}')">&#x2715;</button>
+                        <button class="btn btn-sm btn-outline-danger" title="Удалить объявление" onclick="softDelete({{ p.id }},'{{ p.title[:30] }}','draft')">&#x2715;</button>
                     {% elif p.status == 'scheduled' %}
-                        <button class="btn btn-sm btn-outline-danger" onclick="softDelete({{ p.id }},'{{ p.title[:30] }}')">&#x2715;</button>
+                        <button class="btn btn-sm btn-outline-danger" title="Удалить объявление" onclick="softDelete({{ p.id }},'{{ p.title[:30] }}','scheduled')">&#x2715;</button>
                     {% elif p.status in ('active','published','imported') %}
                         {% if p.avito_id %}<a href="https://www.avito.ru/items/{{ p.avito_id }}" target="_blank" class="btn btn-sm btn-outline">На Авито</a>{% endif %}
                         <button class="btn btn-sm btn-purple" onclick="repostProduct({{ p.id }})">Перевыложить</button>
-                        <button class="btn btn-sm btn-outline-danger" onclick="softDelete({{ p.id }},'{{ p.title[:30] }}')">&#x2715;</button>
+                        <button class="btn btn-sm btn-outline-danger" title="Удалить объявление" onclick="softDelete({{ p.id }},'{{ p.title[:30] }}','{{ p.status }}')">&#x2715;</button>
                     {% endif %}
                     <span class="saved-indicator" id="saved-{{ p.id }}">Сохранено</span>
                 </td>
@@ -951,8 +951,11 @@ async function repostProduct(pid) {
     } catch(e) { showToast('Ошибка сети', true); }
 }
 
-async function softDelete(pid, title) {
-    if (!confirm(`Удалить "${title}"?`)) return;
+async function softDelete(pid, title, status) {
+    var msg = (status === 'active' || status === 'imported' || status === 'published')
+        ? 'Объявление будет удалено с Авито в течение часа. Продолжить?'
+        : 'Удалить "' + title + '"?';
+    if (!confirm(msg)) return;
     try {
         const resp = await fetch('/products/' + pid, { method: 'DELETE' });
         const data = await resp.json();
