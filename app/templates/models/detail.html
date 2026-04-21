@@ -289,7 +289,7 @@
                 </td>
                 <td style="white-space:nowrap;">
                     {% if p.status == 'draft' %}
-                        <a href="/schedule?product_id={{ p.id }}" class="btn btn-sm btn-outline">В расписание</a>
+                        <button class="btn btn-sm btn-outline" onclick="scheduleOneNow({{ p.id }})">В расписание</button>
                         <button class="btn btn-sm btn-purple" onclick="publishOneNow({{ p.id }})">Выложить сразу</button>
                         <button class="btn btn-sm btn-outline-danger" title="Удалить объявление" onclick="softDelete({{ p.id }},'{{ p.title[:30] }}','draft')">&#x2715;</button>
                     {% elif p.status == 'scheduled' %}
@@ -658,6 +658,20 @@ async function bulkSchedule() {
             showToast(`В расписание: ${n}` + (s ? `, пропущено: ${s}` : ''));
             if (n > 0) location.reload();
         } else showToast(data.error, true);
+    } catch(e) { showToast('Ошибка сети', true); }
+}
+
+async function scheduleOneNow(pid) {
+    try {
+        const resp = await fetch('/models/' + MODEL_ID + '/bulk-schedule', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ product_ids: [pid] }),
+        });
+        const data = await resp.json();
+        if (data.ok && data.scheduled.length) {
+            showToast('В расписание: 1');
+            location.reload();
+        } else showToast(data.error || 'Не удалось запланировать', true);
     } catch(e) { showToast('Ошибка сети', true); }
 }
 

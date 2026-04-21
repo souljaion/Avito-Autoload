@@ -175,6 +175,28 @@ class TestBulkSchedule:
             real_app.dependency_overrides.pop(get_db, None)
 
     @pytest.mark.asyncio
+    async def test_single_product_id(self, isolated_db):
+        """Single-item list works (per-row 'В расписание' sends [pid])."""
+        acc, model, products = await _seed(isolated_db, count=2)
+        app = _make_app(isolated_db)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            resp = await c.post(f"/models/{model.id}/bulk-schedule", json={
+                "product_ids": [products[0].id],
+            })
+
+        data = resp.json()
+        assert data["ok"] is True
+        assert data["scheduled"] == [products[0].id]
+
+        await isolated_db.refresh(products[0])
+        assert products[0].status == "scheduled"
+
+        # Second product untouched
+        await isolated_db.refresh(products[1])
+        assert products[1].status == "draft"
+
+    @pytest.mark.asyncio
     async def test_empty_ids_returns_error(self, isolated_db):
         app = _make_app(isolated_db)
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
