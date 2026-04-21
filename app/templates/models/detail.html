@@ -646,24 +646,19 @@ function clearSelection() {
 async function bulkSchedule() {
     const ids = getSelectedDraftIds();
     if (!ids.length) { showToast('Нет выбранных черновиков', true); return; }
-    const time = document.getElementById('schedule-time').value;
-    if (!time) { showToast('Укажите время в поле расписания', true); return; }
-    let ok = 0;
-    for (const pid of ids) {
-        const row = document.getElementById('row-' + pid);
-        const accId = row?.querySelector('[data-field="account_id"]')?.value;
-        if (!accId) continue;
-        try {
-            const resp = await fetch('/products/' + pid + '/schedule', {
-                method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ account_id: parseInt(accId), scheduled_at: time }),
-            });
-            const data = await resp.json();
-            if (data.ok) ok++;
-        } catch(e) {}
-    }
-    showToast(`Запланировано: ${ok}/${ids.length}`, ok < ids.length);
-    if (ok > 0) location.reload();
+    try {
+        const resp = await fetch('/models/' + MODEL_ID + '/bulk-schedule', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ product_ids: ids }),
+        });
+        const data = await resp.json();
+        if (data.ok) {
+            const n = data.scheduled.length;
+            const s = data.skipped.length;
+            showToast(`В расписание: ${n}` + (s ? `, пропущено: ${s}` : ''));
+            if (n > 0) location.reload();
+        } else showToast(data.error, true);
+    } catch(e) { showToast('Ошибка сети', true); }
 }
 
 async function bulkPublishModal() {

@@ -1355,6 +1355,52 @@ async def create_model_product(model_id: int, request: Request, db: AsyncSession
 
 # ── Bulk actions from matrix ──
 
+@router.post("/{model_id}/bulk-schedule")
+async def bulk_schedule(model_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+    """Move selected drafts to status=scheduled without scheduled_at or readiness check.
+
+    Operator will set time later on /schedule/{account_id}.
+    """
+    body = await request.json()
+    product_ids = body.get("product_ids", [])
+    if not product_ids:
+        return JSONResponse({"ok": False, "error": "Не выбраны объявления"}, status_code=400)
+
+    int_ids = [int(p) for p in product_ids]
+
+    result = await db.execute(
+        select(Product).where(Product.id.in_(int_ids), Product.model_id == model_id)
+    )
+    products = result.scalars().all()
+
+    scheduled = []
+    skipped = []
+    for product in products:
+        if product.status != "draft":
+            skipped.append({"id": product.id, "reason": f"status={product.status}, нужен draft"})
+            continue
+
+        product.status = "scheduled"
+        product.scheduled_at = None
+
+        # Sync listing status
+        listing_result = await db.execute(
+            select(Listing).where(Listing.product_id == product.id)
+        )
+        for listing in listing_result.scalars().all():
+            listing.status = "scheduled"
+            listing.scheduled_at = None
+
+        scheduled.append(product.id)
+
+    await db.commit()
+    return JSONResponse({
+        "ok": True,
+        "scheduled": scheduled,
+        "skipped": skipped,
+    })
+
+
 @router.post("/{model_id}/bulk-publish")
 async def bulk_publish(model_id: int, request: Request, db: AsyncSession = Depends(get_db)):
     """Bulk publish drafts from the matrix. Sets status=scheduled with scheduled_at=now.
