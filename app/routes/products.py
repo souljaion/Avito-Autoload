@@ -864,6 +864,7 @@ async def patch_product_pack(product_id: int, request: Request, db: AsyncSession
     if not pack_id:
         return JSONResponse({"ok": False, "error": "Не указан pack_id"}, status_code=400)
 
+    product.pack_id = int(pack_id)
     count = await _apply_pack_to_product(db, product_id, int(pack_id), False)
 
     # Update pack usage history so accounts-status reflects the current pack

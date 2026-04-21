@@ -50,6 +50,9 @@ class Product(Base):
     variant_id: Mapped[int | None] = mapped_column(
         ForeignKey("model_variants.id", ondelete="SET NULL"), default=None
     )
+    pack_id: Mapped[int | None] = mapped_column(
+        ForeignKey("photo_packs.id", ondelete="SET NULL"), default=None, index=True
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         default=utc_now
@@ -65,6 +68,7 @@ class Product(Base):
     model_ref: Mapped["Model | None"] = relationship(back_populates="products")
     description_template: Mapped["DescriptionTemplate | None"] = relationship()
     variant: Mapped["ModelVariant | None"] = relationship(back_populates="products")
+    pack: Mapped["PhotoPack | None"] = relationship()
     images: Mapped[list["ProductImage"]] = relationship(
         back_populates="product", order_by="ProductImage.sort_order"
     )

@@ -1331,6 +1331,7 @@ async def create_model_product(model_id: int, request: Request, db: AsyncSession
         description_template_id=desc_tpl_id,
         size=body.get("size") or None,
         price=int(body["price"]) if body.get("price") else model.price,
+        pack_id=pack_id,
     )
     db.add(product)
     # Flush to get product.id before applying pack (ProductImage FK needs it)

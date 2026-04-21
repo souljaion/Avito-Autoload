@@ -263,7 +263,7 @@
                 <td>
                     <select data-field="pack_id" onchange="changePack({{ p.id }},this.value)">
                         <option value="">Без пака</option>
-                        {% for pack in model.photo_packs %}<option value="{{ pack.id }}">{{ pack.name }}</option>{% endfor %}
+                        {% for pack in model.photo_packs %}<option value="{{ pack.id }}" {% if p.pack_id == pack.id %}selected{% endif %}>{{ pack.name }}</option>{% endfor %}
                     </select>
                 </td>
                 <td><input type="text" value="{{ p.size or '' }}" data-field="size" oninput="debounceSave({{ p.id }},this)"></td>
