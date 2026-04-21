@@ -328,7 +328,9 @@
         <iframe id="inline-edit-iframe" style="width:100%;height:70vh;border:none;"></iframe>
         <div style="padding:12px 20px;border-top:1px solid #e2e4f0;display:flex;gap:8px;justify-content:flex-end;">
             <button class="btn btn-sm btn-outline" onclick="closeInlineEdit()">Отмена</button>
+            <button class="btn btn-sm btn-outline" id="inline-save-only-btn" onclick="inlineSaveOnly()">Только сохранить</button>
             <button class="btn btn-sm btn-purple" id="inline-publish-btn" onclick="inlinePublishConfirm()">Сохранить и опубликовать</button>
+            <button class="btn btn-sm btn-outline" id="inline-skip-btn" onclick="skipCarouselItem()" style="display:none;">Пропустить →</button>
         </div>
     </div>
 </div>
@@ -657,14 +659,16 @@ async function bulkPublishModal() {
     const ids = getSelectedDraftIds();
     if (!ids.length) { showToast('Нет выбранных черновиков', true); return; }
 
-    // Single product: open full inline edit modal
     if (ids.length === 1) {
         openInlineEdit(ids[0]);
         return;
     }
 
-    // 2+ products: toast and cancel
-    showToast('Полноценный предпросмотр доступен только для одного объявления. Выберите одно или используйте «В расписание» для публикации нескольких.', true);
+    // 2+ products: carousel mode
+    _carouselQueue = ids.slice();
+    _carouselIndex = 0;
+    _carouselStats = {saved: 0, published: 0, skipped: 0};
+    _loadCarouselItem(0);
 }
 
 function closeBulkModal() {
@@ -694,21 +698,107 @@ function _clearInlineTimeout() {
     }
 }
 
-function openInlineEdit(productId) {
-    _inlineProductId = productId;
-    const iframe = document.getElementById('inline-edit-iframe');
-    iframe.src = '/products/' + productId + '/edit?inline=1';
-    document.getElementById('inline-edit-title').textContent = 'Редактировать и опубликовать';
+var _inlineSaveOnly = false;
+
+// ── Carousel state (multi-select) ──
+var _carouselQueue = [];   // product IDs
+var _carouselIndex = -1;   // current index, -1 = no carousel
+var _carouselStats = {saved: 0, published: 0, skipped: 0};
+
+function _isCarousel() { return _carouselQueue.length > 1; }
+
+function _updateTitle() {
+    var title = 'Редактировать и опубликовать';
+    if (_isCarousel()) title += ' (' + (_carouselIndex + 1) + ' из ' + _carouselQueue.length + ')';
+    document.getElementById('inline-edit-title').textContent = title;
+}
+
+function _resetButtons() {
     document.getElementById('inline-publish-btn').disabled = false;
     document.getElementById('inline-publish-btn').textContent = 'Сохранить и опубликовать';
+    document.getElementById('inline-save-only-btn').disabled = false;
+    document.getElementById('inline-save-only-btn').textContent = 'Только сохранить';
+    document.getElementById('inline-skip-btn').style.display = _isCarousel() ? '' : 'none';
+    document.getElementById('inline-skip-btn').disabled = false;
+}
+
+function _disableAllButtons() {
+    document.getElementById('inline-publish-btn').disabled = true;
+    document.getElementById('inline-save-only-btn').disabled = true;
+    document.getElementById('inline-skip-btn').disabled = true;
+}
+
+function _loadCarouselItem(index) {
+    _carouselIndex = index;
+    var productId = _carouselQueue[index];
+    _inlineProductId = productId;
+    _inlineSaveOnly = false;
+    var iframe = document.getElementById('inline-edit-iframe');
+    iframe.src = '/products/' + productId + '/edit?inline=1';
+    _updateTitle();
+    _resetButtons();
+    document.getElementById('inline-edit-overlay').classList.add('visible');
+}
+
+function _buildAggregate() {
+    var s = _carouselStats;
+    var parts = [];
+    if (s.saved > 0) parts.push('Сохранено: ' + s.saved);
+    if (s.published > 0) parts.push('Опубликовано: ' + s.published);
+    if (s.skipped > 0) parts.push('Пропущено: ' + s.skipped);
+    return parts.length ? parts.join(', ') : 'Ничего не изменено';
+}
+
+function _advanceOrFinish() {
+    var next = _carouselIndex + 1;
+    if (next < _carouselQueue.length) {
+        _loadCarouselItem(next);
+    } else {
+        _finishCarousel();
+    }
+}
+
+function _finishCarousel() {
+    var msg = _isCarousel() ? _buildAggregate() : 'Сохранено';
+    var hadWork = _carouselStats.saved + _carouselStats.published > 0;
+    _closeInlineRaw();
+    showToast(msg, false);
+    if (hadWork) setTimeout(function() { location.reload(); }, 1500);
+}
+
+function _closeInlineRaw() {
+    _clearInlineTimeout();
+    document.getElementById('inline-edit-overlay').classList.remove('visible');
+    document.getElementById('inline-edit-iframe').src = '';
+    _inlineProductId = null;
+    _carouselQueue = [];
+    _carouselIndex = -1;
+}
+
+function openInlineEdit(productId) {
+    _carouselQueue = [productId];
+    _carouselIndex = 0;
+    _carouselStats = {saved: 0, published: 0, skipped: 0};
+    _inlineProductId = productId;
+    _inlineSaveOnly = false;
+    var iframe = document.getElementById('inline-edit-iframe');
+    iframe.src = '/products/' + productId + '/edit?inline=1';
+    _updateTitle();
+    _resetButtons();
     document.getElementById('inline-edit-overlay').classList.add('visible');
 }
 
 function closeInlineEdit() {
     _clearInlineTimeout();
-    document.getElementById('inline-edit-overlay').classList.remove('visible');
-    document.getElementById('inline-edit-iframe').src = '';
-    _inlineProductId = null;
+    if (_isCarousel() && (_carouselStats.saved + _carouselStats.published + _carouselStats.skipped > 0)) {
+        var msg = _buildAggregate();
+        var hadWork = _carouselStats.saved + _carouselStats.published > 0;
+        _closeInlineRaw();
+        showToast(msg, false);
+        if (hadWork) setTimeout(function() { location.reload(); }, 1500);
+        return;
+    }
+    _closeInlineRaw();
 }
 
 // Listen for postMessage from iframe after form save
@@ -716,41 +806,77 @@ window.addEventListener('message', function(e) {
     if (e.origin !== window.location.origin) return;
     if (e.data && e.data.type === 'product-saved' && _inlineProductId) {
         _clearInlineTimeout();
-        _doPublishAfterSave(e.data.productId || _inlineProductId);
+        if (_inlineSaveOnly) {
+            _carouselStats.saved++;
+            if (_isCarousel()) {
+                _advanceOrFinish();
+            } else {
+                _finishCarousel();
+            }
+        } else {
+            _doPublishAfterSave(e.data.productId || _inlineProductId);
+        }
     }
 });
 
-async function inlinePublishConfirm() {
-    const btn = document.getElementById('inline-publish-btn');
+function skipCarouselItem() {
+    _carouselStats.skipped++;
+    _advanceOrFinish();
+}
+
+function inlineSaveOnly() {
+    _inlineSaveOnly = true;
+    var btn = document.getElementById('inline-save-only-btn');
     btn.disabled = true;
     btn.textContent = 'Сохраняем...';
+    document.getElementById('inline-publish-btn').disabled = true;
+    document.getElementById('inline-skip-btn').disabled = true;
     _armInlineTimeout();
-    const iframe = document.getElementById('inline-edit-iframe');
+    var iframe = document.getElementById('inline-edit-iframe');
+    iframe.contentWindow.postMessage({type: 'submit-form'}, window.location.origin);
+}
+
+async function inlinePublishConfirm() {
+    _inlineSaveOnly = false;
+    var btn = document.getElementById('inline-publish-btn');
+    btn.disabled = true;
+    btn.textContent = 'Сохраняем...';
+    document.getElementById('inline-save-only-btn').disabled = true;
+    document.getElementById('inline-skip-btn').disabled = true;
+    _armInlineTimeout();
+    var iframe = document.getElementById('inline-edit-iframe');
     iframe.contentWindow.postMessage({type: 'submit-form'}, window.location.origin);
 }
 
 async function _doPublishAfterSave(productId) {
-    const btn = document.getElementById('inline-publish-btn');
+    var btn = document.getElementById('inline-publish-btn');
     btn.textContent = 'Публикуем...';
     try {
-        const resp = await fetch('/models/' + MODEL_ID + '/bulk-publish', {
+        var resp = await fetch('/models/' + MODEL_ID + '/bulk-publish', {
             method: 'POST', headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ product_ids: [productId] }),
         });
-        const data = await resp.json();
-        closeInlineEdit();
+        var data = await resp.json();
         if (data.ok && data.published > 0) {
-            showToast('Опубликовано. Появится на Авито в течение часа.', false);
-            setTimeout(() => location.reload(), 1500);
+            _carouselStats.published++;
+            if (_isCarousel()) {
+                _advanceOrFinish();
+            } else {
+                _closeInlineRaw();
+                showToast('Опубликовано. Появится на Авито в течение часа.', false);
+                setTimeout(function() { location.reload(); }, 1500);
+            }
         } else if (data.not_ready?.length) {
-            const missing = data.not_ready[0].missing.join(', ');
-            showToast(`Не готово к публикации: ${missing}`, true);
+            var missing = data.not_ready[0].missing.join(', ');
+            showToast('Не готово к публикации: ' + missing, true);
+            _resetButtons();
         } else {
             showToast(data.error || 'Ошибка публикации', true);
+            _resetButtons();
         }
     } catch(e) {
-        closeInlineEdit();
         showToast('Ошибка сети', true);
+        _resetButtons();
     }
 }
 
