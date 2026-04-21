@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, Text
+from sqlalchemy import DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base, utc_now
@@ -17,6 +17,7 @@ class Model(Base):
     subcategory: Mapped[str | None] = mapped_column(String(100), default=None)
     goods_type: Mapped[str | None] = mapped_column(String(100), default=None)
     goods_subtype: Mapped[str | None] = mapped_column(String(100), default=None)
+    price: Mapped[int | None] = mapped_column(Integer, default=None)
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=utc_now,

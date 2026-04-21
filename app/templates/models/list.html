@@ -87,39 +87,139 @@
 {% endif %}
 
 <!-- Create Modal -->
-<div id="createModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:100; align-items:center; justify-content:center;">
-    <div class="card" style="width:400px; max-width:90vw;">
-        <h2>Новая модель</h2>
-        <form method="post" action="/models">
-            <div class="field">
-                <label>Бренд</label>
-                <input type="text" name="brand" placeholder="Nike, Adidas...">
+<div id="createModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:100;align-items:center;justify-content:center;" onclick="if(event.target===this)this.style.display='none'">
+    <div class="card" style="width:520px;max-width:90vw;max-height:90vh;overflow-y:auto;">
+        <h2 style="font-size:16px;font-weight:500;margin-bottom:16px;">Новая модель</h2>
+        <form id="createForm" method="post" action="/models" onsubmit="return validateCreateForm(event)">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                <div class="field">
+                    <label>Бренд *</label>
+                    <input type="text" name="brand" id="cBrand" placeholder="Nike, Adidas..." required>
+                </div>
+                <div class="field">
+                    <label>Название *</label>
+                    <input type="text" name="name" id="cName" required>
+                </div>
+                <div class="field">
+                    <label>Категория *</label>
+                    <select name="category" id="cCategory" required onchange="onCreateCategoryChange()">
+                        <option value="">-- Выберите --</option>
+                        {% for cat in categories %}<option value="{{ cat }}">{{ cat }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="field">
+                    <label>Тип товара *</label>
+                    <select name="goods_type" id="cGoodsType" required onchange="onCreateGoodsTypeChange()">
+                        <option value="">-- Выберите --</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label>Подкатегория *</label>
+                    <select name="subcategory" id="cSubcategory" required onchange="onCreateSubcategoryChange()">
+                        <option value="">-- Выберите --</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label>Подтип</label>
+                    <select name="goods_subtype" id="cGoodsSubtype" disabled style="opacity:0.6;">
+                        <option value="">Не требуется</option>
+                    </select>
+                </div>
+                <div class="field" style="grid-column:1/-1;">
+                    <label>Описание</label>
+                    <textarea name="description" id="cDescription" rows="3"></textarea>
+                </div>
             </div>
-            <div class="field">
-                <label>Название *</label>
-                <input type="text" name="name" required autofocus>
-            </div>
-            <div class="field">
-                <label>Описание</label>
-                <textarea name="description" rows="3"></textarea>
-            </div>
-            <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px;">
+            <div id="createError" style="color:#dc2626;font-size:13px;display:none;margin-top:8px;"></div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
                 <button type="button" class="btn btn-secondary" onclick="document.getElementById('createModal').style.display='none'">Отмена</button>
-                <button type="submit" class="btn btn-primary">Создать</button>
+                <button type="submit" class="btn btn-primary" id="createSubmitBtn">Создать</button>
             </div>
         </form>
     </div>
 </div>
 
 <script>
+var _goodsTypesMap = {{ goods_types | tojson }};
+var _apparelsMap = {{ apparels | tojson }};
+var _subtypesMap = {{ goods_subtypes | tojson }};
+
+function _populateSelect(sel, items, placeholder) {
+    sel.innerHTML = '<option value="">' + (placeholder || '-- Выберите --') + '</option>';
+    for (var i = 0; i < (items || []).length; i++) {
+        var o = document.createElement('option');
+        o.value = items[i];
+        o.textContent = items[i];
+        sel.appendChild(o);
+    }
+}
+
+function onCreateCategoryChange() {
+    _populateSelect(document.getElementById('cGoodsType'), _goodsTypesMap[document.getElementById('cCategory').value] || []);
+    onCreateGoodsTypeChange();
+}
+
+function onCreateGoodsTypeChange() {
+    _populateSelect(document.getElementById('cSubcategory'), _apparelsMap[document.getElementById('cGoodsType').value] || []);
+    onCreateSubcategoryChange();
+}
+
+function onCreateSubcategoryChange() {
+    var sel = document.getElementById('cGoodsSubtype');
+    var items = _subtypesMap[document.getElementById('cSubcategory').value] || [];
+    if (items.length === 0) {
+        sel.innerHTML = '<option value="">Не требуется</option>';
+        sel.disabled = true;
+        sel.style.opacity = '0.6';
+        sel.removeAttribute('required');
+    } else {
+        sel.disabled = false;
+        sel.style.opacity = '';
+        sel.setAttribute('required', '');
+        _populateSelect(sel, items);
+    }
+}
+
+function validateCreateForm(e) {
+    var errEl = document.getElementById('createError');
+    errEl.style.display = 'none';
+    var form = document.getElementById('createForm');
+    if (!form.checkValidity()) return true; // let browser handle required fields
+    e.preventDefault();
+    var btn = document.getElementById('createSubmitBtn');
+    btn.disabled = true;
+    btn.textContent = 'Создаём...';
+    var fd = new FormData(form);
+    fetch('/models', {
+        method: 'POST',
+        body: fd,
+        headers: {'Accept': 'application/json'},
+    }).then(function(r) { return r.json(); }).then(function(data) {
+        if (data.ok) {
+            location.href = '/models/' + data.id;
+        } else {
+            errEl.textContent = data.error || 'Ошибка';
+            errEl.style.display = 'block';
+            btn.disabled = false;
+            btn.textContent = 'Создать';
+        }
+    }).catch(function() {
+        errEl.textContent = 'Ошибка сети';
+        errEl.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Создать';
+    });
+    return false;
+}
+
 function filterModels() {
-    const q = document.getElementById('searchInput').value.toLowerCase();
-    const brand = document.getElementById('brandFilter').value.toLowerCase();
-    document.querySelectorAll('.model-card').forEach(card => {
-        const cardBrand = (card.dataset.brand || '').toLowerCase();
-        const cardName = (card.dataset.name || '').toLowerCase();
-        const matchSearch = !q || cardBrand.includes(q) || cardName.includes(q);
-        const matchBrand = !brand || cardBrand === brand;
+    var q = document.getElementById('searchInput').value.toLowerCase();
+    var brand = document.getElementById('brandFilter').value.toLowerCase();
+    document.querySelectorAll('.model-card').forEach(function(card) {
+        var cardBrand = (card.dataset.brand || '').toLowerCase();
+        var cardName = (card.dataset.name || '').toLowerCase();
+        var matchSearch = !q || cardBrand.includes(q) || cardName.includes(q);
+        var matchBrand = !brand || cardBrand === brand;
         card.style.display = (matchSearch && matchBrand) ? '' : 'none';
     });
 }

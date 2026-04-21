@@ -478,8 +478,6 @@ function updateStatusPills() {
     if (hasPrice) {
         const firstPrice = [...rows].map(r => parseInt(r.querySelector('[data-field="price"]')?.value)).find(v => v > 0);
         pills.push(`<span class="m-pill m-pill-gray">Цена: ${firstPrice ? firstPrice.toLocaleString('ru-RU') + ' ₽' : '—'}</span>`);
-    } else if (rows.length) {
-        pills.push('<span class="m-pill m-pill-yellow">&#x26A0; Нет цены</span>');
     }
 
     const totalPhotos = PACKS.reduce((s, p) => s + (document.getElementById('pack-' + p.id)?.querySelectorAll('.pack-thumbs img').length || 0), 0);

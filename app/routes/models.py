@@ -102,11 +102,14 @@ async def model_list(request: Request, db: AsyncSession = Depends(get_db)):
         row["min_price"] = min(active_prices) if active_prices else None
         matrix.append(row)
 
+    catalog = await get_catalog(db)
+
     return templates.TemplateResponse("models/list.html", {
         "request": request,
         "matrix": matrix,
         "accounts": accounts,
         "brands": sorted(brands_set),
+        **catalog,
     })
 
 
@@ -116,16 +119,48 @@ async def model_create(
     name: str = Form(...),
     brand: str = Form(""),
     description: str = Form(""),
+    category: str = Form(""),
+    goods_type: str = Form(""),
+    subcategory: str = Form(""),
+    goods_subtype: str = Form(""),
+    price: str = Form(""),
     db: AsyncSession = Depends(get_db),
 ):
     from pydantic import ValidationError
     from app.schemas.model import ModelCreateForm
+    from app.catalog import requires_subtype
+
+    price_int = None
+    if price and price.strip():
+        try:
+            price_int = int(price)
+        except (ValueError, TypeError):
+            return JSONResponse({"ok": False, "error": "Цена должна быть числом"}, status_code=400)
+
     try:
-        form = ModelCreateForm(name=name, brand=brand, description=description)
+        form = ModelCreateForm(
+            name=name, brand=brand, description=description,
+            category=category, goods_type=goods_type,
+            subcategory=subcategory, goods_subtype=goods_subtype,
+            price=price_int,
+        )
     except ValidationError as e:
         errors = "; ".join(f"{err['loc'][-1]}: {err['msg']}" for err in e.errors())
         return JSONResponse({"ok": False, "error": errors}, status_code=400)
-    m = Model(name=form.name, brand=form.brand or None, description=form.description or None)
+
+    if form.subcategory and requires_subtype(form.category, form.goods_type, form.subcategory) and not form.goods_subtype:
+        return JSONResponse({"ok": False, "error": "Для этой подкатегории необходимо указать подтип"}, status_code=400)
+
+    m = Model(
+        name=form.name,
+        brand=form.brand or None,
+        description=form.description or None,
+        category=form.category or None,
+        goods_type=form.goods_type or None,
+        subcategory=form.subcategory or None,
+        goods_subtype=form.goods_subtype or None,
+        price=form.price,
+    )
     db.add(m)
     await db.commit()
     if request.headers.get("accept") == "application/json":
@@ -523,6 +558,7 @@ async def create_all_listings(model_id: int, request: Request, db: AsyncSession 
             brand=model.brand or None,
             description=model.description if has_model_desc else None,
             use_custom_description=has_model_desc,
+            price=model.price,
             status="draft",
             account_id=acc_id,
             model_id=model_id,
@@ -645,6 +681,7 @@ async def schedule_matrix(request: Request, db: AsyncSession = Depends(get_db)):
                 brand=model.brand or None,
                 description=model.description if has_model_desc else None,
                 use_custom_description=has_model_desc,
+                price=model.price,
                 status="draft",
                 account_id=account_id,
                 model_id=model_id,
@@ -937,7 +974,7 @@ async def create_one(model_id: int, request: Request, db: AsyncSession = Depends
 
     title = _default_ad_title(model)
 
-    # Copy description from model; protect with use_custom_description
+    # Copy description and price from model
     has_model_desc = bool(model.description)
 
     product = Product(
@@ -945,6 +982,7 @@ async def create_one(model_id: int, request: Request, db: AsyncSession = Depends
         brand=model.brand or None,
         description=model.description if has_model_desc else None,
         use_custom_description=has_model_desc,
+        price=model.price,
         status="draft",
         account_id=int(account_id),
         model_id=model_id,
@@ -1274,7 +1312,7 @@ async def create_model_product(model_id: int, request: Request, db: AsyncSession
     if pack_id is not None:
         pack_id = int(pack_id)
 
-    # Copy description from model; protect with use_custom_description
+    # Copy description and price from model; explicit values override
     has_model_desc = bool(model.description)
 
     product = Product(
@@ -1292,7 +1330,7 @@ async def create_model_product(model_id: int, request: Request, db: AsyncSession
         use_custom_description=has_model_desc,
         description_template_id=desc_tpl_id,
         size=body.get("size") or None,
-        price=int(body["price"]) if body.get("price") else None,
+        price=int(body["price"]) if body.get("price") else model.price,
     )
     db.add(product)
     # Flush to get product.id before applying pack (ProductImage FK needs it)

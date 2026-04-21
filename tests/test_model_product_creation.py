@@ -131,3 +131,61 @@ class TestCreateModelProductPack:
         )
         images = result.scalars().all()
         assert len(images) == 0
+
+
+class TestCreateModelProductPrice:
+    """Model.price is copied to Product.price on creation."""
+
+    @pytest.mark.asyncio
+    async def test_model_price_copied_to_product(self, isolated_db):
+        """Product inherits model.price when no explicit price in request."""
+        acc, model = await _seed(isolated_db)
+        model.price = 7000
+        await isolated_db.flush()
+
+        app = _make_app(isolated_db)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            resp = await c.post(f"/models/{model.id}/products", json={
+                "account_id": acc.id,
+            })
+
+        assert resp.status_code == 200
+        pid = resp.json()["product_id"]
+        product = await isolated_db.get(ProductORM, pid)
+        assert product.price == 7000
+
+    @pytest.mark.asyncio
+    async def test_explicit_price_overrides_model(self, isolated_db):
+        """Explicit price in request overrides model.price."""
+        acc, model = await _seed(isolated_db)
+        model.price = 7000
+        await isolated_db.flush()
+
+        app = _make_app(isolated_db)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            resp = await c.post(f"/models/{model.id}/products", json={
+                "account_id": acc.id,
+                "price": 8000,
+            })
+
+        assert resp.status_code == 200
+        pid = resp.json()["product_id"]
+        product = await isolated_db.get(ProductORM, pid)
+        assert product.price == 8000
+
+    @pytest.mark.asyncio
+    async def test_null_model_price_no_product_price(self, isolated_db):
+        """Model.price=None → Product.price=None."""
+        acc, model = await _seed(isolated_db)
+        # model.price is None by default
+
+        app = _make_app(isolated_db)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            resp = await c.post(f"/models/{model.id}/products", json={
+                "account_id": acc.id,
+            })
+
+        assert resp.status_code == 200
+        pid = resp.json()["product_id"]
+        product = await isolated_db.get(ProductORM, pid)
+        assert product.price is None

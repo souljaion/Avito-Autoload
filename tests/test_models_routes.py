@@ -285,6 +285,99 @@ class TestModelCreate:
         assert resp.status_code == 400
         assert resp.json()["ok"] is False
 
+    @pytest.mark.asyncio
+    async def test_create_with_full_taxonomy(self):
+        """Create model with all taxonomy fields returns JSON with id."""
+        mock_db = AsyncMock()
+        mock_db.commit = AsyncMock()
+
+        created_model = None
+        def mock_add(obj):
+            nonlocal created_model
+            obj.id = 50
+            created_model = obj
+
+        mock_db.add = mock_add
+        app = _make_app(mock_db)
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.post(
+                "/models",
+                data={
+                    "name": "Air Max 90",
+                    "brand": "Nike",
+                    "category": "Одежда, обувь, аксессуары",
+                    "goods_type": "Мужская обувь",
+                    "subcategory": "Кроссовки и кеды",
+                    "goods_subtype": "Кроссовки",
+                    "description": "Classic sneaker",
+                },
+                headers={"accept": "application/json"},
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+        assert created_model.category == "Одежда, обувь, аксессуары"
+        assert created_model.goods_subtype == "Кроссовки"
+
+    @pytest.mark.asyncio
+    async def test_create_no_subtype_when_not_required(self):
+        """Subcategory without subtypes: goods_subtype not required."""
+        mock_db = AsyncMock()
+        mock_db.commit = AsyncMock()
+
+        def mock_add(obj):
+            obj.id = 51
+
+        mock_db.add = mock_add
+        app = _make_app(mock_db)
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.post(
+                "/models",
+                data={
+                    "name": "Ray-Ban",
+                    "brand": "Ray-Ban",
+                    "category": "Одежда, обувь, аксессуары",
+                    "goods_type": "Аксессуары",
+                    "subcategory": "Очки",
+                    "goods_subtype": "",
+                },
+                headers={"accept": "application/json"},
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+
+    @pytest.mark.asyncio
+    async def test_create_missing_subtype_when_required(self):
+        """Subcategory requiring subtype: 400 if goods_subtype empty."""
+        mock_db = AsyncMock()
+        app = _make_app(mock_db)
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.post(
+                "/models",
+                data={
+                    "name": "Air Max 90",
+                    "brand": "Nike",
+                    "category": "Одежда, обувь, аксессуары",
+                    "goods_type": "Мужская обувь",
+                    "subcategory": "Кроссовки и кеды",
+                    "goods_subtype": "",
+                },
+                headers={"accept": "application/json"},
+            )
+
+        assert resp.status_code == 400
+        assert "подтип" in resp.json()["error"].lower()
+
 
 # ── GET /models/{id} (model_detail) ─────────────────────────────────
 
