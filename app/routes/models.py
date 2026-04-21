@@ -93,8 +93,7 @@ async def model_list(request: Request, db: AsyncSession = Depends(get_db)):
         for pack in m.photo_packs:
             if pack.images:
                 sorted_imgs = sorted(pack.images, key=lambda x: x.sort_order)
-                turl = sorted_imgs[0].url.rsplit(".", 1)
-                first_img = f"{turl[0]}_thumb.{turl[1]}" if len(turl) == 2 else sorted_imgs[0].url
+                first_img = sorted_imgs[0].url
                 break
         row["first_image"] = first_img
         active_products = [p for p in m.products if p.status != "removed"]

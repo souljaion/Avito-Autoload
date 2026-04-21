@@ -176,6 +176,44 @@ class TestModelList:
             assert len(ctx["accounts"]) == 1
             assert "Nike" in ctx["brands"]
 
+    @pytest.mark.asyncio
+    async def test_list_uses_original_url_for_yandex_pack(self):
+        """Model list uses original pack image URL, not _thumb variant."""
+        acc = _make_account(id=1, name="Zulla")
+        yd_img = _make_image(url="/media/photo_packs/13/0_1.jpg", sort_order=0)
+        pack = _make_photo_pack(id=13, name="YD Pack", images=[yd_img])
+        product = _make_product(id=10, account_id=1, model_id=1)
+        model = _make_model(id=1, products=[product], photo_packs=[pack])
+
+        call_count = 0
+
+        async def mock_execute(stmt, *args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalars.return_value.unique.return_value.all.return_value = [model]
+            else:
+                result.scalars.return_value.all.return_value = [acc]
+            return result
+
+        mock_db = AsyncMock()
+        mock_db.execute = mock_execute
+        app = _make_app(mock_db)
+
+        with patch("app.routes.models.templates") as mock_templates:
+            mock_templates.TemplateResponse.return_value = HTMLResponse("<html></html>")
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                resp = await client.get("/models")
+
+            assert resp.status_code == 200
+            ctx = mock_templates.TemplateResponse.call_args[0][1]
+            first_image = ctx["matrix"][0]["first_image"]
+            assert first_image == "/media/photo_packs/13/0_1.jpg"
+            assert "_thumb" not in first_image
+
 
 # ── POST /models (model_create) ─────────────────────────────────────
 
