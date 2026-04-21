@@ -278,6 +278,7 @@
                 <td style="white-space:nowrap;">
                     {% if p.status == 'draft' %}
                         <a href="/schedule?product_id={{ p.id }}" class="btn btn-sm btn-outline">В расписание</a>
+                        <button class="btn btn-sm btn-purple" onclick="publishOneNow({{ p.id }})">Выложить сразу</button>
                         <button class="btn btn-sm btn-outline-danger" onclick="softDelete({{ p.id }},'{{ p.title[:30] }}')">&#x2715;</button>
                     {% elif p.status == 'scheduled' %}
                         <button class="btn btn-sm btn-outline-danger" onclick="softDelete({{ p.id }},'{{ p.title[:30] }}')">&#x2715;</button>
@@ -877,6 +878,27 @@ async function _doPublishAfterSave(productId) {
     } catch(e) {
         showToast('Ошибка сети', true);
         _resetButtons();
+    }
+}
+
+async function publishOneNow(productId) {
+    if (!confirm('Выложить это объявление сразу?')) return;
+    try {
+        var resp = await fetch('/models/' + MODEL_ID + '/bulk-publish', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ product_ids: [productId] }),
+        });
+        var data = await resp.json();
+        if (data.ok && data.published > 0) {
+            showToast('Опубликовано. Появится на Авито в течение часа.', false);
+            setTimeout(function() { location.reload(); }, 1500);
+        } else if (data.not_ready && data.not_ready.length) {
+            showToast('Не готово: ' + data.not_ready[0].missing.join(', '), true);
+        } else {
+            showToast(data.error || 'Ошибка публикации', true);
+        }
+    } catch(e) {
+        showToast('Ошибка сети', true);
     }
 }
 

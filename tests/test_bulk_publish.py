@@ -286,3 +286,34 @@ class TestBulkPublish:
         finally:
             for f in tmp_files:
                 os.unlink(f)
+
+    @pytest.mark.asyncio
+    async def test_publish_one_now_per_row(self, isolated_db):
+        """Single-product publish (per-row button): sets status=scheduled, others untouched."""
+        acc, model, tpl, products, tmp_files = await _seed(isolated_db, count=2)
+        try:
+            app = _make_app(isolated_db)
+            target = products[0]
+
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+                resp = await c.post(f"/models/{model.id}/bulk-publish", json={
+                    "product_ids": [target.id],
+                })
+
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["ok"] is True
+            assert data["published"] == 1
+
+            await isolated_db.refresh(target)
+            assert target.status == "scheduled"
+            assert target.scheduled_at is not None
+
+            # Other product untouched
+            other = products[1]
+            await isolated_db.refresh(other)
+            assert other.status == "draft"
+            assert other.scheduled_at is None
+        finally:
+            for f in tmp_files:
+                os.unlink(f)
