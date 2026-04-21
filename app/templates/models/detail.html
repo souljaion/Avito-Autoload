@@ -993,18 +993,7 @@ async function addNewRow() {
         if (!ok) return;
     }
 
-    // Copy size+price from last row
-    const lastRow = document.querySelector('#listings-body tr:last-child');
-    const lastSize = lastRow?.querySelector('[data-field="size"]')?.value || '';
-    const lastPrice = lastRow?.querySelector('[data-field="price"]')?.value || '';
-
-    // Copy description_template_id from last row's dropdown (if exists)
-    const lastDescTpl = lastRow?.querySelector('.desc-template-select')?.value || null;
-
-    // Copy pack_id from last row's pack dropdown (if exists)
-    const lastPackId = lastRow?.querySelector('[data-field="pack_id"]')?.value || null;
-
-    // Pick first account (allow duplicates — multiple listings per account)
+    // Pick first account (backend requires account_id NOT NULL)
     const firstAcc = ACCOUNTS.length ? ACCOUNTS[0].id : null;
 
     try {
@@ -1012,10 +1001,6 @@ async function addNewRow() {
             method: 'POST', headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
                 account_id: firstAcc,
-                size: lastSize,
-                price: lastPrice || null,
-                description_template_id: lastDescTpl ? parseInt(lastDescTpl) : null,
-                pack_id: lastPackId ? parseInt(lastPackId) : null,
             }),
         });
         const data = await resp.json();
