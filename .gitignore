@@ -33,3 +33,9 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+docs/avito-autoload-context-*.txt
+
+# Документация и контекст проекта не должны лежать в app/static/
+# (эта директория раздаётся публично через nginx)
+app/static/*-context*.txt
+app/static/context.txt
