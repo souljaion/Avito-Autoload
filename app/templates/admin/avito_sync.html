@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block content %}
+<div style="max-width:800px; margin:0 auto; padding:24px;">
+    <h1>Синхронизация с Авито</h1>
+    <p style="color:#666; margin-bottom:24px;">
+        Загрузите свежий Excel-экспорт из кабинета Авито для синхронизации БД.
+    </p>
+
+    <h3>Текущее состояние</h3>
+    <table style="width:100%; border-collapse:collapse; margin-bottom:24px;">
+        <thead>
+            <tr style="border-bottom:2px solid #ddd; text-align:left;">
+                <th style="padding:8px;">Аккаунт</th>
+                <th style="padding:8px;">ID</th>
+                <th style="padding:8px;">Товаров в БД</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for acc in accounts %}
+            <tr style="border-bottom:1px solid #eee;">
+                <td style="padding:8px;">{{ acc.name }}</td>
+                <td style="padding:8px;">{{ acc.id }}</td>
+                <td style="padding:8px;">{{ counts.get(acc.id, 0) }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+
+    <h3>Загрузка файла</h3>
+    <form method="post" action="/admin/avito-sync/preview" enctype="multipart/form-data" id="previewForm">
+        <div style="margin-bottom:12px;">
+            <label for="account_id" style="display:block; margin-bottom:4px; font-weight:600;">Аккаунт:</label>
+            <select name="account_id" id="account_id" style="padding:8px; border:1px solid #ccc; border-radius:4px; width:100%; max-width:300px;">
+                {% for acc in accounts %}
+                <option value="{{ acc.id }}">{{ acc.name }} (id={{ acc.id }})</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div style="margin-bottom:12px;">
+            <label for="file" style="display:block; margin-bottom:4px; font-weight:600;">Excel-файл (.xlsx):</label>
+            <input type="file" name="file" id="file" accept=".xlsx" required
+                   style="padding:8px; border:1px solid #ccc; border-radius:4px;">
+        </div>
+        <button type="submit" style="padding:8px 24px; background:#2563eb; color:#fff; border:none; border-radius:4px; cursor:pointer; font-size:14px;">
+            Предпросмотр (dry-run)
+        </button>
+    </form>
+
+    {% if report %}
+    <div style="margin-top:24px; padding:16px; background:#f8f9fa; border:1px solid #dee2e6; border-radius:8px;">
+        <h3>{% if applied|default(false) %}Результат применения{% else %}Предпросмотр{% endif %}</h3>
+
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:12px; margin-bottom:16px;">
+            <div style="background:#d4edda; padding:12px; border-radius:6px; text-align:center;">
+                <div style="font-size:24px; font-weight:700;">{{ report.to_create }}</div>
+                <div style="font-size:12px; color:#155724;">Создать</div>
+            </div>
+            <div style="background:#cce5ff; padding:12px; border-radius:6px; text-align:center;">
+                <div style="font-size:24px; font-weight:700;">{{ report.to_update }}</div>
+                <div style="font-size:12px; color:#004085;">Обновить</div>
+            </div>
+            <div style="background:#f8d7da; padding:12px; border-radius:6px; text-align:center;">
+                <div style="font-size:24px; font-weight:700;">{{ report.to_delete }}</div>
+                <div style="font-size:12px; color:#721c24;">Удалить</div>
+            </div>
+            <div style="background:#e2e3e5; padding:12px; border-radius:6px; text-align:center;">
+                <div style="font-size:24px; font-weight:700;">{{ report.excel_rows_total }}</div>
+                <div style="font-size:12px; color:#383d41;">Строк в Excel</div>
+            </div>
+        </div>
+
+        {% if report.excel_rows_skipped %}
+        <p style="color:#856404;">Пропущено строк: {{ report.excel_rows_skipped }}</p>
+        {% endif %}
+
+        {% if report.errors %}
+        <details style="margin-bottom:12px;">
+            <summary style="cursor:pointer; color:#dc3545;">Ошибки ({{ report.errors|length }})</summary>
+            <ul style="margin-top:8px;">
+            {% for err in report.errors %}
+                <li style="color:#dc3545; font-size:13px;">{{ err }}</li>
+            {% endfor %}
+            </ul>
+        </details>
+        {% endif %}
+
+        {% if report.examples_create %}
+        <details style="margin-bottom:8px;">
+            <summary style="cursor:pointer;">Примеры создания ({{ report.examples_create|length }})</summary>
+            <ul style="margin-top:8px; font-size:13px;">
+            {% for ex in report.examples_create %}
+                <li>avito_id={{ ex.avito_id }}, {{ ex.title }}, {{ ex.price }}₽</li>
+            {% endfor %}
+            </ul>
+        </details>
+        {% endif %}
+
+        {% if report.examples_update %}
+        <details style="margin-bottom:8px;">
+            <summary style="cursor:pointer;">Примеры обновления ({{ report.examples_update|length }})</summary>
+            <ul style="margin-top:8px; font-size:13px;">
+            {% for ex in report.examples_update %}
+                <li>id={{ ex.id }}, avito_id={{ ex.avito_id }}, feed_ad_id={{ ex.feed_ad_id }}</li>
+            {% endfor %}
+            </ul>
+        </details>
+        {% endif %}
+
+        {% if report.examples_delete %}
+        <details style="margin-bottom:8px;">
+            <summary style="cursor:pointer;">Примеры удаления ({{ report.examples_delete|length }})</summary>
+            <ul style="margin-top:8px; font-size:13px;">
+            {% for ex in report.examples_delete %}
+                <li>id={{ ex.id }}, avito_id={{ ex.avito_id }}, {{ ex.title }}</li>
+            {% endfor %}
+            </ul>
+        </details>
+        {% endif %}
+
+        {% if not applied|default(false) and preview_hash %}
+        <form method="post" action="/admin/avito-sync/apply" enctype="multipart/form-data" style="margin-top:16px; padding-top:16px; border-top:1px solid #dee2e6;">
+            <input type="hidden" name="account_id" value="{{ preview_account_id }}">
+            <input type="hidden" name="preview_hash" value="{{ preview_hash }}">
+            <div style="margin-bottom:12px;">
+                <label for="apply_file" style="font-weight:600;">Загрузите тот же файл для применения:</label>
+                <input type="file" name="file" id="apply_file" accept=".xlsx" required
+                       style="padding:8px; border:1px solid #ccc; border-radius:4px; display:block; margin-top:4px;">
+            </div>
+            <label style="display:flex; align-items:center; gap:8px; margin-bottom:12px; cursor:pointer;">
+                <input type="checkbox" required id="confirmApply">
+                Я просмотрел предпросмотр и подтверждаю применение
+            </label>
+            <button type="submit" style="padding:8px 24px; background:#dc3545; color:#fff; border:none; border-radius:4px; cursor:pointer; font-size:14px;">
+                Применить
+            </button>
+        </form>
+        {% endif %}
+
+        {% if applied|default(false) %}
+        <div style="margin-top:12px; padding:12px; background:#d4edda; border-radius:6px; color:#155724;">
+            Синхронизация применена успешно.
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
