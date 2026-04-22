@@ -297,7 +297,7 @@
                     {% elif p.status in ('active','published','imported') %}
                         {% if p.avito_id %}<a href="https://www.avito.ru/items/{{ p.avito_id }}" target="_blank" class="btn btn-sm btn-outline">На Авито</a>{% endif %}
                         <button class="btn btn-sm btn-purple" onclick="repostProduct({{ p.id }})">Перевыложить</button>
-                        <button class="btn btn-sm btn-outline-danger" title="Удалить объявление" onclick="softDelete({{ p.id }},'{{ p.title[:30] }}','{{ p.status }}')">&#x2715;</button>
+                        <button class="btn btn-sm btn-outline-danger" title="Удалить объявление" onclick="softDelete({{ p.id }},'{{ p.title[:30] }}','{{ p.status }}',{{ p.avito_id or 'null' }})">&#x2715;</button>
                     {% endif %}
                     <span class="saved-indicator" id="saved-{{ p.id }}">Сохранено</span>
                 </td>
@@ -970,29 +970,67 @@ async function repostProduct(pid) {
     } catch(e) { showToast('Ошибка сети', true); }
 }
 
-async function softDelete(pid, title, status) {
-    var msg;
+async function softDelete(pid, title, status, avitoId) {
     if (status === 'active' || status === 'imported' || status === 'published') {
-        msg = '⚠ Внимание: объявления, опубликованные через кабинет Авито, '
-            + 'не всегда удаляются через файл автозагрузки.\n\n'
-            + 'Для надёжного снятия объявления удалите его также в кабинете Авито.\n\n'
-            + 'Продолжить?';
-    } else {
-        msg = 'Удалить "' + title + '"?';
+        showDeleteImportedModal(pid, title, avitoId);
+        return;
     }
-    if (!confirm(msg)) return;
+    if (!confirm('Удалить "' + title + '"?')) return;
+    await doMarkRemoved(pid);
+}
+
+async function doMarkRemoved(pid) {
     try {
         const resp = await fetch('/products/' + pid, { method: 'DELETE' });
         const data = await resp.json();
         if (data.ok) {
             document.getElementById('row-' + pid)?.remove();
-            let msg;
-            if (data.avito_id) msg = 'Удалено. Авито снимет при следующей выгрузке фида (~1 час)';
-            else msg = 'Удалено';
-            showToast(msg, false);
+            showToast('Помечено как удалённое', false);
             updateStatusPills();
+            closeDeleteModal();
         } else showToast('Ошибка', true);
     } catch(e) { showToast('Ошибка сети', true); }
+}
+
+function showDeleteImportedModal(pid, title, avitoId) {
+    closeDeleteModal();
+    const overlay = document.createElement('div');
+    overlay.id = 'delete-modal-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;display:flex;align-items:center;justify-content:center;';
+    overlay.onclick = function(e) { if (e.target === overlay) closeDeleteModal(); };
+
+    const avitoUrl = avitoId
+        ? 'https://www.avito.ru/items/' + avitoId
+        : 'https://www.avito.ru/profile/items';
+
+    overlay.innerHTML = `
+        <div style="background:white;padding:24px 28px;border-radius:12px;max-width:460px;width:90%;box-shadow:0 10px 40px rgba(0,0,0,0.2);">
+            <div style="font-size:17px;font-weight:600;margin-bottom:12px;">Удалить объявление</div>
+            <div style="font-size:14px;line-height:1.6;color:#555;margin-bottom:20px;">
+                Объявления, опубликованные через кабинет Авито, не всегда удаляются через файл автозагрузки.<br><br>
+                Рекомендуем сначала снять объявление с публикации в кабинете Авито, а затем пометить его здесь как удалённое.
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+                <a href="${avitoUrl}" target="_blank" rel="noopener"
+                   style="display:block;text-align:center;background:#6366f1;color:white;padding:12px;border-radius:8px;font-size:14px;text-decoration:none;font-weight:500;">
+                    Открыть в Авито ↗
+                </a>
+                <button onclick="doMarkRemoved(${pid})"
+                    style="background:#f3f4f6;color:#111;padding:12px;border:1px solid #e5e7eb;border-radius:8px;font-size:14px;cursor:pointer;">
+                    Я удалил на Авито, пометить в программе
+                </button>
+                <button onclick="closeDeleteModal()"
+                    style="background:transparent;color:#6b7280;padding:8px;border:none;font-size:13px;cursor:pointer;margin-top:2px;">
+                    Отмена
+                </button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+}
+
+function closeDeleteModal() {
+    document.getElementById('delete-modal-overlay')?.remove();
 }
 
 // ── Add row ──

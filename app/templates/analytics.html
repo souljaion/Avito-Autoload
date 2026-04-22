@@ -612,7 +612,7 @@ function renderEffTable() {
         const escTitle = p.title.replace(/'/g, "\\'").replace(/"/g, '&quot;');
         let actionHtml;
         if (p.can_delete_via_feed) {
-            actionHtml = `<button class="btn btn-danger btn-sm" onclick="softDeleteProduct(${p.product_id}, '${escTitle}', this)" title="Удалить через программу">&#x1F5D1;</button>`;
+            actionHtml = `<button class="btn btn-danger btn-sm" onclick="softDeleteProduct(${p.product_id}, '${escTitle}', ${p.avito_id || 'null'}, this)" title="Удалить через программу">&#x1F5D1;</button>`;
         } else {
             const missing = [];
             if (!p.avito_id) missing.push('avito_id');
@@ -683,22 +683,60 @@ async function deleteOneAvito(productId, title, btn) {
     btn.disabled = false;
 }
 
-async function softDeleteProduct(productId, title, btn) {
-    if (!confirm(`⚠ Удалить "${title}"?\n\nОбъявления, опубликованные через кабинет Авито, не всегда удаляются через файл автозагрузки. Для надёжного снятия удалите также в кабинете Авито.\n\nПродолжить?`)) return;
-    btn.disabled = true;
-    try {
-        const resp = await fetch('/products/' + productId, { method: 'DELETE' });
-        const data = await resp.json();
-        if (data.ok) {
-            const row = btn.closest('tr');
-            if (row) { row.style.transition = 'opacity 0.2s'; row.style.opacity = '0'; setTimeout(() => row.remove(), 200); }
-            let msg;
-            if (data.avito_id) msg = 'Удалено. Авито снимет при следующей выгрузке фида (~1 час)';
-            else msg = 'Удалено из программы';
-            showToast(msg, false);
-        } else showToast(data.error || 'Ошибка удаления', true);
-    } catch(e) { showToast('Ошибка сети', true); }
-    btn.disabled = false;
+async function softDeleteProduct(productId, title, avitoId, btn) {
+    const avitoUrl = avitoId
+        ? 'https://www.avito.ru/items/' + avitoId
+        : 'https://www.avito.ru/profile/items';
+
+    // Remove any existing modal
+    document.getElementById('delete-modal-overlay')?.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'delete-modal-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;display:flex;align-items:center;justify-content:center;';
+    overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+
+    overlay.innerHTML = `
+        <div style="background:white;padding:24px 28px;border-radius:12px;max-width:460px;width:90%;box-shadow:0 10px 40px rgba(0,0,0,0.2);">
+            <div style="font-size:17px;font-weight:600;margin-bottom:12px;">Удалить объявление</div>
+            <div style="font-size:14px;line-height:1.6;color:#555;margin-bottom:20px;">
+                Объявления, опубликованные через кабинет Авито, не всегда удаляются через файл автозагрузки.<br><br>
+                Рекомендуем сначала снять объявление с публикации в кабинете Авито, а затем пометить его здесь как удалённое.
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+                <a href="${avitoUrl}" target="_blank" rel="noopener"
+                   style="display:block;text-align:center;background:#6366f1;color:white;padding:12px;border-radius:8px;font-size:14px;text-decoration:none;font-weight:500;">
+                    Открыть в Авито ↗
+                </a>
+                <button id="delete-modal-mark-btn"
+                    style="background:#f3f4f6;color:#111;padding:12px;border:1px solid #e5e7eb;border-radius:8px;font-size:14px;cursor:pointer;">
+                    Я удалил на Авито, пометить в программе
+                </button>
+                <button onclick="document.getElementById('delete-modal-overlay')?.remove()"
+                    style="background:transparent;color:#6b7280;padding:8px;border:none;font-size:13px;cursor:pointer;margin-top:2px;">
+                    Отмена
+                </button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+
+    document.getElementById('delete-modal-mark-btn').onclick = async function() {
+        this.disabled = true;
+        this.textContent = 'Удаляем...';
+        try {
+            const resp = await fetch('/products/' + productId, { method: 'DELETE' });
+            const data = await resp.json();
+            if (data.ok) {
+                const row = btn.closest('tr');
+                if (row) { row.style.transition = 'opacity 0.2s'; row.style.opacity = '0'; setTimeout(() => row.remove(), 200); }
+                showToast('Помечено как удалённое', false);
+                overlay.remove();
+            } else showToast(data.error || 'Ошибка удаления', true);
+        } catch(e) { showToast('Ошибка сети', true); }
+        this.disabled = false;
+        this.textContent = 'Я удалил на Авито, пометить в программе';
+    };
 }
 
 async function bulkDeleteAvito() {
