@@ -11,7 +11,11 @@ from sqlalchemy.orm import selectinload
 MSK = ZoneInfo("Europe/Moscow")
 
 from app.db import get_db
-from app.catalog import get_catalog, DEFAULT_CONDITION
+from app.catalog import (
+    get_catalog, DEFAULT_CONDITION, DEFAULT_COLOR,
+    DEFAULT_AD_TYPE, DEFAULT_AVAILABILITY, DEFAULT_DELIVERY,
+    DEFAULT_DELIVERY_SUBSIDY, DEFAULT_MULTI_ITEM, DEFAULT_TRY_ON,
+)
 from app.models.account import Account
 from app.models.item_stats import ItemStats
 from app.models.model import Model
@@ -401,7 +405,7 @@ async def create_variant(
         brand=brand or None,
         price=price_int,
         size=size or None,
-        color=color or None,
+        color=color or DEFAULT_COLOR,
         condition=condition or DEFAULT_CONDITION,
         goods_type=goods_type or None,
         subcategory=subcategory or None,
@@ -410,6 +414,14 @@ async def create_variant(
         status="draft",
         account_id=acct_id,
         model_id=model_id,
+        extra={
+            "ad_type": DEFAULT_AD_TYPE,
+            "availability": DEFAULT_AVAILABILITY,
+            "delivery": DEFAULT_DELIVERY,
+            "delivery_subsidy": DEFAULT_DELIVERY_SUBSIDY,
+            "multi_item": DEFAULT_MULTI_ITEM,
+            "try_on": DEFAULT_TRY_ON,
+        },
     )
     db.add(product)
     await db.flush()
@@ -567,6 +579,15 @@ async def create_all_listings(model_id: int, request: Request, db: AsyncSession 
             goods_type=model.goods_type,
             goods_subtype=model.goods_subtype,
             condition=DEFAULT_CONDITION,
+            color=DEFAULT_COLOR,
+            extra={
+                "ad_type": DEFAULT_AD_TYPE,
+                "availability": DEFAULT_AVAILABILITY,
+                "delivery": DEFAULT_DELIVERY,
+                "delivery_subsidy": DEFAULT_DELIVERY_SUBSIDY,
+                "multi_item": DEFAULT_MULTI_ITEM,
+                "try_on": DEFAULT_TRY_ON,
+            },
         )
         db.add(product)
         await db.flush()
@@ -690,6 +711,15 @@ async def schedule_matrix(request: Request, db: AsyncSession = Depends(get_db)):
                 goods_type=model.goods_type,
                 goods_subtype=model.goods_subtype,
                 condition=DEFAULT_CONDITION,
+                color=DEFAULT_COLOR,
+                extra={
+                    "ad_type": DEFAULT_AD_TYPE,
+                    "availability": DEFAULT_AVAILABILITY,
+                    "delivery": DEFAULT_DELIVERY,
+                    "delivery_subsidy": DEFAULT_DELIVERY_SUBSIDY,
+                    "multi_item": DEFAULT_MULTI_ITEM,
+                    "try_on": DEFAULT_TRY_ON,
+                },
             )
             db.add(product)
             await db.flush()
@@ -991,6 +1021,15 @@ async def create_one(model_id: int, request: Request, db: AsyncSession = Depends
         goods_type=model.goods_type,
         goods_subtype=model.goods_subtype,
         condition=DEFAULT_CONDITION,
+        color=DEFAULT_COLOR,
+        extra={
+            "ad_type": DEFAULT_AD_TYPE,
+            "availability": DEFAULT_AVAILABILITY,
+            "delivery": DEFAULT_DELIVERY,
+            "delivery_subsidy": DEFAULT_DELIVERY_SUBSIDY,
+            "multi_item": DEFAULT_MULTI_ITEM,
+            "try_on": DEFAULT_TRY_ON,
+        },
     )
     db.add(product)
     await db.flush()
@@ -1326,12 +1365,21 @@ async def create_model_product(model_id: int, request: Request, db: AsyncSession
         goods_type=model.goods_type,
         goods_subtype=model.goods_subtype,
         condition=DEFAULT_CONDITION,
+        color=DEFAULT_COLOR,
         description=model.description if has_model_desc else None,
         use_custom_description=has_model_desc,
         description_template_id=desc_tpl_id,
         size=body.get("size") or None,
         price=int(body["price"]) if body.get("price") else model.price,
         pack_id=pack_id,
+        extra={
+            "ad_type": DEFAULT_AD_TYPE,
+            "availability": DEFAULT_AVAILABILITY,
+            "delivery": DEFAULT_DELIVERY,
+            "delivery_subsidy": DEFAULT_DELIVERY_SUBSIDY,
+            "multi_item": DEFAULT_MULTI_ITEM,
+            "try_on": DEFAULT_TRY_ON,
+        },
     )
     db.add(product)
     # Flush to get product.id before applying pack (ProductImage FK needs it)

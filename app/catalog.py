@@ -86,6 +86,7 @@ CONDITIONS = [
 ]
 
 DEFAULT_CONDITION = "Новое с биркой"
+DEFAULT_COLOR = "Разноцветный"
 
 AD_TYPES = ["Товар приобретён на продажу", "Товар от производителя"]
 DEFAULT_AD_TYPE = "Товар приобретён на продажу"
@@ -94,16 +95,16 @@ AVAILABILITIES = ["В наличии", "Под заказ"]
 DEFAULT_AVAILABILITY = "В наличии"
 
 DELIVERY_OPTIONS = ["Самовывоз", "Доставка", "Самовывоз и доставка"]
-DEFAULT_DELIVERY = "Самовывоз"
+DEFAULT_DELIVERY = "Самовывоз и доставка"
 
 DELIVERY_SUBSIDIES = ["Нет скидки", "50%", "100%"]
 DEFAULT_DELIVERY_SUBSIDY = "Нет скидки"
 
 MULTI_ITEM_OPTIONS = ["Нет", "Да"]
-DEFAULT_MULTI_ITEM = "Нет"
+DEFAULT_MULTI_ITEM = "Да"
 
 TRY_ON_OPTIONS = ["Нет", "Да"]
-DEFAULT_TRY_ON = "Нет"
+DEFAULT_TRY_ON = "Да"
 
 _FALLBACK = {
     "categories": CATEGORIES,
