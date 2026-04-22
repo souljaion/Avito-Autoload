@@ -30,6 +30,7 @@ COLUMN_MAP = {
     "Бренд одежды": "brand",
     "Вид одежды": "goods_type",
     "Вид одежды, обуви, аксессуаров": "subcategory",
+    "Тип товара": "subcategory",
     "Размер": "size",
     "Цвет": "color",
     "Категория": "category",

@@ -379,3 +379,45 @@ class TestSyncFromAvitoExport:
         assert report.to_create == 1
         assert report.examples_create[0]["title"] == "Multi Column Test"
         assert report.examples_create[0]["price"] == 3500
+
+    @pytest.mark.asyncio
+    async def test_subcategory_from_tip_tovara_column(self, sync_db, tmp_path):
+        """Clothing sheets use 'Тип товара' instead of 'Вид одежды, обуви, аксессуаров'."""
+        # Create Excel with clothing-style headers
+        wb = openpyxl.Workbook()
+        ws_instr = wb.active
+        ws_instr.title = "Инструкция"
+        ws = wb.create_sheet("Мужская одежда-Кофты и футболки")
+        clothing_headers = [
+            "Уникальный идентификатор объявления",
+            "Номер объявления на Авито",
+            "Название объявления",
+            "Цена",
+            "Вид одежды",
+            "Тип товара",
+            "AvitoStatus",
+        ]
+        ws.cell(1, 1, "Одежда")
+        for i, h in enumerate(clothing_headers, 1):
+            ws.cell(2, i, h)
+        ws.cell(3, 1, "Обязательный")
+        ws.cell(4, 1, "Подробнее")
+        # Data row
+        data = ["8086533784", "8086533784", "Supreme Tee", "1790",
+                "Мужская одежда", "Кофты и футболки", "Активно"]
+        for i, v in enumerate(data, 1):
+            ws.cell(5, i, v)
+
+        excel_path = os.path.join(str(tmp_path), "clothing.xlsx")
+        wb.save(excel_path)
+        wb.close()
+
+        report = await sync_from_excel(excel_path, ACCOUNT_ID, sync_db, dry_run=False)
+
+        assert report.to_create == 1
+        result = await sync_db.execute(
+            select(Product).where(Product.avito_id == 8086533784)
+        )
+        p = result.scalar_one()
+        assert p.subcategory == "Кофты и футболки"
+        assert p.goods_type == "Мужская одежда"
