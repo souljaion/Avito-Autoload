@@ -167,7 +167,7 @@ class TestFeedAfterDelete:
         assert included == 0  # no active products
         assert "<Status>Removed</Status>" in xml
         assert "<AvitoId>900111</AvitoId>" in xml
-        assert "<Id>42</Id>" in xml
+        assert "<Id>900111</Id>" in xml  # avito_id used as Id for imported products
 
     @pytest.mark.asyncio
     async def test_imported_without_avito_id_excluded_by_query(self, tmp_path):

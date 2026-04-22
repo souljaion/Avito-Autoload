@@ -254,6 +254,22 @@ class TestBuildAdElement:
         ad = build_ad_element(p, a, "https://example.com")
         assert ad.find("AvitoId") is None
 
+    def test_id_uses_avito_id_when_present(self):
+        """Imported products: <Id> should be avito_id so Avito can match them."""
+        p = _make_product(id=262, avito_id=7989518067)
+        a = _make_account()
+        ad = build_ad_element(p, a, "https://example.com")
+        assert ad.find("Id").text == "7989518067"
+        assert ad.find("AvitoId").text == "7989518067"
+
+    def test_id_uses_product_id_when_no_avito_id(self):
+        """Draft products without avito_id: <Id> should be product.id."""
+        p = _make_product(id=1531, avito_id=None)
+        a = _make_account()
+        ad = build_ad_element(p, a, "https://example.com")
+        assert ad.find("Id").text == "1531"
+        assert ad.find("AvitoId") is None
+
     def test_no_phone_no_address(self):
         """Account without phone/address should not produce those elements."""
         p = _make_product()
