@@ -309,3 +309,73 @@ class TestSyncFromAvitoExport:
             select(ProductImage).where(ProductImage.product_id == pid)
         )
         assert len(result.scalars().all()) == 0
+
+    @pytest.mark.asyncio
+    async def test_orphans_isolated_by_account_id(self, sync_db, tmp_path):
+        """Products from other accounts must NOT appear in to_delete."""
+        from app.models.account import Account
+
+        # Create a second account for isolation test
+        acc2 = Account(name="OtherAcc", client_id="other_cid", client_secret="other_sec")
+        sync_db.add(acc2)
+        await sync_db.flush()
+        other_account_id = acc2.id
+
+        # Account 1: one product in Excel, one orphan
+        keep_id = 770000040
+        orphan_id = 770000041
+        sync_db.add(Product(
+            avito_id=keep_id, title="Keep", price=1000,
+            status="imported", account_id=ACCOUNT_ID,
+        ))
+        sync_db.add(Product(
+            avito_id=orphan_id, title="Orphan", price=1000,
+            status="imported", account_id=ACCOUNT_ID,
+        ))
+
+        # Other account: product that must NOT be touched
+        other_id = 770000042
+        sync_db.add(Product(
+            avito_id=other_id, title="Other account", price=2000,
+            status="imported", account_id=other_account_id,
+        ))
+        await sync_db.flush()
+
+        excel_path = _make_excel(str(tmp_path), [
+            {
+                "Уникальный идентификатор объявления": str(keep_id),
+                "Номер объявления на Авито": str(keep_id),
+                "Название объявления": "Keep",
+                "Цена": "1000",
+                "AvitoStatus": "Активно",
+            },
+        ])
+
+        report = await sync_from_excel(excel_path, ACCOUNT_ID, sync_db, dry_run=True)
+
+        assert report.to_delete == 1
+        delete_ids = {ex["avito_id"] for ex in report.examples_delete}
+        assert orphan_id in delete_ids
+        assert other_id not in delete_ids
+
+    @pytest.mark.asyncio
+    async def test_parse_multi_column_excel(self, sync_db, tmp_path):
+        """Regression: parser must read all columns, not just the first one."""
+        excel_path = _make_excel(str(tmp_path), [
+            {
+                "Уникальный идентификатор объявления": "feed_123",
+                "Номер объявления на Авито": "770000050",
+                "Название объявления": "Multi Column Test",
+                "Описание объявления": "Description here",
+                "Цена": "3500",
+                "Бренд одежды": "TestBrand",
+                "AvitoStatus": "Активно",
+            },
+        ])
+
+        report = await sync_from_excel(excel_path, ACCOUNT_ID, sync_db, dry_run=True)
+
+        assert report.excel_rows_total == 1
+        assert report.to_create == 1
+        assert report.examples_create[0]["title"] == "Multi Column Test"
+        assert report.examples_create[0]["price"] == 3500

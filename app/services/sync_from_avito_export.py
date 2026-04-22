@@ -54,7 +54,7 @@ class SyncReport:
 
 def _parse_excel(excel_path: str) -> tuple[list[dict], list[str]]:
     """Parse Avito cabinet Excel export, return (rows, errors)."""
-    wb = openpyxl.load_workbook(excel_path, data_only=True, read_only=True)
+    wb = openpyxl.load_workbook(excel_path, data_only=True)
     rows: list[dict] = []
     errors: list[str] = []
 
