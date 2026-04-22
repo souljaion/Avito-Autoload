@@ -38,6 +38,7 @@ def _make_product(id, avito_id=None, account_id=1, status="imported"):
     p.account_id = account_id
     p.status = status
     p.removed_at = None
+    p.feed_ad_id = None
     p.title = f"Product {id}"
     p.price = 1000
     return p

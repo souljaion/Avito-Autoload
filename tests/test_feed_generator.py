@@ -46,6 +46,7 @@ def _make_product(**kw):
         "image_url": None,
         "use_custom_description": False,
         "avito_id": None,
+        "feed_ad_id": None,
         "description_template_id": None,
         "description_template": None,
     }
@@ -803,3 +804,31 @@ class TestUseCustomDescriptionInteraction:
         assert count == 1
         tree = etree.parse(filepath)
         assert tree.find(".//Ad/Description").text == "TEMPLATE BODY WINS"
+
+
+# ── feed_ad_id in <Id> ──
+
+
+class TestFeedAdId:
+    """<Id> should use feed_ad_id when set, fallback to product.id."""
+
+    def test_id_uses_feed_ad_id_when_set(self):
+        product = _make_product(id=42, feed_ad_id="7989518067")
+        account = _make_account()
+        ad = build_ad_element(product, account, "https://example.com")
+        assert ad.find("Id").text == "7989518067"
+
+    def test_id_falls_back_to_product_id_when_feed_ad_id_none(self):
+        product = _make_product(id=42, feed_ad_id=None)
+        account = _make_account()
+        ad = build_ad_element(product, account, "https://example.com")
+        assert ad.find("Id").text == "42"
+
+    def test_removed_uses_feed_ad_id_when_set(self):
+        product = _make_product(id=42, feed_ad_id="7989518067", status="removed", avito_id=123456)
+        account = _make_account()
+        from app.services.feed_generator import _add_element
+        ad = etree.Element("Ad")
+        ad_id_value = product.feed_ad_id if product.feed_ad_id else str(product.id)
+        _add_element(ad, "Id", ad_id_value)
+        assert ad.find("Id").text == "7989518067"
