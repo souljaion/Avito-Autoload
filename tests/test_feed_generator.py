@@ -204,7 +204,7 @@ class TestBuildAdElement:
         assert ad.find("ApparelType").text == "Кроссовки"
 
     def test_apparel_type_shoes_female(self):
-        p = _make_product(goods_type="Женская обувь", goods_subtype="Ботинки и полуботинки")
+        p = _make_product(goods_type="Женская обувь", subcategory="Ботинки и полуботинки", goods_subtype="Ботинки и полуботинки")
         a = _make_account()
         ad = build_ad_element(p, a, "https://example.com")
         assert ad.find("ApparelType").text == "Ботинки и полуботинки"
@@ -832,3 +832,83 @@ class TestFeedAdId:
         ad_id_value = product.feed_ad_id if product.feed_ad_id else str(product.id)
         _add_element(ad, "Id", ad_id_value)
         assert ad.find("Id").text == "7989518067"
+
+
+# ── ApparelType / GoodsSubType / Color / Images for non-imported ──
+
+
+class TestNonImportedFields:
+    """Ensure ApparelType, GoodsSubType, Color, Images work for active/scheduled products."""
+
+    def test_apparel_type_uses_subcategory_for_shoes(self):
+        """For shoes, ApparelType should come from subcategory, not goods_subtype."""
+        product = _make_product(
+            status="active", goods_type="Мужская обувь",
+            subcategory="Кроссовки", goods_subtype=None,
+        )
+        account = _make_account()
+        ad = build_ad_element(product, account, "https://example.com")
+        assert ad.find("ApparelType").text == "Кроссовки"
+
+    def test_apparel_type_for_shoes_with_goods_subtype(self):
+        """When both subcategory and goods_subtype are set, ApparelType uses subcategory."""
+        product = _make_product(
+            status="active", goods_type="Мужская обувь",
+            subcategory="Кроссовки", goods_subtype="Кроссовки",
+        )
+        account = _make_account()
+        ad = build_ad_element(product, account, "https://example.com")
+        assert ad.find("ApparelType").text == "Кроссовки"
+        assert ad.find("GoodsSubType").text == "Кроссовки"
+
+    def test_goods_sub_type_present_when_set(self):
+        product = _make_product(goods_subtype="Кроссовки")
+        account = _make_account()
+        ad = build_ad_element(product, account, "https://example.com")
+        assert ad.find("GoodsSubType").text == "Кроссовки"
+
+    def test_goods_sub_type_absent_when_empty(self):
+        product = _make_product(goods_subtype=None)
+        account = _make_account()
+        ad = build_ad_element(product, account, "https://example.com")
+        assert ad.find("GoodsSubType") is None
+
+    def test_color_present_when_set(self):
+        product = _make_product(color="Белый")
+        account = _make_account()
+        ad = build_ad_element(product, account, "https://example.com")
+        assert ad.find("Color").text == "Белый"
+
+    def test_color_absent_when_empty(self):
+        product = _make_product(color=None)
+        account = _make_account()
+        ad = build_ad_element(product, account, "https://example.com")
+        assert ad.find("Color") is None
+
+    def test_apparel_type_absent_when_subcategory_empty_for_shoes(self):
+        product = _make_product(
+            goods_type="Мужская обувь", subcategory=None, goods_subtype=None,
+        )
+        account = _make_account()
+        ad = build_ad_element(product, account, "https://example.com")
+        assert ad.find("ApparelType") is None
+
+    def test_local_image_url_absolute(self):
+        """Local images should get base_url prepended."""
+        img = _make_image(url="/media/products/1/test.jpg")
+        product = _make_product(images=[img])
+        account = _make_account()
+        ad = build_ad_element(product, account, "https://autoload.souljaion.ru")
+        image_el = ad.find(".//Image")
+        assert image_el is not None
+        assert image_el.get("url") == "https://autoload.souljaion.ru/media/products/1/test.jpg"
+
+    def test_avito_cdn_image_url_kept(self):
+        """Avito CDN images should keep their full URL unchanged."""
+        img = _make_image(url="https://00.img.avito.st/image/1/photo.jpg")
+        product = _make_product(images=[img])
+        account = _make_account()
+        ad = build_ad_element(product, account, "https://autoload.souljaion.ru")
+        image_el = ad.find(".//Image")
+        assert image_el is not None
+        assert image_el.get("url") == "https://00.img.avito.st/image/1/photo.jpg"

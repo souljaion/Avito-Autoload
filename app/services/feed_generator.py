@@ -151,8 +151,8 @@ def build_ad_element(product: Product, account: Account, base_url: str, descript
 
     _add_element(ad, "GoodsType", product.goods_type)
     if product.goods_type in _SHOE_GOODS_TYPES:
-        # For shoes ApparelType = specific shoe type (goods_subtype)
-        _add_element(ad, "ApparelType", product.goods_subtype)
+        # For shoes ApparelType = subcategory (e.g. "Кроссовки", "Ботинки")
+        _add_element(ad, "ApparelType", product.subcategory)
     else:
         apparel_type = _APPAREL_TYPE_MAP.get(product.goods_type)
         if apparel_type:
