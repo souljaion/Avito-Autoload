@@ -110,6 +110,7 @@ async def import_account_items(account: Account, db: AsyncSession) -> dict:
 
             product = Product(
                 avito_id=avito_id,
+                feed_ad_id=str(avito_id),
                 title=title,
                 price=price,
                 description=description,

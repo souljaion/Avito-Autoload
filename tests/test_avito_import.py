@@ -109,6 +109,9 @@ class TestAvitoImport:
         # db.add should be called with Product and Listing
         assert mock_db.add.call_count >= 2
         mock_db.commit.assert_called_once()
+        # Verify feed_ad_id is set to str(avito_id) for new imported products
+        product_arg = mock_db.add.call_args_list[0][0][0]
+        assert product_arg.feed_ad_id == "12345"
 
     @pytest.mark.asyncio
     async def test_updates_existing_product(self):
