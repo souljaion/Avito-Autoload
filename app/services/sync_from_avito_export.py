@@ -31,6 +31,7 @@ COLUMN_MAP = {
     "Вид одежды": "goods_type",
     "Вид одежды, обуви, аксессуаров": "subcategory",
     "Тип товара": "subcategory",
+    "Подвид товара": "goods_subtype",
     "Размер": "size",
     "Цвет": "color",
     "Категория": "category",
@@ -180,6 +181,7 @@ async def sync_from_excel(
             "goods_type": row.get("goods_type"),
             "category": row.get("category"),
             "subcategory": row.get("subcategory"),
+            "goods_subtype": row.get("goods_subtype"),
             "size": row.get("size"),
             "color": row.get("color"),
             "condition": row.get("condition"),
@@ -231,6 +233,7 @@ async def sync_from_excel(
             goods_type=data["goods_type"],
             category=data["category"],
             subcategory=data["subcategory"],
+            goods_subtype=data["goods_subtype"],
             size=data["size"],
             color=data["color"],
             condition=data["condition"],
@@ -249,6 +252,7 @@ async def sync_from_excel(
         product.goods_type = data["goods_type"]
         product.category = data["category"]
         product.subcategory = data["subcategory"]
+        product.goods_subtype = data["goods_subtype"]
         product.size = data["size"]
         product.color = data["color"]
         product.condition = data["condition"]

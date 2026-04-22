@@ -174,14 +174,9 @@ def build_ad_element(product: Product, account: Account, base_url: str, descript
 
     _add_images(ad, product.images, base_url, fallback_url=product.image_url)
 
-    # Delivery
-    delivery_val = extra.get("delivery")
-    if delivery_val:
-        delivery_el = etree.SubElement(ad, "Delivery")
-        _add_element(delivery_el, "Option", delivery_val)
-    delivery_subsidy_val = extra.get("delivery_subsidy")
-    if delivery_subsidy_val:
-        _add_element(ad, "DeliverySubsidy", delivery_subsidy_val)
+    # Delivery: our UI values ("Самовывоз", "Самовывоз и доставка") are not
+    # valid Avito Autoload XML values. Imported products don't include Delivery
+    # and work fine. Keep extra.delivery for internal UI, skip in feed.
 
     multi_item_val = extra.get("multi_item")
     if multi_item_val:

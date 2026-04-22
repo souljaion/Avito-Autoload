@@ -235,13 +235,12 @@ class TestBuildAdElement:
         xml_str = etree.tostring(ad, encoding="unicode")
         assert "CDATA" in xml_str
 
-    def test_delivery_option(self):
+    def test_delivery_not_in_feed(self):
+        """Delivery is kept in DB for UI but not included in XML feed."""
         p = _make_product(extra={"delivery": "Доставка", "ad_type": "Товар приобретён на продажу"})
         a = _make_account()
         ad = build_ad_element(p, a, "https://example.com")
-        delivery_el = ad.find("Delivery")
-        assert delivery_el is not None
-        assert delivery_el.find("Option").text == "Доставка"
+        assert ad.find("Delivery") is None
 
     def test_avito_id_included_when_set(self):
         p = _make_product(avito_id=123456)
@@ -284,7 +283,8 @@ class TestBuildAdElement:
         ad = build_ad_element(p, a, "https://example.com")
         assert ad.find("MaterialsOdezhda") is None
 
-    def test_delivery_subsidy_and_multi_item(self):
+    def test_multi_item_and_try_on(self):
+        """Delivery/DeliverySubsidy removed from feed; MultiItem and TryOn remain."""
         p = _make_product(extra={
             "delivery": "Доставка",
             "delivery_subsidy": "100",
@@ -293,7 +293,8 @@ class TestBuildAdElement:
         })
         a = _make_account()
         ad = build_ad_element(p, a, "https://example.com")
-        assert ad.find("DeliverySubsidy").text == "100"
+        assert ad.find("Delivery") is None
+        assert ad.find("DeliverySubsidy") is None
         assert ad.find("MultiItem").text == "Да"
         assert ad.find("TryOn").text == "Нет"
 

@@ -684,7 +684,7 @@ async function deleteOneAvito(productId, title, btn) {
 }
 
 async function softDeleteProduct(productId, title, btn) {
-    if (!confirm(`Удалить "${title}"? Товар будет снят с Авито.`)) return;
+    if (!confirm(`⚠ Удалить "${title}"?\n\nОбъявления, опубликованные через кабинет Авито, не всегда удаляются через файл автозагрузки. Для надёжного снятия удалите также в кабинете Авито.\n\nПродолжить?`)) return;
     btn.disabled = true;
     try {
         const resp = await fetch('/products/' + productId, { method: 'DELETE' });

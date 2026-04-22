@@ -421,3 +421,44 @@ class TestSyncFromAvitoExport:
         p = result.scalar_one()
         assert p.subcategory == "Кофты и футболки"
         assert p.goods_type == "Мужская одежда"
+
+    @pytest.mark.asyncio
+    async def test_goods_subtype_from_podvid_tovara_column(self, sync_db, tmp_path):
+        """'Подвид товара' column maps to goods_subtype for clothing."""
+        wb = openpyxl.Workbook()
+        ws_instr = wb.active
+        ws_instr.title = "Инструкция"
+        ws = wb.create_sheet("Мужская одежда-Кофты и футболки")
+        headers = [
+            "Уникальный идентификатор объявления",
+            "Номер объявления на Авито",
+            "Название объявления",
+            "Цена",
+            "Вид одежды",
+            "Тип товара",
+            "Подвид товара",
+            "AvitoStatus",
+        ]
+        ws.cell(1, 1, "Одежда")
+        for i, h in enumerate(headers, 1):
+            ws.cell(2, i, h)
+        ws.cell(3, 1, "Обязательный")
+        ws.cell(4, 1, "Подробнее")
+        data = ["8086167441", "8086167441", "Supreme Mercury Tee", "1790",
+                "Мужская одежда", "Кофты и футболки", "Футболка", "Активно"]
+        for i, v in enumerate(data, 1):
+            ws.cell(5, i, v)
+
+        excel_path = os.path.join(str(tmp_path), "clothing_subtype.xlsx")
+        wb.save(excel_path)
+        wb.close()
+
+        report = await sync_from_excel(excel_path, ACCOUNT_ID, sync_db, dry_run=False)
+
+        assert report.to_create == 1
+        result = await sync_db.execute(
+            select(Product).where(Product.avito_id == 8086167441)
+        )
+        p = result.scalar_one()
+        assert p.goods_subtype == "Футболка"
+        assert p.subcategory == "Кофты и футболки"
