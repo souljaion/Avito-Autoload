@@ -1,0 +1,1103 @@
+# AVITO AUTOLOAD — CONTEXT v7.11
+
+**Дата:** 2026-04-22
+**Тесты:** 926 passed, 1 skipped (было 892 в v7.10)
+**Push status:** origin/main + 15 local commits unpushed
+**Alembic HEAD:** b8744625def2 (add_feed_ad_id_to_products)
+
+---
+
+## ЧТО НОВОГО ОТНОСИТЕЛЬНО v7.5
+
+### v7.11 — feed_ad_id + sync_from_avito_export + UI модалка удаления (2026-04-22)
+
+**Инцидент:** коммит 6279ff7 изменил `<Id>` в фиде с product.id на avito_id
+для imported-товаров. Авито воспринял смену Id как исчезновение старых
+объявлений и массово снял ~300 публикаций с 4 аккаунтов. Откачен через 3992d86.
+Автозагрузка отключена оператором во всех 4 кабинетах.
+
+**Коммиты (15 local, unpushed):**
+- 9bc8855 — feat(db): add products.feed_ad_id VARCHAR(100) for Avito autoload Id mapping
+- b374758 — feat(feed): <Id> uses product.feed_ad_id when set, fallback to product.id
+- 4011d6b — feat(sync): add sync_from_avito_export service for reimport from Avito Excel
+- 729fadd — feat(ui): add /admin/avito-sync page for importing fresh Excel exports
+- d6a7bdd — feat(import): avito_import sets feed_ad_id=avito_id for new imported products
+- 76c04e0 — fix(avito-sync): preview читает загруженный файл и фильтрует orphans по account_id
+- a992cc4 — fix(feed): include ApparelType/GoodsSubType/Color/Images for non-imported products
+- 43c9863 — fix(sync): map "Тип товара" column to subcategory for clothing sheets
+- c8de115 — feat(products): set Avito-params defaults for new draft products
+- 563261f — fix: Delivery removed from feed + GoodsSubType import + imported delete warning
+- 4790e6d — feat(ui): show modal with 'Open in Avito' button when deleting imported ad
+
+**Тесты: 892 → 926 (+34).** Новые кейсы:
+- tests/test_feed_generator.py — +13 (feed_ad_id 3 теста, non-imported fields 10 тестов)
+- tests/test_sync_from_avito_export.py — НОВЫЙ файл, 11 тестов (dry_run, create, update,
+  delete orphans, skip non-active, skip no avito_id, cascade delete, account isolation,
+  multi-column, subcategory from "Тип товара", goods_subtype from "Подвид товара")
+- tests/test_avito_sync_routes.py — НОВЫЙ файл, 4 теста (GET page, preview, apply без preview, wrong hash)
+- tests/test_product_defaults.py — НОВЫЙ файл, 7 тестов (все 7 DEFAULT_* значений)
+- tests/test_avito_import.py — +1 (feed_ad_id == str(avito_id))
+- tests/test_analytics_delete.py — +0 (фикс feed_ad_id в mock)
+
+**Новая колонка products.feed_ad_id:**
+- Миграция b8744625def2: VARCHAR(100) NULL + index ix_products_feed_ad_id
+- В фиде `<Id>` = feed_ad_id если заполнен, иначе str(product.id)
+- Заполняется из Excel-экспорта через sync_from_avito_export (колонка
+  "Уникальный идентификатор объявления")
+- При создании imported через avito_import: feed_ad_id = str(avito_id)
+- Решает проблему несовпадения Id между нашим фидом и кабинетом Авито
+
+**Новый сервис sync_from_avito_export.py:**
+- Парсит xlsx-экспорт кабинета Авито (openpyxl, без read_only — реальные
+  файлы ломаются с read_only=True)
+- Структура Excel: заголовки в строке 2, данные с строки 5, пропуск
+  листов "Инструкция" и "Спр-*"
+- COLUMN_MAP: 16 маппингов включая "Тип товара" → subcategory,
+  "Подвид товара" → goods_subtype, "Вид одежды, обуви, аксессуаров" → subcategory
+- dry_run=True → SyncReport без изменений БД
+- dry_run=False → flush (commit в вызывающем коде)
+- Удаление orphans через SQL DELETE (не ORM db.delete — из-за отсутствия
+  cascade="all, delete-orphan" на images relationship; DB FK ondelete CASCADE работает)
+
+**Новая страница /admin/avito-sync:**
+- GET /admin/avito-sync — форма загрузки + таблица counts по аккаунтам
+- POST /admin/avito-sync/preview — dry_run, HTML-отчёт с примерами
+- POST /admin/avito-sync/apply — применение после preview (проверка md5 hash файла)
+- Пункт "Синхронизация" добавлен в sidebar
+
+**Фиксы feed_generator.py:**
+- <ApparelType> для обуви: subcategory вместо goods_subtype (goods_subtype
+  пусто у draft, subcategory заполнен)
+- <Delivery> и <DeliverySubsidy> убраны из фида — наши UI-значения не из
+  справочника Авито. Значения в extra JSONB сохранены для UI
+- <GoodsSubType>, <Color> корректно добавляются когда заполнены в БД
+
+**Дефолты для новых draft (catalog.py):**
+- DEFAULT_COLOR = "Разноцветный" (НОВЫЙ)
+- DEFAULT_DELIVERY изменён: "Самовывоз" → "Самовывоз и доставка"
+- DEFAULT_MULTI_ITEM изменён: "Нет" → "Да"
+- DEFAULT_TRY_ON изменён: "Нет" → "Да"
+- Применяются в 5 местах создания draft в models.py + product_create в products.py
+
+**UI модалка при удалении imported:**
+- detail.html и analytics.html: для imported/active/published при клике ×
+  показывается модалка вместо confirm
+- 3 кнопки: "Открыть в Авито ↗" (прямая ссылка /items/{avito_id}),
+  "Я удалил на Авито, пометить в программе" (DELETE), "Отмена"
+- Для draft/scheduled — старый простой confirm
+
+**Состояние аккаунтов на конец дня:**
+- Parker (id=1, feed_token=e9121061-...): 39 products, 32 with feed_ad_id, 33 imported
+- Рыбка (id=2, feed_token=b6a66d19-...): 56 products, 33 with feed_ad_id, 33 imported
+- Zulla (id=3, feed_token=b5e0b34f-...): 43 products, 37 with feed_ad_id, 37 imported
+- Crosstherapy (id=4, feed_token=65c12ed1-...): 58 products, 42 with feed_ad_id, 42 imported
+- ИТОГО: 196 records, 144 с feed_ad_id. Автозагрузка включена только на Рыбке.
+
+## ФАЙЛЫ ИЗМЕНЁННЫЕ В v7.11
+
+**Backend:**
+- app/models/product.py — +feed_ad_id колонка
+- app/services/feed_generator.py — <Id> из feed_ad_id; <ApparelType> из subcategory;
+  убраны <Delivery>/<DeliverySubsidy>
+- app/services/sync_from_avito_export.py — НОВЫЙ (Excel sync)
+- app/services/avito_import.py — feed_ad_id при создании imported
+- app/routes/avito_sync.py — НОВЫЙ (UI для sync)
+- app/catalog.py — DEFAULT_COLOR, обновлены DEFAULT_DELIVERY/MULTI_ITEM/TRY_ON
+- app/routes/models.py — дефолты color+extra в 5 местах создания draft
+- app/main.py — зарегистрирован avito_sync_router
+
+**Frontend:**
+- app/templates/admin/avito_sync.html — НОВЫЙ
+- app/templates/base.html — пункт "Синхронизация" в sidebar
+- app/templates/models/detail.html — модалка удаления imported
+- app/templates/analytics.html — модалка удаления imported
+
+**Миграции:**
+- alembic/versions/b8744625def2_add_feed_ad_id_to_products.py — НОВЫЙ (HEAD)
+
+**Tests:**
+- tests/test_sync_from_avito_export.py — НОВЫЙ, 11 тестов
+- tests/test_avito_sync_routes.py — НОВЫЙ, 4 теста
+- tests/test_product_defaults.py — НОВЫЙ, 7 тестов
+- tests/test_feed_generator.py — +13 (feed_ad_id + non-imported fields)
+- tests/test_avito_import.py — +1 (feed_ad_id assertion)
+- tests/test_analytics_delete.py — фикс mock (feed_ad_id=None)
+
+---
+
+### v7.10 — pack_id persistence + bulk-schedule без времени (2026-04-21)
+
+**Коммиты (4 local, unpushed):**
+- 685b30c — fix(models): сохранять pack_id на product для персистентности выбора пака
+- cba3ce3 — fix(models): не копировать pack_id/size/price/description_template_id в новый draft при "+ Добавить объявление"
+- 1a4ae7b — feat(models): bulk "В расписание" без времени + бейдж scheduled
+- 0e5cd38 — fix(models): per-row "В расписание" без редиректа — AJAX на bulk-schedule
+
+**Тесты: 876 → 892 (+16).** Новые кейсы:
+- tests/test_model_product_creation.py — +3 (pack_id saved, second draft no reset, pack dropdown selected in template)
+- tests/test_bulk_schedule.py — НОВЫЙ файл, 7 тестов (status+scheduled_at, listing sync, skip non-draft, no readiness check, badge in template, single product_id, empty ids)
+
+**Фикс: pack_id persistence (Фаза 1):**
+- Корень: у Product не было колонки pack_id. Пак «тихо» терялся после любой
+  перезагрузки страницы — dropdown всегда показывал «Без пака».
+- Миграция 5ae9f0bf8896: products.pack_id INTEGER NULL, FK → photo_packs.id
+  ON DELETE SET NULL, индекс ix_products_pack_id.
+- app/models/product.py: колонка pack_id + relationship pack.
+- app/routes/models.py: create_model_product сохраняет pack_id.
+- app/routes/products.py: patch_product_pack сохраняет product.pack_id.
+- app/templates/models/detail.html: {% if p.pack_id == pack.id %}selected{% endif %}.
+- **Backfill НЕ сделан** (Фаза 2 отложена). В prod могут быть draft'ы с pack_id=NULL,
+  у которых пак был назначен через старый механизм. Оператор проставит через dropdown.
+
+**Фикс: addNewRow не копирует из соседней строки:**
+- JS addNewRow ранее копировал pack_id/size/price/description_template_id из
+  последней строки матрицы. Новый draft наследовал пак/размер предыдущего.
+- Теперь JS шлёт только { account_id: ACCOUNTS[0].id }. Backend defaults:
+  title=_default_ad_title(model), price=model.price, остальное NULL.
+
+**Bulk «В расписание» без времени:**
+- Новый endpoint POST /models/{id}/bulk-schedule.
+- Ставит status=scheduled, scheduled_at=NULL без readiness-check.
+- Только draft-строки. Non-draft пропускаются с объяснением в skipped[].
+- Listing.status и Listing.scheduled_at синхронизируются.
+- JS bulkSchedule() переписан: один bulk-запрос вместо sequential per-product.
+  Модалка выбора времени убрана.
+- Бейдж «в расписании» (CSS .status-scheduled, #dbeafe/#1e40af) уже существовал.
+
+**Per-row «В расписание» — AJAX вместо редиректа:**
+- Заменена ссылка <a href="/schedule?product_id=N"> на <button onclick="scheduleOneNow(pid)">.
+- Новая JS-функция scheduleOneNow шлёт POST на тот же /models/{id}/bulk-schedule
+  с product_ids=[pid]. Toast + location.reload(), без ухода со страницы.
+
+## ФАЙЛЫ ИЗМЕНЁННЫЕ В v7.10
+
+**Backend:**
+- app/models/product.py — +pack_id колонка + pack relationship
+- app/routes/models.py — create_model_product: +pack_id; новый endpoint bulk-schedule
+- app/routes/products.py — patch_product_pack: +product.pack_id
+
+**Frontend:**
+- app/templates/models/detail.html — pack dropdown selected; addNewRow очищен;
+  bulkSchedule переписан на bulk-schedule; scheduleOneNow новая функция;
+  per-row «В расписание» кнопка вместо ссылки
+
+**Миграции:**
+- alembic/versions/5ae9f0bf8896_add_product_pack_id.py — НОВЫЙ
+
+**Tests:**
+- tests/test_model_product_creation.py — +3 (TestPackIdPersistence)
+- tests/test_bulk_schedule.py — НОВЫЙ, 7 тестов
+
+---
+
+### v7.9 — bulk-publish UX + фотопаки revamp + per-row actions (2026-04-21)
+
+**Коммиты (6 pushed в origin/main):**
+- dd30582 — feat(models): stage 2.2B+2.2C — кнопка «Только сохранить» и карусель multi-select в модалке bulk-publish
+- 9609da7 — fix(models): отображение миниатюр Я.Диск-фото на дашборде /models
+- d225dc6 — feat(models): кнопка «Выложить сразу» per-row в матрице
+- f408dc3 — feat(models): tooltip + confirm на удаление объявления в матрице
+- c58b8df — feat(models): компактный вертикальный список фотопаков + auto-select Я.Диск файлов
+- a2fb30c — feat(photo_packs): переименование фотопака через UI
+
+**Тесты: 860 → 876 (+16).** Новые кейсы:
+- tests/test_bulk_publish.py — +1 (test_publish_one_now_per_row)
+- tests/test_inline_edit.py — +3 (save-only, save-and-publish, carousel multi-select)
+- tests/test_models_routes.py — +2 (yandex pack url без _thumb, photo_packs в контексте)
+- tests/test_photo_packs_routes.py — +3 (rename: success, empty, not_found)
+- tests/test_sync_yandex_folders_packs.py — +2 (auto-add новых файлов, simultaneous add+remove)
+
+**Stage 2.2B — кнопка «Только сохранить» в модалке bulk-publish:**
+- 3 кнопки в футере: [Отмена] [Только сохранить] [Сохранить и опубликовать]
+- Флаг `_inlineSaveOnly` в parent JS: save без вызова bulk-publish
+- Backend не менялся — POST /products/{id}/edit уже сохранял без побочки
+
+**Stage 2.2C — карусель для multi-select:**
+- State: `_carouselQueue`, `_carouselIndex`, `_carouselStats` {saved, published, skipped}
+- Single-select = карусель из 1 элемента. `_isCarousel()` = queue.length >= 2
+- Header: «(X из Y)» только в carousel mode. Footer: «Пропустить →» только в carousel mode
+- Навигация Next-only. Per-product публикация
+- Failure: на `not_ready` остаётся на карточке, кнопки снова активны
+- «Отмена» показывает агрегат: «Сохранено: X, Опубликовано: Y, Пропущено: Z»
+
+**Фикс миниатюр /models (bug):**
+- Root cause: models.py строил URL с `_thumb` суффиксом — файлов нет для Я.Диск-фото
+- Фикс: `first_img = sorted_imgs[0].url` без `_thumb`. CSS object-fit:cover достаточно
+
+**Кнопка «Выложить сразу» per-row:**
+- В draft-строках матрицы рядом с «В расписание» — фиолетовая кнопка
+- `publishOneNow(productId)` → confirm() → POST bulk-publish с [productId]
+- Переиспользован bulk-publish endpoint без изменений
+
+**Tooltip + confirm на удаление:**
+- `title="Удалить объявление"` на всех кнопках × в матрице
+- `softDelete(pid, title, status)` — для active/imported/published: «Объявление будет удалено с Авито в течение часа. Продолжить?»; для draft/scheduled: старый confirm
+
+**Компактный список фотопаков (UI revamp):**
+- Горизонтальный flex scroll → вертикальный `<details>`-список
+- Каждый пак: свёрнутая строка ~40px (arrow + имя + «X фото»/«пустой» + кнопки)
+- Первый `<details open>`, остальные свёрнуты
+- Кнопки: «Переименовать», «Удалить». `event.stopPropagation()` на summary
+- Галочки на Я.Диск превью убраны, «Сохранить выбор» убрана
+- Auto-select: `_autoSelectAllFiles()` при добавлении папки Я.Диска
+- «Загрузить с компьютера» — nested `<details>` свёрнут по умолчанию
+
+**Sync-side auto-add (scheduler.py):**
+- `_sync_one_folder_kind` детектит новые пути в Я.Диск-папке
+- Создаёт `{PhotoPack|Product}Image` с `download_status="pending"`
+- Работает для products и photo_packs. Sort_order: max + 1
+- Удаление удалённых файлов из папки — сохранено
+
+**Переименование фотопака:**
+- `PATCH /photo-packs/{id}` body `{"name": "..."}`, 1-100 chars
+- UI: prompt() → PATCH → обновление `.pack-item-name` без reload
+
+**Stage 1 — модалка создания модели:**
+- Расширенная модалка на /models с 7 полями: brand, name, category, goods_type, subcategory, goods_subtype, description
+- Каскадные select'ы из catalog.py (goods_types, apparels, goods_subtypes)
+- goods_subtype: disabled + «Не требуется» если requires_subtype() = false
+- Валидация requires_subtype на backend → 400 если подтип нужен но не указан
+- AJAX submit → JSON response → redirect на /models/{id}
+- Catalog data теперь передаётся в шаблон list.html
+
+### v7.6 — ссылочная семантика шаблонов описаний (2026-04-19)
+См. avito-autoload-delta-v7.6-v7.7.md для деталей. Кратко:
+- Колонка products.description_template_id (FK → description_templates)
+- Приоритет описания: template_id > custom > account_template
+- Dropdown «Описание» на /models/{id} вместо ручного ввода
+
+### v7.7 — копирование model.description в Product (2026-04-19)
+- Все 4 endpoint создания Product копируют model.description
+- use_custom_description=True ТОЛЬКО когда реально скопировано (conditional)
+- Badge «Готовность модели» на /models/{id}
+
+### v7.8 — пять багов + UX-переделка (2026-04-20)
+
+**Bug #1 — кеш браузера (workaround):** Ctrl+Shift+R после деплоя. Записан техдолг
+на cache-busting JS/CSS.
+
+**Bug #2 — «Вставить шаблон» не работала:** onclick с JSON.stringify ломал HTML
+attribute (двойные кавычки). Фикс: event delegation с data-tpl-index в
+form.html. Регрессионный тест node --check на каждый inline script.
+
+**Bug #3 — toast «Товар не готов» без деталей:** backend уже возвращал список
+проблем, JS на schedule_account.html игнорировал. Фикс: показ конкретных missing
+fields ("не хватает: Описание, Подтип").
+
+**Bug #4 — goods_subtype required всегда:** только 3 категории Avito реально имеют
+подтипы. Решение: helper requires_subtype(category, goods_type, subcategory) ->
+bool в app/catalog.py с module-level set _subcategories_with_subtypes,
+обновляется из get_catalog() и category_sync. Применён в 3 enforcement points:
+feed_generator.get_missing_fields, dashboard._product_problems, models.py model
+badge. UI: дропдаун disabled с текстом "Не требуется для этой категории".
+
+**Bug #5 — pack_id не копировался при создании из матрицы:** только 1 путь активен
+(addNewRow → create_model_product), остальные 3 (create_all_listings,
+schedule_matrix, create_one) — dead endpoints без callers. Фикс: JS читает pack_id
+из [data-field="pack_id"], endpoint await db.flush() → _apply_pack_to_product.
+
+### Stage 2 — bulk actions в матрице на /models/{id}
+- Колонка чекбоксов слева от каждой строки + master checkbox в шапке
+- Action bar внизу когда ≥1 строк выбрано: «Выбрано: N» + кнопки
+  «В расписание» / «Выложить сразу» + «Снять выделение»
+- Только DRAFT строки можно выбирать (импортированные/active отбрасываются)
+- POST /models/{id}/bulk-publish — bulk endpoint с readiness check
+  (is_ready_for_feed) перед публикацией
+- «Выложить сразу» → status=scheduled + scheduled_at=now() → попадает в фид
+- Modal с превью: фото-миниатюра, название, аккаунт, цена + footer
+  «Объявления попадут в фид. Авито заберёт фид в ближайший час по расписанию
+   аккаунта.»
+
+### Stage 2.1 — редактируемое название объявления
+- Новая колонка «Название» в матрице между «Аккаунт» и «Фотопак»
+- Поле text input + on blur PATCH /api/products/{id}
+- Helper _default_ad_title(model) в app/routes/models.py:
+  не дублирует brand если он уже в начале model.name
+- Backfill: 4 продукта (1139, 1164, 1533, 1537) с двойным «Adidas Adidas» —
+  очищены. Продукт 1538 имеет опечатку "Adida CP" — НЕ тронут SQL,
+  оператор поправит руками.
+
+### Stage 2.2A — полная карточка предпросмотра в модалке «Выложить сразу»
+- Подзадача A (одиночный режим): для 1 выбранной строки
+  открывается модалка с iframe на /products/{id}/edit?inline=1
+- Для 2+ выбранных строк → toast «Полноценный предпросмотр доступен только для
+  одного объявления» (карусель — Подзадача C, отложена)
+- Новый template app/templates/products/form_inline.html — slim form
+  без navigation/sidebar (273 строки vs 749 в form.html). Не дубликат —
+  только поля без model picker, Yandex Disk sections, scheduling UI.
+- GET /products/{id}/edit?inline=1 — рендерит form_inline.html
+- POST /products/{id}/edit принимает hidden inline=1 → отвечает
+  postMessage HTML вместо redirect
+- postMessage между iframe и parent: parent → iframe (trigger submit),
+  iframe → parent ({type: 'product-saved', productId}). Parent после получения
+  вызывает bulk-publish endpoint с этим product_id.
+- Кнопки: «Отмена» / «Сохранить и опубликовать»
+
+### UX — preview шаблона описания
+- <details> панель над textarea когда description_template_id IS NOT NULL
+- Показывает «Будет использован шаблон: «{name}»» свернуто, по клику —
+  полный body шаблона
+- Применено в form.html И form_inline.html (3 строки в каждом)
+- selectinload(Product.description_template) добавлен в product_edit query
+- ОГРАНИЧЕНИЕ: панель серверно-рендерится. Динамическое JS-обновление при смене
+  dropdown — НЕ реализовано. Плашка обновится только после reload страницы.
+  Записано в техдолг.
+
+---
+
+## АРХИТЕКТУРНЫЕ ПРАВИЛА (введены в v7.8)
+
+1. **Маленькими порциями.** Чинить по одной задаче, проверять руками, потом
+   следующую. Урок 5 фиксов за день: пакетные изменения = непредсказуемые
+   поломки. Stop conditions в каждом промте — обязательно.
+
+2. **iframe приемлем для embedded edit form.** Form.html имеет 5+ page-level
+   JS globals (goodsTypes, apparels, goodsSubtypes, saved, isNewProduct) +
+   DOM ID конфликты + DOMContentLoaded handlers. Альтернатива — partial
+   refactor — слишком рискованна. iframe + ?inline=1 + postMessage =
+   стабильное решение.
+
+3. **Backfill только после ack оператора.** SQL UPDATE на существующие данные
+   = всегда DRY RUN сначала, показать что будет изменено, ждать
+   подтверждения.
+
+4. **Никогда не менять схему/семантику полей фида без проверки на одном аккаунте.**
+   Урок 6279ff7 (v7.11): изменение `<Id>` с product.id на avito_id казалось
+   безобидным, но Авито воспринял смену Id как исчезновение старых объявлений
+   и снёс ~300 записей с 4 аккаунтов. Правильный подход: тестировать на одном
+   аккаунте с минимальным количеством товаров, проверять отчёт Авито, только
+   потом масштабировать.
+
+---
+
+## ИНЦИДЕНТ С VPS (2026-04-20)
+
+SSH/HTTPS timeout от оператора. Диагностика через web-консоль Timeweb (root):
+VPS uptime 5d19h, всё работает локально (curl 127.0.0.1:8001/health = 200),
+nginx + uvicorn слушают, ufw inactive, fail2ban нормальный.
+Причина: маршрутизация между RU провайдером оператора и Timeweb Amsterdam
+(72.56.123.13). Пинг 100% потерь даже с мобильника.
+Решение: включён Cloudflare proxy (оранжевое облачко) на A-запись `autoload`
+в dash.cloudflare.com. После — пинг 73ms, всё работает.
+
+---
+
+## TODO для следующих сессий (по приоритету, обновлено v7.11)
+
+### Критично — включение автозагрузки на остальных аккаунтах
+1. **Включить автозагрузку на Parker/Zulla/Crosstherapy.** Для каждого:
+   пересинхронизация через /admin/avito-sync → проверка валидатором Avito →
+   включение в кабинете. Рыбка уже включена.
+2. **3 объявления "Цвет от производителя"** (Lanvin, Puma Lamelo, ещё 1) —
+   решается только в кабинете Авито вручную. У нас нет поля color_manufacturer
+   в БД. Отдельная задача на будущее: миграция + UI + feed_generator.
+
+### Большие UX
+3. **Мобильный UX** — адаптация существующих страниц для телефона, упрощённая
+   форма создания объявления. Следующая большая задача.
+4. **Stage 4 — дашборд по модели:** на странице модели видно «есть на Parker,
+   Рыбка. НЕТ на Zulla, Crosstherapy».
+
+### Мелкие UX
+5. Динамическое JS-обновление template preview панели на смену dropdown
+6. Cache-busting JS/CSS (чтобы Ctrl+Shift+R был не нужен)
+7. Dual-source quirk: при «Вставить шаблон» оба поля description+template_id
+   заполняются (cosmetic)
+
+### Техдолг
+8. **Cleanup orphan фото в /media/** — после физических удалений через
+   sync_from_avito_export в media/ остались файлы, не связанные с product_images.
+   Скрипт: SELECT url FROM product_images → удалить из media/ что не в списке.
+9. **detail.html ~75K** — вынос inline JS в отдельный файл
+10. **location.reload()** после save/publish → partial row refresh (скролл теряется)
+11. Dead endpoints: create_all_listings, schedule_matrix, create_one — удалить
+12. Удалить deprecated account_description_templates
+
+### Отложенные
+13. **Фаза 2 backfill pack_id** для существующих draft'ов
+14. **color_manufacturer** — новое поле в БД + UI + feed_generator для "Цвет от
+    производителя" (нужно для мультиобъявлений и некоторых категорий Авито)
+
+---
+
+## ВАЖНЫЕ ID/ДАННЫЕ (актуально на 2026-04-20)
+- Models: 8 (Kegler 80), 9 (Adidas CP бежевые с желтым)
+- Products: 1531 (тестовый Kegler), 1532 (template ручной), 1533 (Zulla CP),
+  1537 (Crosstherapy CP с 5+ фото и template — финальный smoke), 1538 (опечатка)
+- Templates: id=1 «Крос. муж. 1»
+- Pack 14 (model 9), Pack 13 (model 8 с 6 фото)
+- Аккаунты: Parker(1), Рыбка(2), Zulla(3), Crosstherapy(4)
+- feed_token для Crosstherapy: 65c12ed1-a3ae-4493-a546-335cd8a152f2
+
+---
+
+## ФАЙЛЫ ИЗМЕНЁННЫЕ В v7.8 (полный список)
+
+**Backend:**
+- app/routes/models.py — bulk_publish endpoint, _default_ad_title helper,
+  pack_id fix в create_model_product
+- app/routes/products.py — ?inline=1 param в product_edit, postMessage
+  response для inline POST, selectinload(Product.description_template)
+- app/catalog.py — requires_subtype helper, _subcategories_with_subtypes set
+
+**Frontend:**
+- app/templates/models/detail.html — checkbox column, action bar, bulk-publish
+  modal с iframe, postMessage listeners, JS для openInlineEdit/closeInlineEdit
+- app/templates/products/form.html — <details> template preview panel
+- app/templates/products/form_inline.html — НОВЫЙ файл, slim form для iframe
+
+**Tests:**
+- tests/test_bulk_publish.py — НОВЫЙ, 4 теста
+- tests/test_ad_title.py — НОВЫЙ, 9 тестов
+- tests/test_inline_edit.py — НОВЫЙ, 4 теста
+- tests/test_template_preview.py — НОВЫЙ, 3 теста
+- tests/test_model_product_creation.py — НОВЫЙ
+
+**Docs:**
+- BUGS_FOUND.md — обновлён с дедэндпоинтами, dual-source quirk, priority issue
+
+## ФАЙЛЫ ИЗМЕНЁННЫЕ В v7.9 (полный список)
+
+**Backend:**
+- app/routes/models.py — model_list: +get_catalog; model_create: +taxonomy fields + requires_subtype валидация; thumbnail URL: убран _thumb
+- app/routes/photo_packs.py — PATCH /{id} endpoint (rename)
+- app/scheduler.py — _sync_one_folder_kind: auto-add новых файлов (+parent_id_attr, folder_parent_id_attr params)
+- app/schemas/model.py — ModelCreateForm: +category/goods_type/subcategory/goods_subtype
+
+**Frontend:**
+- app/templates/models/detail.html — карусель 2.2B/2.2C, per-row «Выложить сразу», tooltip/confirm на удаление, компактный список фотопаков, rename кнопка
+- app/templates/models/list.html — расширенная модалка создания с каскадными select'ами и 7 полями
+
+**Tests:**
+- tests/test_bulk_publish.py — +1 (per-row publish)
+- tests/test_inline_edit.py — +3 (save-only, save+publish, carousel)
+- tests/test_models_routes.py — +5 (yandex url, photo_packs context, full taxonomy create, no subtype, missing subtype)
+- tests/test_photo_packs_routes.py — +3 (rename)
+- tests/test_sync_yandex_folders_packs.py — +2 (auto-add, simultaneous add+remove)
+
+---
+
+# ОРИГИНАЛЬНЫЙ КОНТЕКСТ v7.5 (без изменений)
+
+================================================================================
+  AVITO AUTOLOAD — ПОЛНЫЙ КОНТЕКСТ ПРОЕКТА (v7.5, 2026-04-18)
+================================================================================
+
+
+## CHANGELOG
+
+### v7.5 (2026-04-18) — description templates, test isolation, full CI green
+- Standalone description_templates table (decoupled from accounts). CRUD API,
+  /settings/description-templates UI page, dropdown on product edit form.
+  Migration script migrated 1 account template (Zulla).
+- Sidebar: "+ Настройки" menu item.
+- Test DB isolation: conftest.py guard refuses pytest on prod DB (import-time).
+  Session-scoped _seed_test_account fixture. .env.test config added.
+- 8 tests migrated from live httpx.AsyncClient → ASGITransport (eliminated
+  401 auth mismatches from hitting prod server on port 8001).
+- Lifespan test fix: patch async_session to prevent Zulla diagnostics DB
+  connection leak (RuntimeWarning → flaky CI failure).
+- 806 passed, 1 skipped, 0 failed. 807 tests collected.
+
+### v7.4 (2026-04-18) — prod safety, garbage cleanup, surgical UI, CI healing
+- 508 garbage products + 112 cascaded listings deleted from prod.
+- Surgical innerHTML refresh of Я.Диск thumbnails after download (Bug B safe).
+- 3 missing tables + 8 missing columns brought under Alembic (idempotent).
+- 46 untracked v7.1/v7.2/v7.3 source files committed to git.
+- First green CI: Python 3.12, numpy+APScheduler in requirements.txt,
+  DATABASE_URL → avito_autoload_test + TESTING=1.
+- validate account_id before product INSERT (400 instead of FK 500).
+
+### v7.2 (2026-04-17) — Я.Диск Phase 2: фотопаки
+- Миграция 311820dce3e8: photo_pack_yandex_folders, photo_pack_publish_history,
+  +9 колонок photo_pack_images.
+- 6 API: /api/photo-packs/{id}/yandex-folders (CRUD+selection+retry).
+- UI: collapsible Я.Диск секция на карточках паков, radio-селектор в модалке.
+- publish_scheduled записывает PhotoPackPublishHistory.
+- Уникализация паков: uniquify при скачивании если ANY история публикации.
+
+### v7.1 (2026-04-17) — Я.Диск Phase 1: products + quick wins
+- Миграция 5f2076151cf7: product_yandex_folders, product_publish_history,
+  +9 колонок product_images.
+- Сервис yandex_disk.py: list_folder, download_file (public API, без OAuth).
+- 6 API: /api/products/{id}/yandex-folders (CRUD+selection+retry).
+- Фоновые задачи: yandex_download (1мин), yandex_sync (30мин), cleanup_old_feeds.
+- Quick wins: uniquify_image_async, check_content_length, orphan cleanup,
+  process_image_async(max_input_size=).
+
+### v7.0 (2026-04-17) — подготовка
+- Маркеры эффективности (5-day window, dead<20, weak 20-30, alive>30).
+- Тесты: 750 (было 691).
+
+
+## 1. ЦЕЛЬ ПРОЕКТА И БИЗНЕС-КОНТЕКСТ
+
+Avito Autoload — веб-приложение для управления товарными объявлениями на Avito
+(крупнейший российский маркетплейс). Система позволяет:
+
+- Импортировать товары с Avito или создавать вручную
+- Управлять каталогом: категории, фото, описания, цены
+- Генерировать XML-фиды в формате Avito Autoload v3
+- Загружать фиды через Avito API (OAuth2)
+- Мониторить отчёты Avito (applied/declined)
+- Собирать аналитику (просмотры, контакты, избранное) с маркерами эффективности
+- Планировать публикации по расписанию (inline и массовое)
+- Работать с моделями и фотопаками для мультиаккаунтных схем
+- Загружать фото из публичных папок Яндекс.Диска (products + photo_packs)
+- Управлять библиотекой шаблонов описаний (standalone, decoupled от аккаунтов)
+- Автоимпорт новых объявлений каждые 3 часа
+- Синхронизировать фото из CRM (отдельная БД)
+- Мягкое удаление товаров с автоматической отправкой Status=Removed в фид Авито
+- Импорт avito_id из XML-фида Авито (feed_importer)
+- Импорт Excel-экспорта Авито (brand/goods_type/photos)
+- Умная кнопка удаления: 🗑 если товар валиден для фида, ⚠ + ссылка на Авито иначе
+
+Бизнес-модель: ресейл одежды/обуви/аксессуаров через несколько аккаунтов Avito.
+Один товар (модель) может публиковаться на разных аккаунтах с уникализацией фото.
+
+
+## 2. ИНФРАСТРУКТУРА
+
+Сервер:       VPS Linux (Ubuntu)
+Домен:        autoload.souljaion.ru (HTTPS, Let's Encrypt)
+Стек:         Python 3.12.3 / FastAPI 0.115.8 / SQLAlchemy 2.0.38 (async) / PostgreSQL 14+
+ORM:          SQLAlchemy 2.0 с asyncpg драйвером
+Миграции:     Alembic 1.14.1 (30 миграций)
+Шаблонизатор: Jinja2
+HTTP-клиент:  httpx 0.28.1
+Excel:        openpyxl 3.1.5
+Обработка:    Pillow 11.1.0 + pillow-heif (JPEG, HEIC, resize, thumbnails)
+Планировщик:  APScheduler 3.10.4 (AsyncIOScheduler, Europe/Moscow)
+XML:          lxml 5.3.0
+Rate limit:   slowapi 0.1.9 (in-memory)
+Кэш:          собственный TTL cache (app/cache.py)
+Логирование:  structlog + RotatingFileHandler
+Деплой:       systemd (avito-autoload.service) + nginx reverse proxy
+CI/CD:        GitHub Actions (.github/workflows/{test,deploy}.yml), Python 3.12
+Auth:         HTTP Basic Auth (middleware/auth.py)
+Тесты:        927 собрано, 926 passed, 1 skipped (pytest, CI green)
+Numpy:        2.4.4 (used by photo_uniquifier)
+
+UI:           Градиентный сайдбар (фиолетово-синий) + светлый контент (#f0f2ff)
+              Вдохновлён monday.com / Pipedrive. Sidebar 220px fixed.
+
+Порты:
+  - uvicorn: 127.0.0.1:8001
+  - nginx:   80/443 (proxy_pass → 8001, HTTPS via certbot)
+  - PostgreSQL основная: localhost:5433/avito_autoload
+  - PostgreSQL тестовая: localhost:5433/avito_autoload_test
+  - PostgreSQL CRM:      localhost:5432/avito_crm
+
+Запуск: uvicorn app.main:app --host 127.0.0.1 --port 8001
+Команды: sudo systemctl restart avito-autoload
+         alembic upgrade head
+
+Тестирование:
+  DATABASE_URL=postgresql+asyncpg://avito_user:avito_pass@localhost:5433/avito_autoload_test \
+  TESTING=1 pytest
+
+
+## 3. БАЗА ДАННЫХ — ВСЕ ТАБЛИЦЫ
+
+22 таблицы. Подключение: postgresql+asyncpg://avito_user:avito_pass@localhost:5433/avito_autoload
+
+### accounts
+  Аккаунты Avito с OAuth2 credentials.
+  Поля: id, avito_user_id (BigInt), name, client_id, client_secret,
+        access_token, token_expires_at, phone, address, autoload_enabled,
+        report_email, schedule, avito_sync_minute (Integer, nullable),
+        feed_token (VARCHAR 36, NOT NULL, UNIQUE — UUID для публичного URL фида),
+        extra (JSONB), created_at, updated_at
+
+### products
+  Поля: id, avito_id (BigInt, unique), account_id (FK→accounts),
+        model_id (FK→models, SET NULL), sku,
+        brand, model, category, subcategory, goods_type, goods_subtype,
+        size, color, material, condition, price (Integer, рубли),
+        title, description, use_custom_description (Boolean, default False),
+        description_template_id (FK→description_templates, SET NULL, v7.6),
+        status (String 20), removed_at (DateTime, nullable),
+        scheduled_at, published_at, scheduled_account_id (FK→accounts, SET NULL),
+        image_url (VARCHAR 500), extra (JSONB), version (Integer, default 1),
+        variant_id (FK→model_variants, SET NULL, nullable),
+        pack_id (FK→photo_packs, SET NULL, indexed, v7.10),
+        feed_ad_id (VARCHAR 100, nullable, indexed, v7.11 — Id автозагрузки из кабинета Авито),
+        created_at, updated_at
+
+### product_images
+  Поля: id, product_id (FK CASCADE), url, filename, sort_order, is_main,
+        source_type (String 20, default 'local': local/avito_cdn/yandex_disk),
+        source_url (String 500), yandex_folder_id (FK→product_yandex_folders SET NULL),
+        yandex_file_path (String 500), yandex_md5 (String 32),
+        download_status (String 20, default 'ready': ready/pending/downloading/failed),
+        download_error (String 500), download_attempts (Integer, default 0),
+        was_uniquified (Boolean, default False), created_at
+
+### product_yandex_folders
+  Привязка публичных папок Яндекс.Диска к products.
+  Поля: id, product_id (FK CASCADE, indexed), public_url, public_key,
+        folder_name, last_synced_at, error, created_at
+
+### product_publish_history
+  Трекинг публикаций для уникализации.
+  Поля: id, product_id (FK CASCADE), account_id (FK CASCADE),
+        published_at, removed_at, was_uniquified
+  Index: (product_id, account_id)
+
+### photo_pack_images
+  Поля: id, pack_id (FK CASCADE), file_path, url, sort_order,
+        source_type, source_url, yandex_folder_id (FK→photo_pack_yandex_folders SET NULL),
+        yandex_file_path, yandex_md5, download_status, download_error,
+        download_attempts, was_uniquified, created_at
+
+### photo_pack_yandex_folders
+  Аналог product_yandex_folders для фотопаков.
+  Поля: id, photo_pack_id (FK CASCADE, indexed), public_url, public_key,
+        folder_name, last_synced_at, error, created_at
+
+### photo_pack_publish_history
+  Аналог product_publish_history для фотопаков.
+  Поля: id, photo_pack_id (FK CASCADE), account_id (FK CASCADE),
+        published_at, removed_at, was_uniquified
+  Index: (photo_pack_id, account_id)
+
+### description_templates (v7.5)
+  Standalone библиотека шаблонов описаний. Шаблоны копируются при применении —
+  редактирование шаблона НЕ меняет продукты, которые его уже использовали.
+  v7.6: products.description_template_id — ссылочная семантика (FK, template
+  body берётся при генерации фида, а не при копировании).
+  Поля: id, name (VARCHAR 100, UNIQUE, NOT NULL), body (Text, NOT NULL),
+        created_at, updated_at
+
+### listings
+  Привязка product → account для публикации.
+  Поля: id, product_id (FK CASCADE), account_id (FK CASCADE),
+        status (VARCHAR 20, default 'draft'), scheduled_at, published_at,
+        avito_id (BigInt), created_at, updated_at
+
+### listing_images
+  Поля: id, listing_id (FK CASCADE), file_path (VARCHAR 500),
+        "order" (Integer, default 0), created_at
+
+### item_stats
+  Статистика просмотров/контактов/избранного.
+  Поля: id, product_id (FK CASCADE), avito_id (BigInt),
+        views, contacts, favorites (Integer, default 0),
+        price (Integer), captured_at, listing_id (FK→listings SET NULL)
+  Indexes: product_id, captured_at, product_id+captured_at DESC,
+           UNIQUE(product_id, date(captured_at))
+
+### models
+  Модели товаров для мультиаккаунтных схем.
+  Поля: id, name, brand, category, goods_type, subcategory, goods_subtype,
+        price, description, use_custom_description, created_at, updated_at
+
+### model_variants
+  Вариации модели (размер/цвет/цена).
+  Поля: id, model_id (FK), name, size, price, pack_id, created_at
+
+### photo_packs
+  Наборы фото для моделей.
+  Поля: id, model_id (FK), name, created_at
+
+### account_description_templates (DEPRECATED — use description_templates)
+  Поля: id, account_id (FK CASCADE, unique), description_template (Text),
+        updated_at
+
+### pack_usage_history, feed_exports, autoload_reports,
+### autoload_report_items, avito_categories
+  Вспомогательные таблицы (без изменений с v4).
+
+
+## 4. СТРАНИЦЫ И ФУНКЦИОНАЛ
+
+### GET / — Командный центр
+### GET /products — Объявления (фильтры draft/scheduled/active + поиск)
+### GET /products/search — Поиск товаров для привязки к модели
+### GET /products/bulk-edit — Bulk правка драфтов
+### GET /products/{id}/edit — Редактирование товара
+  v7.5: dropdown «Вставить шаблон ▾» рядом с textarea описания.
+  Загружает шаблоны по клику, confirm перед заменой, ссылка на управление.
+  v7.8: ?inline=1 → slim form_inline.html для iframe embedding.
+  v7.8: <details> template preview panel когда description_template_id IS NOT NULL.
+### PATCH /api/products/{id} — partial update (v7.8: accepts title)
+### DELETE /products/{id} — soft delete: status=removed, removed_at=now()
+
+### GET /models — Модели (CSS grid 6 колонок)
+  v7.9: модалка создания с 7 полями (brand, name, taxonomy 4 cascading selects, description).
+  Каталог передаётся в шаблон для каскадных select'ов.
+### POST /models — создание модели (v7.9: расширен taxonomy-полями + requires_subtype валидация)
+### GET /models/{id} — Страница модели (Topbar + 3 блока)
+  v7.9: фотопаки — вертикальный `<details>`-список (заменил горизонтальный scroll).
+  Auto-select Я.Диск файлов. Кнопки: «Переименовать» (prompt→PATCH), «Удалить».
+  v7.9: per-row кнопка «Выложить сразу» для draft-строк матрицы.
+  v7.9: tooltip + confirm на удаление (разный текст для active/imported vs draft).
+  v7.8: checkbox column + bulk action bar + inline edit modal.
+### POST /models/{id}/bulk-publish — bulk publish drafts (v7.8)
+### POST /models/{id}/bulk-schedule — bulk draft→scheduled without time/readiness (v7.10)
+### POST /models/{id}/products — create draft (v7.8: accepts pack_id, title)
+### PATCH /photo-packs/{id} — rename pack (v7.9)
+
+### GET /schedule — Расписание (overview, метрики, hourly chart)
+### GET /schedule/{account_id} — Расписание аккаунта
+
+### GET /analytics — Аналитика (маркеры эффективности, умная кнопка удаления)
+### POST /api/analytics/fees — fees отчёта (rate-limit 10/min, кэш 24ч/5мин)
+
+### GET /feeds, GET /reports, GET /accounts (CRUD)
+### POST /accounts/{id}/import-excel — импорт Excel-экспорта Авито
+### POST /accounts/{id}/autoload/sync-ads — Pass 1+2+3 импорт
+### POST /accounts/{id}/autoload/sync-from-feed — импорт avito_id из XML-фида
+### POST /accounts/{id}/autoload/upload — триггер выгрузки (v1/upload)
+
+### GET /settings → redirect → /settings/description-templates (v7.5)
+### GET /settings/description-templates — UI управления шаблонами описаний (v7.5)
+### GET/POST/PATCH/DELETE /api/description-templates — JSON CRUD (v7.5)
+  Валидация: name 1–100 chars (unique, 409 on dup), body 1–5000 chars.
+
+### Я.Диск API (products)
+  GET/POST/DELETE /api/products/{id}/yandex-folders
+  PUT selection, PUT order, PATCH retry-download
+
+### Я.Диск API (photo_packs)
+  GET/POST/DELETE /api/photo-packs/{id}/yandex-folders
+  PUT selection, PUT order, PATCH retry-download
+  GET /photo-packs/{id}/images — + download_status, source_type
+
+### GET /api/yandex-preview — прокси для превью с Яндекс.Диска
+### GET /admin/avito-sync — Синхронизация БД с Excel-экспортом кабинета Авито (v7.11)
+  Upload xlsx → preview (dry-run) → apply. Показывает to_create/update/delete.
+### POST /admin/avito-sync/preview — dry-run preview (v7.11)
+### POST /admin/avito-sync/apply — применить sync (v7.11)
+
+### GET /health — Healthcheck (без авторизации)
+
+
+## 5. СТАТУСЫ ТОВАРОВ
+
+  imported  — импортирован с Авито (не показывается в /products)
+  draft     — создан через систему, черновик
+  scheduled — в очереди на публикацию
+  active    — активен на Авито
+  published — опубликован через автозагрузку
+  paused    — приостановлен
+  sold      — продан (legacy; sold_detection.py использует)
+  removed   — мягко удалён + removed_at → 48ч в фиде → cleanup
+
+XML-фид включает:
+  - active + scheduled + imported (если is_ready_for_feed=True)
+  - removed (< 48ч, с avito_id) — минимальный <Ad>
+
+
+## 6. is_ready_for_feed — ВАЛИДАЦИЯ ДЛЯ ФИДА
+
+Imported: avito_id + (product_images или image_url) + brand + goods_type.
+Не-imported: title + description + price + category + goods_type + subcategory
+  + goods_subtype (v7.8: only if requires_subtype()) + product_images.
+Описание: из шаблона аккаунта если use_custom_description=False.
+v7.6: description_template_id > use_custom_description > account_template.
+
+
+## 7. XML-ФИДЫ
+
+Формат: Avito Autoload XML v3. Генерация через lxml (feed_generator.py).
+URL: /feeds/{feed_token}.xml (feed_token — UUID из accounts).
+<Id>: feed_ad_id если заполнен, иначе str(product.id) (v7.11).
+Removed товары (< 48ч): минимальный <Ad> с Id+AvitoId+Status=Removed.
+  НО: удаление imported через фид ненадёжно (Авито часто игнорирует).
+<Delivery>/<DeliverySubsidy>: убраны из фида (v7.11, невалидные значения).
+ВАЖНО: в Avito-кабинете URL должен быть с правильным UUID feed_token.
+
+
+## 8. БЕЗОПАСНОСТЬ
+
+HTTP Basic Auth. Публичные пути: /health, /feeds/*.xml, /media/*, /static/*.
+Rate limiting (slowapi): /api/analytics/fees 10/min, /products/{id}/avito-status 30/min.
+POST /products/new: валидация account_id перед INSERT (400, не 500).
+
+
+## 9. APScheduler — 13 ФОНОВЫХ ЗАДАЧ
+
+  stats_sync                 — каждые 3 часа
+  publish_scheduled          — каждые 5 минут (+PublishHistory для products и packs)
+  image_sync                 — каждые 30 минут
+  sold_detection             — каждые 6 часов (legacy)
+  token_refresh              — каждые 50 минут
+  avito_import               — каждые 3 часа (missing → removed)
+  auto_generate_feeds        — каждую минуту
+  auto_generate_feeds_fallback — каждый час
+  cleanup_removed            — каждые 24 часа (removed > 48ч)
+  autoload_sync_ads          — каждые 3 часа (Pass 1+2+3)
+  cleanup_old_feeds          — ежедневно 04:00 MSK
+  yandex_download            — каждую минуту (products + photo_packs)
+  yandex_sync                — каждые 30 минут (products + photo_packs)
+
+
+## 10. AVITO IMPORT — СИНХРОНИЗАЦИЯ С АВИТО
+
+Сервис: app/services/avito_import.py
+  Каждые 3ч: GET items → UPDATE/CREATE/mark_removed.
+  Missing на Avito → status=removed + removed_at → 48ч cleanup.
+
+Сервис: app/services/autoload_sync.py
+  Pass 1: отчёты → imported. Pass 2: Items API → avito_id match.
+  Pass 3: fuzzy title → CREATE imported + backfill.
+
+Сервис: app/services/feed_importer.py
+  XML feed → match by avito_id/title → CREATE imported.
+
+Сервис: app/services/excel_importer.py
+  xlsx → brand/goods_type/size/color/avito_id/image_url/photos.
+
+Сервис: app/services/sync_from_avito_export.py (v7.11)
+  xlsx-экспорт кабинета Авито → полная синхронизация products для аккаунта.
+  Create/Update/Delete. Проставляет feed_ad_id из "Уникальный идентификатор".
+  UI: /admin/avito-sync (preview + apply).
+
+
+## 11. ОСОБЕННОСТИ
+
+- Время в БД: naive UTC. Отображение: Europe/Moscow.
+- avito_sync_minute: минута когда Авито забирает фид.
+- item_stats views — кумулятивные. Дельта = MAX - baseline.
+- Описания: use_custom_description=False → шаблон аккаунта, True → product.description.
+  Standalone description_templates — копируются при применении (v7.5).
+  v7.6: description_template_id — ссылочная семантика (FK).
+- Мягкое удаление: status=removed + removed_at → 48ч в фиде → cleanup.
+- Avito API: нет endpoint для деактивации; только через фид Status=Removed.
+- /autoload/v2/upload удалён Avito (404). Используем v1/upload.
+- /core/v1/items отдаёт только базовые поля. Brand/images через Excel.
+
+
+## 12. UI ОСОБЕННОСТИ
+
+### Sidebar
+- Дашборд / Объявления / Модели / Драфты / Расписание
+- Аналитика / Отчёты / Фиды
+- Аккаунты / Настройки (v7.5)
+
+### Страница продукта (/products/{id}/edit)
+- Dropdown «Вставить шаблон ▾» рядом с описанием (v7.5)
+- Секция «Фото с Яндекс.Диска» (v7.1)
+- Template preview panel (v7.8)
+
+### Страница модели (/models/{id})
+- Фотопаки: вертикальный `<details>`-список (v7.9, заменил v7.2 горизонтальный scroll)
+- Auto-select Я.Диск файлов при добавлении папки (v7.9)
+- Sync auto-add: новые файлы в Я.Диск-папке автоматически скачиваются (v7.9)
+- Переименование пака через prompt → PATCH (v7.9)
+- Per-row «Выложить сразу» для draft-строк (v7.9)
+- Tooltip + confirm с разным текстом на удалении (v7.9)
+- Карусель multi-select в модалке bulk-publish (v7.9)
+- Кнопка «Только сохранить» в модалке (v7.9)
+- Bulk «В расписание» без времени — кнопка в action bar (v7.10)
+- Per-row «В расписание» — AJAX без редиректа (v7.10)
+- Pack dropdown сохраняет выбор после F5 (v7.10)
+- Checkbox column + bulk action bar (v7.8)
+- Editable ad title column (v7.8)
+- Inline edit modal via iframe (v7.8)
+
+### Страница настроек (/settings/description-templates, v7.5)
+- Таблица шаблонов: Name | Preview (80 chars) | Actions
+- Modal для create/edit/delete, русские лейблы
+
+
+## 13. КЭШИРОВАНИЕ И RATE LIMITING
+
+### app/cache.py — TTL cache
+  TTLCache: get/set/invalidate/clear, asyncio.Lock.
+  report_fees: 24h для completed, 5min иначе.
+
+### app/rate_limit.py — slowapi
+  limiter = Limiter(key_func=get_remote_address)
+  JSON 429 handler.
+
+
+## 14. МИГРАЦИИ (30 файлов)
+
+  67e6e28d1dd4 — initial (accounts, products, product_images, feed_exports,
+                 autoload_reports, autoload_report_items)
+  ...
+  b3c4d5e6f7a8 — add_photo_packs
+  b3c4d5e6f8a9 — add_missing_tables (v7.4, idempotent): item_stats, listings,
+                 listing_images
+  c4d5e6f7a8b9 — add_stats_unique_index (IF NOT EXISTS)
+  ...
+  a1acd81c79d1 — add_model_variants
+  5f2076151cf7 — yandex_disk_integration (v7.1): product_yandex_folders,
+                 product_publish_history, +9 колонок product_images
+  311820dce3e8 — yandex_disk_phase2_photo_packs (v7.2): photo_pack_yandex_folders,
+                 photo_pack_publish_history, +9 колонок photo_pack_images
+  a2b3c4d5e6f0 — add_missing_columns (v7.4, idempotent): 8 columns across
+                 products/accounts/feed_exports
+  d1e2f3a4b5c6 — add_description_templates (v7.5)
+  e2f3a4b5c6d7 — add_description_template_id (v7.6): products.description_template_id FK
+  5ae9f0bf8896 — add_product_pack_id (v7.10): products.pack_id FK + index
+  b8744625def2 — add_feed_ad_id_to_products (v7.11): products.feed_ad_id VARCHAR(100) + index
+                 HEAD
+
+
+## 15. ЧТО НУЖНО СДЕЛАТЬ
+
+### ✅ ВЫПОЛНЕНО
+- Excel импорт товаров с Авито
+- Умная кнопка удаления (🗑/⚠ + Avito link)
+- Фикс валидации фида для imported
+- Фикс /autoload/v1/upload (v2 удалён Avito)
+- Missing товары → removed при синхронизации
+- Pass 3 sync с fuzzy title matching
+- feed_importer для импорта avito_id из XML-фида
+- Rate limiting + кэширование
+- 0%-coverage модули покрыты тестами
+- Hourly load chart рендерится корректно
+- CD pipeline (.github/workflows/deploy.yml)
+- Я.Диск Phase 1: products (v7.1) — E2E verified
+- Я.Диск Phase 2: photo_packs (v7.2) — миграция + API + UI
+- Test garbage cleanup: 508 products + 112 listings deleted (v7.4)
+- Hard guard against pytest on prod DB (v7.4/v7.5)
+- Surgical thumbnail auto-refresh without polling storm (v7.4)
+- Schema drift: 3 tables + 8 columns under Alembic (v7.4)
+- 46 untracked source files committed to git (v7.4)
+- First green CI in repo history (v7.4)
+- Standalone description templates (v7.5)
+- Test DB isolation + ASGITransport migration (v7.5)
+- Lifespan test deterministic (v7.5)
+- Ссылочная семантика шаблонов (v7.6)
+- Копирование model.description + badge готовности (v7.7)
+- Bug #1–#5 fixes (v7.8)
+- Stage 2: bulk actions in matrix (v7.8)
+- Stage 2.1: editable ad title (v7.8)
+- Stage 2.2A: inline edit modal (v7.8)
+- Template preview panel (v7.8)
+- Stage 2.2B: «Только сохранить» в модалке (v7.9)
+- Stage 2.2C: карусель для multi-select (v7.9)
+- Per-row «Выложить сразу» + tooltip/confirm на удаление (v7.9)
+- Компактный вертикальный список фотопаков + auto-select Я.Диска (v7.9)
+- Переименование фотопака через UI (v7.9)
+- Sync auto-add новых файлов из Я.Диск-папок (v7.9)
+- Фикс миниатюр Я.Диск-фото на /models (v7.9)
+- Stage 1: модалка создания модели с каскадными select'ами (v7.9)
+- Push в origin/main (v7.9 — GitHub auth настроен)
+- pack_id persistence — колонка + миграция + UI selected (v7.10)
+- addNewRow не копирует поля из соседней строки (v7.10)
+- Bulk «В расписание» без времени + бейдж scheduled (v7.10)
+- Per-row «В расписание» — AJAX без редиректа (v7.10)
+- feed_ad_id стратегия для <Id> в фиде (v7.11)
+- sync_from_avito_export сервис + UI /admin/avito-sync (v7.11)
+- Дефолты для новых draft: color, delivery, multi_item, try_on (v7.11)
+- UI модалка "Открыть в Авито" при удалении imported (v7.11)
+- Фиксы feed_generator: ApparelType, убрана Delivery (v7.11)
+
+### 🟡 ОТКРЫТЫЕ
+- Включить автозагрузку на Parker/Zulla/Crosstherapy (Рыбка уже включена)
+- 3 объявления "Цвет от производителя" — только в кабинете Авито
+- Мобильный UX — адаптация для телефона
+- Stage 4: дашборд по модели
+- Cleanup orphan фото в /media/
+- detail.html ~75K — вынос JS в отдельный файл
+- location.reload() → partial row refresh
+- Удалить deprecated account_description_templates
+- Dead endpoints: create_all_listings, schedule_matrix, create_one
+
+### ❌ ОТМЕНЕНО / НЕВОЗМОЖНО
+- Мгновенное удаление объявлений через Avito API (нет endpoint'а)
+- Удаление imported через фид Status=Removed — ненадёжно (Авито часто игнорирует)
+- Backfill brand/goods_type через Items API (autoload-scope не отдаёт)
+- POST /autoload/v2/profile (400 на нашем OAuth scope)
+
+
+## 16. СТАРТОВАЯ ФРАЗА
+
+---
+Я работаю над проектом Avito Autoload.
+Путь: /home/claude2/avito-autoload
+Контекст: cat /home/claude2/avito-autoload/docs/avito-autoload-context-v7.11.txt
+
+Стек: FastAPI 0.115.8 + SQLAlchemy 2.0.38 async + PostgreSQL (asyncpg) + Jinja2
+       + lxml + Pillow + numpy + openpyxl + httpx (Yandex.Disk)
+Домен: autoload.souljaion.ru (HTTPS), порт 8001 (uvicorn), nginx 80/443
+БД: postgresql+asyncpg://avito_user:avito_pass@localhost:5433/avito_autoload
+
+22 таблицы, 18 роутеров, 17 сервисов, 13 фоновых задач (APScheduler).
+HTTP Basic Auth, HTTPS, structlog, 926 тестов (CI green, Python 3.12).
+Optimistic locking через safe_update_status() в app/db.py.
+Rate limiting (slowapi) + TTL-кэш (app/cache.py).
+CI/CD: GitHub Actions (.github/workflows/{test,deploy}.yml).
+
+Яндекс.Диск: загрузка фото из публичных папок для products и photo_packs.
+  Без OAuth — через public resources API. yandex_download (1мин) и
+  yandex_sync (30мин, v7.9: auto-add новых файлов). Уникализация при повторной публикации.
+
+Шаблоны описаний: standalone библиотека (/settings/description-templates).
+  v7.6: ссылочная семантика (products.description_template_id FK).
+  Приоритет: template_id > custom > account_template.
+
+v7.11 (2026-04-22): feed_ad_id — ссылочное поле для <Id> в фиде (решение проблемы
+  с удалением imported через автозагрузку). sync_from_avito_export — новый сервис
+  импорта из Excel-экспорта кабинета Авито + UI /admin/avito-sync. Дефолты для
+  новых draft: color='Разноцветный', delivery='Самовывоз и доставка', multi_item='Да',
+  try_on='Да'. UI модалка "Открыть в Авито" вместо confirm при удалении imported.
+  Убраны <Delivery>/<DeliverySubsidy> из XML-фида (невалидные значения).
+  892→926 тестов.
+
+Avito API:
+  /autoload/v1/profile (GET), /autoload/v1/upload (POST)
+  /core/v1/items?ids=N (только базовые поля)
+  /core/v1/items?status=active
+ВАЖНО: Avito не имеет API для удаления. Через фид Status=Removed ненадёжно для imported.
+  Рекомендуемый workflow: модалка → «Открыть в Авито» → удалить в кабинете →
+  «Пометить в программе».
+
+Прочитай файл контекста и начнём.
+---
+
+
+================================================================================
+  СПРАВОЧНИК ФАЙЛОВ
+================================================================================
+
+### Роутеры (18 файлов в app/routes/)
+  accounts, analytics, autoload, avito_sync (v7.11), categories, dashboard,
+  description_templates (v7.5), feeds, images, listings,
+  models, photo_pack_yandex_folders, photo_packs, products,
+  reports, schedule, yandex_folders, yandex_preview
+
+### Сервисы (17 файлов в app/services/)
+  autoload_sync, avito_client, avito_import, category_sync,
+  excel_importer, feed_generator, feed_importer, image_processor,
+  image_sync, photo_uniquifier, publish_scheduled, sold_detection,
+  stats_sync, sync_from_avito_export (v7.11), telegram_notify, yandex_disk
+
+### Модели (app/models/)
+  Account, Product, ProductImage, ProductYandexFolder,
+  ProductPublishHistory, Listing, ListingImage, FeedExport,
+  AutoloadReport, AutoloadReportItem, AvitoCategory, ItemStats,
+  Model, PhotoPack, PhotoPackImage, PhotoPackYandexFolder,
+  PhotoPackPublishHistory, ModelVariant, DescriptionTemplate (v7.5),
+  AccountDescriptionTemplate (deprecated)
+
+### Тесты (927 собрано, 55+ файлов)
+  Largest: test_products_routes (75), test_models_routes (65+),
+  test_feed_generator (69), test_excel_importer (59),
+  test_title_heuristic (36), test_avito_client_methods (30)
+  New in v7.8: test_ad_title (9), test_bulk_publish (4→5),
+  test_inline_edit (4→7), test_template_preview (3),
+  test_model_product_creation
+  New in v7.9: test_photo_packs_routes (+3 rename),
+  test_sync_yandex_folders_packs (+2 auto-add)
+  New in v7.10: test_model_product_creation (+3 pack_id persistence),
+  test_bulk_schedule (НОВЫЙ, 7 тестов)
+  New in v7.11: test_sync_from_avito_export (НОВЫЙ, 11),
+  test_avito_sync_routes (НОВЫЙ, 4), test_product_defaults (НОВЫЙ, 7),
+  test_feed_generator (+13), test_avito_import (+1)
+
+### Ключевые файлы (v7.8)
+  app/routes/description_templates.py — CRUD + settings page
+  app/models/description_template.py — SQLAlchemy model
+  app/templates/settings/description_templates.html — UI
+  app/templates/products/form_inline.html — slim form for iframe (v7.8)
+  app/catalog.py — requires_subtype helper (v7.8)
+  alembic/versions/e2f3a4b5c6d7_add_description_template_id.py — migration (v7.6)
+  scripts/migrate_account_templates.py — one-time data migration
+  tests/conftest.py — prod DB guard + seed account + cache clear
+  .env.test — test DB configuration
