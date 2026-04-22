@@ -53,6 +53,9 @@ class Product(Base):
     pack_id: Mapped[int | None] = mapped_column(
         ForeignKey("photo_packs.id", ondelete="SET NULL"), default=None, index=True
     )
+    feed_ad_id: Mapped[str | None] = mapped_column(
+        String(100), nullable=True, index=True, default=None,
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         default=utc_now
