@@ -134,8 +134,7 @@ def is_ready_for_feed(product: Product, has_account_template: bool = False) -> b
 def build_ad_element(product: Product, account: Account, base_url: str, description_override: str | None = None) -> etree._Element:
     ad = etree.Element("Ad")
 
-    ad_id = str(product.avito_id) if product.avito_id else str(product.id)
-    _add_element(ad, "Id", ad_id)
+    _add_element(ad, "Id", str(product.id))
     if product.avito_id:
         _add_element(ad, "AvitoId", str(product.avito_id))
     _add_element(ad, "Title", product.title)
@@ -272,8 +271,7 @@ async def generate_feed(account_id: int, db: AsyncSession) -> tuple[str, int]:
     # Add removed products with <Status>Removed</Status>
     for product in removed_products:
         ad = etree.Element("Ad")
-        ad_id = str(product.avito_id) if product.avito_id else str(product.id)
-        _add_element(ad, "Id", ad_id)
+        _add_element(ad, "Id", str(product.id))
         if product.avito_id:
             _add_element(ad, "AvitoId", str(product.avito_id))
         _add_element(ad, "Status", "Removed")
