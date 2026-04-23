@@ -826,7 +826,41 @@ scheduler.add_job(
 )
 
 
+async def _job_cleanup_orphan_media():
+    """Background job: delete orphan files in media/ (weekly)."""
+    from scripts.cleanup_orphan_media import cleanup_orphans
+
+    t0 = datetime.now(timezone.utc)
+    try:
+        async with async_session() as db:
+            result = await cleanup_orphans(dry_run=False, db=db)
+        duration = (datetime.now(timezone.utc) - t0).total_seconds()
+        logger.info(
+            "orphan_cleanup.done",
+            deleted_count=result.deleted_count,
+            freed_bytes=result.freed_bytes,
+            orphan_files=result.orphan_files,
+            skipped_young=result.skipped_young,
+            duration_sec=round(duration, 1),
+        )
+        _record_job_success("cleanup_orphan_media")
+    except Exception:
+        duration = (datetime.now(timezone.utc) - t0).total_seconds()
+        logger.exception("orphan_cleanup.failed", duration_sec=round(duration, 1))
+
+
+scheduler.add_job(
+    _job_cleanup_orphan_media,
+    "cron",
+    day_of_week="sun",
+    hour=1,
+    minute=30,
+    id="cleanup_orphan_media",
+    max_instances=1,
+)
+
+
 def start_scheduler() -> AsyncIOScheduler:
     scheduler.start()
-    logger.info("Scheduler started: stats 3h, publish 5m, images 30m, sold 6h, tokens 50m, import 3h, cleanup 24h, declined 6h, autoload_sync 6h, feed_cleanup daily@04:00, yandex_download 1m, yandex_sync 30m")
+    logger.info("Scheduler started: stats 3h, publish 5m, images 30m, sold 6h, tokens 50m, import 3h, cleanup 24h, declined 6h, autoload_sync 6h, feed_cleanup daily@04:00, yandex_download 1m, yandex_sync 30m, orphan_cleanup weekly@sun-04:30")
     return scheduler
