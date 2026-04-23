@@ -39,3 +39,6 @@ docs/avito-autoload-context-*.txt
 # (эта директория раздаётся публично через nginx)
 app/static/*-context*.txt
 app/static/context.txt
+
+# DB backups (local only, never commit)
+backups/

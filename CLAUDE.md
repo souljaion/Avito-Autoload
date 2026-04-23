@@ -152,7 +152,7 @@ avito-autoload/
 │   ├── env.py                  # Async migration runner
 │   └── versions/               # 27+ миграций
 ��
-├── tests/                      # 61 тест-файл, 860 тестов
+├── tests/                      # 61 тест-файл, 922 теста
 │   ├── conftest.py             # Hard guard от запуска на prod DB
 │   ├── test_models_routes.py   # 89K — самый большой тест
 │   ├── test_products_routes.py # 79K
@@ -366,7 +366,7 @@ Category → GoodsType → Subcategory (ApparelType) → GoodsSubType
 - Fixtures: `db` (transactional rollback), `isolated_db` (для commit-тестов), `auth_headers`, `client`
 - Hard guard против prod DB в conftest.py
 - Session-scoped seed fixture для account id=1
-- Тесты: 860 passed, 1 skipped. Отдельная БД `avito_autoload_test`
+- Тесты: 922 passed, 1 skipped. Отдельная БД `avito_autoload_test`
 
 ### Логиров��ние
 
@@ -383,7 +383,7 @@ Category → GoodsType → Subcategory (ApparelType) → GoodsSubType
 - **Zulla diagnostics** в lifespan (`main.py:58-70`) — diagnostic query при каждом старте. Можно удалить после стабилизации
 - **`datetime.utcnow()`** — deprecated, используется в `schedule.py`, `scheduler.py`, `test_stats_sync.py`. Нужно заменить на `datetime.now(timezone.utc)` (Python 3.13 compat)
 - **postMessage без origin check** — `detail.html:694` и `form_inline.html:273` не пров��ряют `event.origin`. Также `postMessage(..., '*')` вместо конкретного origin
-- **Dead endpoints** — 3 endpoint в `models.py` без JS-callers: `create_all_listings`, `schedule_matrix`, `create_one`
+- ~~**Dead endpoints**~~ — удалены в v7.12: `create_all_listings`, `schedule_matrix`, `create_one`
 - **N+1 в `bulk_publish`** — sequential query на ADT и Listing для каждого продукта
 
 ### Антипаттерны, которые НЕ копировать
@@ -415,7 +415,7 @@ Category → GoodsType → Subcategory (ApparelType) → GoodsSubType
 
 - **CI:** GitHub Actions → PostgreSQL 14 service, `alembic upgrade head`, `pytest`
 - **CD:** GitHub Actions → SSH deploy (pull + pip install + migrate + restart)
-- Тесты: 860 passed, Python 3.12
+- Тесты: 922 passed, Python 3.12
 
 ### Деплой
 

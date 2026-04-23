@@ -1,7 +1,7 @@
 # AVITO AUTOLOAD — CONTEXT v7.11
 
 **Дата:** 2026-04-22
-**Тесты:** 926 passed, 1 skipped (было 892 в v7.10)
+**Тесты:** 922 passed, 1 skipped (было 926 в v7.11, -17 удалённых тестов dead endpoints)
 **Push status:** origin/main + 15 local commits unpushed
 **Alembic HEAD:** b8744625def2 (add_feed_ad_id_to_products)
 
@@ -405,18 +405,15 @@ nginx + uvicorn слушают, ufw inactive, fail2ban нормальный.
    заполняются (cosmetic)
 
 ### Техдолг
-8. **Cleanup orphan фото в /media/** — после физических удалений через
-   sync_from_avito_export в media/ остались файлы, не связанные с product_images.
-   Скрипт: SELECT url FROM product_images → удалить из media/ что не в списке.
-9. **detail.html ~75K** — вынос inline JS в отдельный файл
+8. ✅ **Cleanup orphan фото в /media/** — реализовано: standalone-скрипт + еженедельная задача APScheduler
+9. ✅ **detail.html ~75K** — inline JS вынесен в app/static/js/models_detail.js
 10. **location.reload()** после save/publish → partial row refresh (скролл теряется)
-11. Dead endpoints: create_all_listings, schedule_matrix, create_one — удалить
+11. ✅ Dead endpoints: create_all_listings, schedule_matrix, create_one — удалены в v7.12
 12. Удалить deprecated account_description_templates
 
 ### Отложенные
 13. **Фаза 2 backfill pack_id** для существующих draft'ов
-14. **color_manufacturer** — новое поле в БД + UI + feed_generator для "Цвет от
-    производителя" (нужно для мультиобъявлений и некоторых категорий Авито)
+14. ✅ **color_manufacturer** — миграция + модель + UI (form.html, form_inline.html) + XML-фид готовы. Excel-импорт не сделан.
 
 ---
 
@@ -575,7 +572,7 @@ Rate limit:   slowapi 0.1.9 (in-memory)
 Деплой:       systemd (avito-autoload.service) + nginx reverse proxy
 CI/CD:        GitHub Actions (.github/workflows/{test,deploy}.yml), Python 3.12
 Auth:         HTTP Basic Auth (middleware/auth.py)
-Тесты:        927 собрано, 926 passed, 1 skipped (pytest, CI green)
+Тесты:        923 собрано, 922 passed, 1 skipped (pytest, CI green)
 Numpy:        2.4.4 (used by photo_uniquifier)
 
 UI:           Градиентный сайдбар (фиолетово-синий) + светлый контент (#f0f2ff)
@@ -1019,7 +1016,7 @@ POST /products/new: валидация account_id перед INSERT (400, не 5
 БД: postgresql+asyncpg://avito_user:avito_pass@localhost:5433/avito_autoload
 
 22 таблицы, 18 роутеров, 17 сервисов, 13 фоновых задач (APScheduler).
-HTTP Basic Auth, HTTPS, structlog, 926 тестов (CI green, Python 3.12).
+HTTP Basic Auth, HTTPS, structlog, 922 теста (CI green, Python 3.12).
 Optimistic locking через safe_update_status() в app/db.py.
 Rate limiting (slowapi) + TTL-кэш (app/cache.py).
 CI/CD: GitHub Actions (.github/workflows/{test,deploy}.yml).
@@ -1038,7 +1035,7 @@ v7.11 (2026-04-22): feed_ad_id — ссылочное поле для <Id> в ф
   новых draft: color='Разноцветный', delivery='Самовывоз и доставка', multi_item='Да',
   try_on='Да'. UI модалка "Открыть в Авито" вместо confirm при удалении imported.
   Убраны <Delivery>/<DeliverySubsidy> из XML-фида (невалидные значения).
-  892→926 тестов.
+  892→922 теста.
 
 Avito API:
   /autoload/v1/profile (GET), /autoload/v1/upload (POST)

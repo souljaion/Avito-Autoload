@@ -1,6 +1,6 @@
 """Tests for app/main.py — FastAPI app, mounts, routers, health endpoint."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, mock_open, patch
 
 import pytest
 from fastapi.routing import APIRoute, Mount
@@ -193,7 +193,7 @@ class TestLifespan:
         # Without this, the Zulla diag query opens a real asyncpg connection that
         # leaks on teardown (RuntimeWarning: coroutine 'Connection._cancel' was never
         # awaited), which can cause flaky failures in CI.
-        with patch("fcntl.flock"):  # acquires lock OK
+        with patch("fcntl.flock"), patch("builtins.open", mock_open()):  # acquires lock OK + skip real file write
             with patch("app.main.start_scheduler", return_value=mock_sched) as mock_start:
                 with patch("app.db.async_session", side_effect=Exception("skip diag")):
                     app = FastAPI()
