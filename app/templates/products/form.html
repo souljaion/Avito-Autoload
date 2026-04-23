@@ -45,6 +45,10 @@
         </div>
         <div class="grid-2">
             <div class="field">
+                <label>Цвет от производителя</label>
+                <input name="color_manufacturer" value="{{ product.color_manufacturer if product and product.color_manufacturer else '' }}" placeholder="Например: Чёрный/Белый">
+            </div>
+            <div class="field">
                 <label>Модель</label>
                 <input name="model" value="{{ product.model if product and product.model else '' }}">
             </div>

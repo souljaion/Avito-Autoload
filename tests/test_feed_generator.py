@@ -39,6 +39,7 @@ def _make_product(**kw):
         "brand": "Nike",
         "model": "Air Max 90",
         "color": "Белый",
+        "color_manufacturer": None,
         "size": "42",
         "material": None,
         "extra": {},
@@ -885,6 +886,24 @@ class TestNonImportedFields:
         account = _make_account()
         ad = build_ad_element(product, account, "https://example.com")
         assert ad.find("Color") is None
+
+    def test_color_manufacturer_present_when_set(self):
+        product = _make_product(color_manufacturer="Чёрный/Белый")
+        account = _make_account()
+        ad = build_ad_element(product, account, "https://example.com")
+        assert ad.find("ColorManufacturer").text == "Чёрный/Белый"
+
+    def test_color_manufacturer_absent_when_null(self):
+        product = _make_product(color_manufacturer=None)
+        account = _make_account()
+        ad = build_ad_element(product, account, "https://example.com")
+        assert ad.find("ColorManufacturer") is None
+
+    def test_color_manufacturer_absent_when_empty(self):
+        product = _make_product(color_manufacturer="")
+        account = _make_account()
+        ad = build_ad_element(product, account, "https://example.com")
+        assert ad.find("ColorManufacturer") is None
 
     def test_apparel_type_absent_when_subcategory_empty_for_shoes(self):
         product = _make_product(

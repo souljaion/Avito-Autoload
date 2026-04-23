@@ -163,6 +163,7 @@ def build_ad_element(product: Product, account: Account, base_url: str, descript
     _add_element(ad, "AdType", extra.get("ad_type", "Товар приобретён на продажу"))
     _add_element(ad, "Availability", extra.get("availability", "В наличии"))
     _add_element(ad, "Color", product.color)
+    _add_element(ad, "ColorManufacturer", product.color_manufacturer)
     _add_element(ad, "Brand", product.brand)
 
     if product.price is not None:

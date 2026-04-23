@@ -65,7 +65,7 @@ def _make_product(
     sku="SKU-001", brand="Nike", model="Air Max",
     category="Одежда, обувь, аксессуары", goods_type="Мужская обувь",
     subcategory="Кроссовки и кеды", goods_subtype="Кроссовки",
-    size="42", color="Black", material="Leather", condition="Новое с биркой",
+    size="42", color="Black", color_manufacturer=None, material="Leather", condition="Новое с биркой",
     description="Test description", scheduled_at=None, removed_at=None,
     extra=None, use_custom_description=False, image_url=None, version=1,
     published_at=None,
@@ -89,6 +89,7 @@ def _make_product(
     p.goods_subtype = goods_subtype
     p.size = size
     p.color = color
+    p.color_manufacturer = color_manufacturer
     p.material = material
     p.condition = condition
     p.description = description
@@ -1614,6 +1615,44 @@ class TestProductUpdate:
 
         assert resp.status_code == 303
         assert product.price is None
+
+    @pytest.mark.asyncio
+    async def test_update_color_manufacturer(self):
+        """POST /products/1/edit saves color_manufacturer field."""
+        product = _make_product(id=1)
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=product)
+        mock_db.commit = AsyncMock()
+        app = _make_app(mock_db)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post("/products/1/edit", data={
+                "title": "Product",
+                "price": "5000",
+                "color_manufacturer": "Чёрный/Белый",
+            }, follow_redirects=False)
+
+        assert resp.status_code == 303
+        assert product.color_manufacturer == "Чёрный/Белый"
+
+    @pytest.mark.asyncio
+    async def test_update_empty_color_manufacturer_sets_none(self):
+        """POST /products/1/edit with empty color_manufacturer sets None."""
+        product = _make_product(id=1, color_manufacturer="Old Value")
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=product)
+        mock_db.commit = AsyncMock()
+        app = _make_app(mock_db)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post("/products/1/edit", data={
+                "title": "Product",
+                "price": "5000",
+                "color_manufacturer": "",
+            }, follow_redirects=False)
+
+        assert resp.status_code == 303
+        assert product.color_manufacturer is None
 
 
 # ── DELETE /products/{id}/avito ────────────────────────────────────

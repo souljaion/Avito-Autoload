@@ -28,6 +28,7 @@ class Product(Base):
     goods_subtype: Mapped[str | None] = mapped_column(String(255))
     size: Mapped[str | None] = mapped_column(String(100))
     color: Mapped[str | None] = mapped_column(String(100))
+    color_manufacturer: Mapped[str | None] = mapped_column(String(100), default=None)
     material: Mapped[str | None] = mapped_column(String(255))
     condition: Mapped[str | None] = mapped_column(String(100))
     price: Mapped[int | None] = mapped_column(Integer)

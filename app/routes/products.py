@@ -351,6 +351,7 @@ async def product_create(
     goods_subtype: str = Form(""),
     size: str = Form(""),
     color: str = Form(""),
+    color_manufacturer: str = Form(""),
     material: str = Form(""),
     condition: str = Form(""),
     price: str = Form("0"),
@@ -404,6 +405,7 @@ async def product_create(
         goods_subtype=goods_subtype or None,
         size=size or None,
         color=color or None,
+        color_manufacturer=color_manufacturer or None,
         material=material or None,
         condition=condition or DEFAULT_CONDITION,
         price=price_int,
@@ -533,6 +535,7 @@ async def product_update(
     goods_subtype: str = Form(""),
     size: str = Form(""),
     color: str = Form(""),
+    color_manufacturer: str = Form(""),
     material: str = Form(""),
     condition: str = Form(""),
     price: str = Form("0"),
@@ -565,6 +568,7 @@ async def product_update(
     product.goods_subtype = goods_subtype or None
     product.size = size or None
     product.color = color or None
+    product.color_manufacturer = color_manufacturer or None
     product.material = material or None
     product.condition = condition or DEFAULT_CONDITION
     try:
@@ -629,6 +633,7 @@ async def duplicate_product(product_id: int, db: AsyncSession = Depends(get_db))
         goods_subtype=product.goods_subtype,
         size=product.size,
         color=product.color,
+        color_manufacturer=product.color_manufacturer,
         material=product.material,
         condition=product.condition,
         price=product.price,
