@@ -10,12 +10,6 @@
 .m-title-left { display:flex; flex-direction:column; gap:2px; }
 .m-name { font-size:22px; font-weight:500; color:#1e1b4b; margin:0; }
 .m-subtitle { font-size:12px; color:#6b7280; margin-top:2px; }
-.m-pills { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
-.m-pill { display:inline-flex; align-items:center; gap:4px; padding:3px 10px; border-radius:10px; font-size:11px; font-weight:500; }
-.m-pill-green { background:#dcfce7; color:#166534; }
-.m-pill-yellow { background:#fef3c7; color:#92400e; }
-.m-pill-red { background:#fef2f2; color:#991b1b; }
-.m-pill-gray { background:#f3f4f6; color:#6b7280; }
 .m-header-actions { display:flex; gap:8px; flex-shrink:0; }
 .btn-outline { background:#fff; color:#374151; border:1px solid #d1d5db; }
 .btn-outline:hover { background:#f9fafb; border-color:#9ca3af; }
@@ -40,7 +34,7 @@
 
 .pack-item { border-bottom:0.5px solid #e2e4f0; }
 .pack-item:last-child { border-bottom:none; }
-.pack-item summary { list-style:none; cursor:pointer; padding:10px 16px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.pack-item summary { list-style:none; cursor:pointer; padding:8px 14px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
 .pack-item summary::-webkit-details-marker { display:none; }
 .pack-item summary::marker { display:none; content:""; }
 .pack-item-left { display:flex; align-items:center; gap:8px; font-size:13px; }
@@ -49,28 +43,18 @@
 .pack-item-name { font-weight:500; color:#1e1b4b; }
 .pack-item-count { color:#9ca3af; font-weight:400; font-size:12px; }
 .pack-item-actions { display:flex; gap:6px; }
-.pack-item-body { padding:0 16px 14px 16px; }
-.pack-yd-grid { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px; }
-.pack-yd-grid img { width:72px; height:72px; object-fit:cover; border-radius:6px; border:0.5px solid #e2e4f0; }
-.pack-drop-zone { border:2px dashed #e2e4f0; border-radius:6px; padding:10px; text-align:center; color:#9ca3af; font-size:12px; margin-top:8px; transition:border-color 0.15s; }
+.pack-item-body { padding:0 14px 10px 14px; }
+.pack-yd-grid { display:flex; gap:4px; flex-wrap:wrap; margin-bottom:6px; }
+.pack-yd-grid img { width:28px; height:28px; object-fit:cover; border-radius:4px; border:0.5px solid #e2e4f0; }
+.pack-drop-zone { border:2px dashed #e2e4f0; border-radius:6px; padding:8px; text-align:center; color:#9ca3af; font-size:12px; margin-top:6px; transition:border-color 0.15s; }
 .pack-drop-zone.dragover { border-color:#534AB7; color:#534AB7; }
 
-.listings-table { width:100%; border-collapse:collapse; }
-.listings-table th { font-size:10px; text-transform:uppercase; letter-spacing:0.04em; color:#9ca3af; font-weight:500; padding:8px 10px; text-align:left; white-space:nowrap; }
-.listings-table td { padding:6px 10px; border-top:0.5px solid #f3f4f6; vertical-align:middle; }
-.listings-table tr:hover { background:#f9fafb; }
-.listings-table select, .listings-table input { padding:4px 8px; border:1px solid #e2e4f0; border-radius:6px; font-size:12px; font-family:inherit; background:#fff; }
-.listings-table select:focus, .listings-table input:focus { border-color:#534AB7; outline:none; box-shadow:0 0 0 2px rgba(83,74,183,0.1); }
-.listings-table input[type="number"] { width:80px; }
-.listings-table input[type="text"] { width:70px; }
-.ad-title-input { width:180px !important; font-size:12px; }
-.desc-template-select { max-width:240px; text-overflow:ellipsis; overflow:hidden; white-space:nowrap; }
-.create-template-link { color:#534AB7; font-size:12px; text-decoration:none; white-space:nowrap; }
-.create-template-link:hover { text-decoration:underline; }
-
-.model-badge { display:inline-block; padding:4px 10px; border-radius:8px; font-size:12px; font-weight:500; margin-top:6px; }
-.model-badge--ok { background:#dcfce7; color:#166534; }
-.model-badge--warn { background:#fef3c7; color:#92400e; }
+.marker-dot { display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:4px; flex-shrink:0; }
+.marker-alive { background:#639922; }
+.marker-weak { background:#EF9F27; }
+.marker-dead { background:#E24B4A; }
+.marker-waiting { background:#D3D1C7; }
+.marker-none { background:transparent; }
 
 .status-badge { display:inline-flex; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:500; white-space:nowrap; }
 .status-active { background:#dcfce7; color:#166534; }
@@ -78,20 +62,10 @@
 .status-draft { background:#f3f4f6; color:#6b7280; }
 .status-imported { background:#fef3c7; color:#92400e; }
 
-.add-row { padding:12px 16px; }
-.add-row-btn { background:none; border:1px dashed #d1d5db; border-radius:8px; padding:8px 16px; color:#534AB7; font-size:13px; cursor:pointer; width:100%; text-align:center; }
-.add-row-btn:hover { background:#f9fafb; border-color:#534AB7; }
-
-.marker-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:4px; }
-.marker-alive { background:#22c55e; }
-.marker-weak { background:#eab308; }
-.marker-dead { background:#ef4444; }
-.marker-unknown { background:#9ca3af; }
-
 .saved-indicator { font-size:10px; color:#22c55e; opacity:0; transition:opacity 0.3s; }
 .saved-indicator.visible { opacity:1; }
 
-.bulk-bar { display:none; padding:12px 16px; background:#f0f2ff; border-top:1px solid #e2e4f0; align-items:center; gap:12px; flex-wrap:wrap; }
+.bulk-bar { display:none; padding:12px 16px; background:#f0f2ff; border-radius:0 0 12px 12px; border-top:1px solid #e2e4f0; align-items:center; gap:12px; flex-wrap:wrap; position:sticky; bottom:0; z-index:10; }
 .bulk-bar.visible { display:flex; }
 .bulk-bar .bulk-count { font-size:13px; font-weight:500; color:#1e1b4b; }
 .bulk-bar .bulk-clear { font-size:12px; color:#6b7280; cursor:pointer; text-decoration:underline; margin-left:auto; }
@@ -116,11 +90,62 @@
 .yd-badge-downloading { background:#dbeafe; color:#1e40af; }
 .yd-badge-failed { background:#fef2f2; color:#991b1b; }
 
+/* Recommendations */
+.rec-card { padding:10px 14px; border-radius:8px; margin-bottom:6px; }
+.rec-card:last-child { margin-bottom:0; }
+.rec-card--warning { background:#fef3c7; }
+.rec-card--info { background:#eef2ff; }
+.rec-card-title { font-size:13px; font-weight:500; color:#1e1b4b; }
+.rec-card-desc { font-size:11px; color:#6b7280; margin-top:2px; }
+
+/* Account groups */
+.account-group { background:#fff; border:0.5px solid #e2e4f0; border-radius:12px; margin-bottom:12px; border-left:3px solid #d1d5db; overflow:hidden; }
+.account-group--dead { border-left-color:#E24B4A; }
+.account-group--weak { border-left-color:#EF9F27; }
+.account-group--waiting { border-left-color:#d1d5db; }
+.account-group--scheduled { border-left-color:#3b82f6; }
+.account-group--live { border-left-color:#639922; }
+.account-group--empty { border-left-color:#e2e4f0; }
+
+.account-group-header { padding:10px 14px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.account-group-name { font-size:14px; font-weight:500; color:#1e1b4b; }
+.account-group-meta { display:flex; align-items:center; gap:8px; font-size:12px; color:#6b7280; }
+
+.state-pill { display:inline-flex; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:500; white-space:nowrap; }
+.state-pill--dead { background:#fef2f2; color:#991b1b; }
+.state-pill--weak { background:#fef3c7; color:#92400e; }
+.state-pill--waiting { background:#f3f4f6; color:#6b7280; }
+.state-pill--scheduled { background:#dbeafe; color:#1e40af; }
+.state-pill--live { background:#dcfce7; color:#166534; }
+.state-pill--empty { background:#f3f4f6; color:#9ca3af; }
+
+.product-card { display:flex; align-items:center; gap:8px; padding:8px 14px; border-top:0.5px solid #f3f4f6; }
+.product-card:hover { background:#f9fafb; }
+.product-card-info { flex:1; min-width:0; }
+.product-card-title { font-size:13px; font-weight:500; color:#1e1b4b; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.product-card-meta { font-size:11px; color:#9ca3af; margin-top:1px; }
+.product-card-right { display:flex; align-items:center; gap:6px; flex-shrink:0; flex-wrap:wrap; }
+.stat-tag { font-size:11px; color:#374151; background:#f3f4f6; padding:1px 6px; border-radius:4px; white-space:nowrap; }
+.stat-delta { font-size:11px; white-space:nowrap; }
+.stat-delta--up { color:#166534; }
+.stat-delta--zero { color:#9ca3af; }
+
+.empty-placeholder { padding:20px 14px; text-align:center; color:#9ca3af; font-size:13px; }
+
+.groups-header { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:12px; flex-wrap:wrap; }
+.groups-header h2 { font-size:16px; font-weight:500; color:#1e1b4b; margin:0; }
+.groups-controls { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+
 @media (max-width:768px) {
     .m-title-row { flex-direction:column; gap:12px; }
     .two-col { grid-template-columns:1fr; }
+    .product-card { flex-wrap:wrap; }
+    .product-card-right { width:100%; justify-content:flex-end; margin-top:4px; }
 }
 </style>
+
+<!-- Hidden element for JS compat (updateStatusPills) -->
+<div id="status-pills" style="display:none;"></div>
 
 <!-- Topbar -->
 <div class="m-topbar">
@@ -128,18 +153,13 @@
     <div class="m-title-row">
         <div class="m-title-left">
             <h1 class="m-name">{{ model.name }}</h1>
-            {% if model.brand or (model.category and model.goods_type) %}
             <span class="m-subtitle">
-                {% if model.brand %}{{ model.brand }}{% if model.category and model.goods_type %} &middot; {% endif %}{% endif %}
-                {% if model.category and model.goods_type %}{{ model.category }} &rarr; {{ model.goods_type }}{% if model.subcategory %} &rarr; {{ model.subcategory }}{% endif %}{% if model.goods_subtype %} &rarr; {{ model.goods_subtype }}{% endif %}{% endif %}
+                {% if model.brand %}{{ model.brand }}{% endif %}
+                {% if model.category %} &middot; {{ model.category }}{% if model.goods_type %} &rarr; {{ model.goods_type }}{% endif %}{% if model.subcategory %} &rarr; {{ model.subcategory }}{% endif %}{% endif %}
+                {% if model.price %} &middot; {{ model.price|int }} &#8381;{% endif %}
+                {% if model_is_complete %} &middot; <span style="color:#166534;">&#x2713; &#1043;&#1086;&#1090;&#1086;&#1074;&#1086;</span>
+                {% else %} &middot; <span style="color:#92400e;">&#x26A0; {{ missing_fields|join(", ") }}</span>{% endif %}
             </span>
-            {% endif %}
-            <div class="m-pills" id="status-pills"></div>
-            {% if model_is_complete %}
-            <div class="model-badge model-badge--ok">&#x25CF; Модель готова к публикации</div>
-            {% else %}
-            <div class="model-badge model-badge--warn">&#x26A0; Модель заполнена частично. Не хватает: {{ missing_fields | join(", ") }}</div>
-            {% endif %}
         </div>
         <div class="m-header-actions">
             <button class="btn btn-sm btn-outline" onclick="toggleEditForm()">Редактировать</button>
@@ -165,7 +185,7 @@
     </div>
 </div>
 
-<!-- Two-column: Фотопаки + Аналитика -->
+<!-- Two-column: Фотопаки + Рекомендации -->
 <div class="two-col">
     <!-- Left: Photo packs -->
     <div class="section-card" style="margin-bottom:0;">
@@ -216,105 +236,105 @@
         </div>
     </div>
 
-    <!-- Right: Analytics -->
+    <!-- Right: Recommendations -->
+    {% if recommendations %}
     <div class="section-card" style="margin-bottom:0;">
-        <div class="section-card-header"><h2>Аналитика модели</h2></div>
-        <div class="section-card-body" id="analyticsBody" style="padding:14px 16px;">
-            <div style="color:#9ca3af;text-align:center;font-size:13px;">Загрузка...</div>
+        <div class="section-card-header"><h2>Рекомендации</h2></div>
+        <div class="section-card-body" style="padding:10px 16px;">
+            {% for rec in recommendations %}
+            <div class="rec-card rec-card--{{ rec.severity }}">
+                <div class="rec-card-title">{{ rec.title }}</div>
+                <div class="rec-card-desc">{{ rec.description }}</div>
+            </div>
+            {% endfor %}
         </div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Account groups -->
+<div class="groups-header">
+    <h2>Объявления</h2>
+    <div class="groups-controls">
+        <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#6b7280;cursor:pointer;" title="Выбрать все">
+            <input type="checkbox" class="row-checkbox" id="select-all-cb" onchange="toggleSelectAll(this)"> все
+        </label>
+        <input type="datetime-local" id="schedule-time" style="padding:4px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;">
+        <button class="btn btn-sm btn-green" onclick="scheduleAllDrafts()">Запланировать черновики</button>
     </div>
 </div>
 
-<!-- Listings table -->
-<div class="section-card">
-    <div class="section-card-header">
-        <h2>Объявления</h2>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-            <input type="datetime-local" id="schedule-time" style="padding:4px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;">
-            <button class="btn btn-sm btn-green" onclick="scheduleAllDrafts()">Запланировать черновики</button>
-            <button class="btn btn-sm btn-purple" onclick="addNewRow()">+ Добавить</button>
+{% for group in account_groups %}
+<div class="account-group account-group--{{ group.state }}" data-account-id="{{ group.account.id }}" id="account-{{ group.account.id }}">
+    <div class="account-group-header">
+        <div class="account-group-meta">
+            <span class="account-group-name">{{ group.account.name }}</span>
+            <span class="state-pill state-pill--{{ group.state }}">{{ group.state_label }}</span>
+            {% if group.product_count %}<span style="color:#9ca3af;font-size:12px;">{{ group.product_count }} объявл.</span>{% endif %}
         </div>
+        <button class="btn btn-sm btn-outline" onclick="addNewRow({{ group.account.id }})">+ Добавить</button>
     </div>
-    <div class="section-card-body" style="overflow-x:auto;">
-        <table class="listings-table" id="listings-table">
-            <thead><tr>
-                <th style="width:30px;"><input type="checkbox" class="row-checkbox" id="select-all-cb" onchange="toggleSelectAll(this)"></th>
-                <th>Название</th>
-                <th>Аккаунт</th>
-                <th>Фотопак</th>
-                <th>Размер</th>
-                <th>Цена</th>
-                <th>Описание</th>
-                <th>Статус</th>
-                <th></th>
-            </tr></thead>
-            <tbody id="listings-body">
-            {% set active_products = model.products | selectattr('status', 'ne', 'removed') | list %}
-            {% for p in active_products | sort(attribute='id') %}
-            <tr id="row-{{ p.id }}" data-product-id="{{ p.id }}" data-status="{{ p.status }}">
-                <td><input type="checkbox" class="row-checkbox row-cb" data-product-id="{{ p.id }}" onchange="updateBulkBar()"></td>
-                <td><input type="text" value="{{ p.title }}" data-field="title" data-last-value="{{ p.title }}" class="ad-title-input" oninput="debounceSave({{ p.id }},this)"></td>
-                <td>
-                    <select data-field="account_id" onchange="autoSave({{ p.id }},this)">
-                        <option value="">—</option>
-                        {% for acc in accounts %}<option value="{{ acc.id }}" {{ 'selected' if p.account_id == acc.id else '' }}>{{ acc.name }}</option>{% endfor %}
-                    </select>
-                </td>
-                <td>
-                    <select data-field="pack_id" onchange="changePack({{ p.id }},this.value)">
-                        <option value="">Без пака</option>
-                        {% for pack in model.photo_packs %}<option value="{{ pack.id }}" {% if p.pack_id == pack.id %}selected{% endif %}>{{ pack.name }}</option>{% endfor %}
-                    </select>
-                </td>
-                <td><input type="text" value="{{ p.size or '' }}" data-field="size" oninput="debounceSave({{ p.id }},this)"></td>
-                <td><input type="number" value="{{ p.price or '' }}" data-field="price" oninput="debounceSave({{ p.id }},this)"></td>
-                <td>
-                    {% if description_templates %}
-                    <select class="desc-template-select" data-product-id="{{ p.id }}" onchange="updateDescriptionTemplate(this)">
-                        <option value="">— не выбран —</option>
-                        {% for t in description_templates %}
-                        <option value="{{ t.id }}" {% if p.description_template_id == t.id %}selected{% endif %}>{{ t.name }}</option>
-                        {% endfor %}
-                    </select>
-                    {% else %}
-                    <a href="/settings/description-templates" class="create-template-link">+ Создать шаблон</a>
-                    {% endif %}
-                </td>
-                <td>
-                    {% if p.status in ('active','published') %}<span class="status-badge status-active">активно</span>
-                    {% elif p.status == 'scheduled' %}<span class="status-badge status-scheduled">в расписании</span>
-                    {% elif p.status == 'imported' %}<span class="status-badge status-imported">импортировано</span>
-                    {% else %}<span class="status-badge status-draft">черновик</span>
-                    {% endif %}
-                </td>
-                <td style="white-space:nowrap;">
+
+    {% set visible_products = group.products | selectattr('status', 'ne', 'removed') | list %}
+    {% if visible_products %}
+    <div class="account-group-body">
+        {% for p in visible_products | sort(attribute='id') %}
+        <div class="product-card" id="row-{{ p.id }}" data-product-id="{{ p.id }}" data-status="{{ p.status }}">
+            <input type="checkbox" class="row-checkbox row-cb" data-product-id="{{ p.id }}" onchange="updateBulkBar()">
+            <span class="marker-dot marker-{{ p.marker or 'none' }}"></span>
+            <div class="product-card-info">
+                <div class="product-card-title" title="{{ p.title }}">{{ p.title }}</div>
+                <div class="product-card-meta">
+                    {% for pk in model.photo_packs if pk.id == p.pack_id %}{{ pk.name }} &middot; {% endfor %}
+                    {{ p.size or '' }}
+                    {% if p.price %} &middot; {{ p.price|int }} &#8381;{% endif %}
+                </div>
+            </div>
+            <div class="product-card-right">
+                {% if p.views_5d is not none %}
+                <span class="stat-tag">{{ p.views_5d }}</span>
+                {% endif %}
+                {% if p.delta_day is not none %}
+                <span class="stat-delta {% if p.delta_day > 0 %}stat-delta--up{% else %}stat-delta--zero{% endif %}">&Delta;{{ '+' if p.delta_day > 0 else '' }}{{ p.delta_day }}</span>
+                {% endif %}
+                {% if p.status in ('active','published') %}<span class="status-badge status-active">активно</span>
+                {% elif p.status == 'scheduled' %}<span class="status-badge status-scheduled">в расписании</span>
+                {% elif p.status == 'imported' %}<span class="status-badge status-imported">импортировано</span>
+                {% else %}<span class="status-badge status-draft">черновик</span>
+                {% endif %}
+                <span style="white-space:nowrap;">
                     {% if p.status == 'draft' %}
                         <button class="btn btn-sm btn-outline" onclick="scheduleOneNow({{ p.id }})">В расписание</button>
                         <button class="btn btn-sm btn-purple" onclick="publishOneNow({{ p.id }})">Выложить сразу</button>
-                        <button class="btn btn-sm btn-outline-danger" title="Удалить объявление" onclick="softDelete({{ p.id }},'{{ p.title[:30] }}','draft')">&#x2715;</button>
+                        <button class="btn btn-sm btn-outline-danger" title="Удалить" onclick="softDelete({{ p.id }},'{{ p.title[:30]|e }}','draft')">&#x2715;</button>
                     {% elif p.status == 'scheduled' %}
-                        <button class="btn btn-sm btn-outline-danger" title="Удалить объявление" onclick="softDelete({{ p.id }},'{{ p.title[:30] }}','scheduled')">&#x2715;</button>
+                        <button class="btn btn-sm btn-outline-danger" title="Удалить" onclick="softDelete({{ p.id }},'{{ p.title[:30]|e }}','scheduled')">&#x2715;</button>
                     {% elif p.status in ('active','published','imported') %}
                         {% if p.avito_id %}<a href="https://www.avito.ru/items/{{ p.avito_id }}" target="_blank" class="btn btn-sm btn-outline">На Авито</a>{% endif %}
                         <button class="btn btn-sm btn-purple" onclick="repostProduct({{ p.id }})">Перевыложить</button>
-                        <button class="btn btn-sm btn-outline-danger" title="Удалить объявление" onclick="softDelete({{ p.id }},'{{ p.title[:30] }}','{{ p.status }}',{{ p.avito_id or 'null' }})">&#x2715;</button>
+                        <button class="btn btn-sm btn-outline-danger" title="Удалить" onclick="softDelete({{ p.id }},'{{ p.title[:30]|e }}','{{ p.status }}',{{ p.avito_id or 'null' }})">&#x2715;</button>
                     {% endif %}
-                    <span class="saved-indicator" id="saved-{{ p.id }}">Сохранено</span>
-                </td>
-            </tr>
-            {% endfor %}
-            </tbody>
-        </table>
-        <div class="bulk-bar" id="bulk-bar">
-            <span class="bulk-count" id="bulk-count">Выбрано: 0</span>
-            <button class="btn btn-sm btn-green" onclick="bulkSchedule()">В расписание</button>
-            <button class="btn btn-sm btn-purple" onclick="bulkPublishModal()">Выложить сразу</button>
-            <span class="bulk-clear" onclick="clearSelection()">Снять выделение</span>
+                </span>
+                <span class="saved-indicator" id="saved-{{ p.id }}">Сохранено</span>
+            </div>
         </div>
-        <div class="add-row">
-            <button class="add-row-btn" onclick="addNewRow()">+ Добавить объявление</button>
-        </div>
+        {% endfor %}
     </div>
+    {% else %}
+    <div class="empty-placeholder">
+        Нет объявления этой модели на аккаунте
+        <br>
+        <button class="btn btn-sm btn-purple" onclick="addNewRow({{ group.account.id }})" style="margin-top:8px;">+ Создать черновик</button>
+    </div>
+    {% endif %}
+</div>
+{% endfor %}
+
+<div class="bulk-bar" id="bulk-bar">
+    <span class="bulk-count" id="bulk-count">Выбрано: 0</span>
+    <button class="btn btn-sm btn-green" onclick="bulkSchedule()">В расписание</button>
+    <button class="btn btn-sm btn-purple" onclick="bulkPublishModal()">Выложить сразу</button>
+    <span class="bulk-clear" onclick="clearSelection()">Снять выделение</span>
 </div>
 
 <!-- Bulk publish modal -->
@@ -421,5 +441,5 @@ window.MODEL_PAGE_DATA = {
     all_pack_ids: [{% for pack in model.photo_packs %}{{ pack.id }},{% endfor %}]
 };
 </script>
-<script src="/static/js/models_detail.js?v=1"></script>
+<script src="/static/js/models_detail.js?v=2"></script>
 {% endblock %}

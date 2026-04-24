@@ -896,6 +896,86 @@ class TestAccountGroups:
             assert product.delta_day == 10
 
     @pytest.mark.asyncio
+    async def test_detail_context_has_groups_and_recommendations(self):
+        """model_detail context includes account_groups and recommendations keys."""
+        acc = _make_account(id=1, name="Parker")
+        model = _make_model(id=1, products=[])
+
+        mock_db = AsyncMock()
+        mock_db.execute = self._mock_execute_for_detail(model, [acc])
+        app = _make_app(mock_db)
+
+        with patch("app.routes.models.templates") as mock_templates:
+            mock_templates.TemplateResponse.return_value = HTMLResponse("<html></html>")
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                resp = await client.get("/models/1")
+
+            assert resp.status_code == 200
+            call_args = mock_templates.TemplateResponse.call_args
+            assert call_args[0][0] == "models/detail.html"
+            ctx = call_args[0][1]
+            assert "account_groups" in ctx
+            assert "recommendations" in ctx
+            assert isinstance(ctx["account_groups"], list)
+            assert isinstance(ctx["recommendations"], list)
+
+    @pytest.mark.asyncio
+    async def test_detail_groups_sorted_by_priority(self):
+        """account_groups are sorted: dead first, then empty, then live."""
+        acc1 = _make_account(id=1, name="LiveAcc")
+        acc2 = _make_account(id=2, name="EmptyAcc")
+        acc3 = _make_account(id=3, name="DeadAcc")
+
+        p1 = _make_product(id=10, account_id=1, avito_id=100, status="active")
+        p3 = _make_product(id=30, account_id=3, avito_id=300, status="active")
+        model = _make_model(id=1, products=[p1, p3])
+
+        call_count = 0
+
+        async def mock_execute(stmt, *args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = model
+            elif call_count == 2:
+                result.scalars.return_value.all.return_value = [acc1, acc2, acc3]
+            elif call_count == 5:
+                # window: pid 10 → live (50 views), pid 30 → dead (5 views)
+                r1 = MagicMock(product_id=10, max_views=150, min_views=100, cnt=3)
+                r3 = MagicMock(product_id=30, max_views=105, min_views=100, cnt=3)
+                result.all.return_value = [r1, r3]
+            elif call_count == 6:
+                b1 = MagicMock(product_id=10, bv=100)
+                b3 = MagicMock(product_id=30, bv=100)
+                result.all.return_value = [b1, b3]
+            else:
+                result.scalar_one_or_none.return_value = None
+                result.scalars.return_value.all.return_value = []
+                result.all.return_value = []
+            return result
+
+        mock_db = AsyncMock()
+        mock_db.execute = mock_execute
+        app = _make_app(mock_db)
+
+        with patch("app.routes.models.templates") as mock_templates:
+            mock_templates.TemplateResponse.return_value = HTMLResponse("<html></html>")
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                resp = await client.get("/models/1")
+
+            assert resp.status_code == 200
+            ctx = mock_templates.TemplateResponse.call_args[0][1]
+            groups = ctx["account_groups"]
+            states = [g["state"] for g in groups]
+            # dead(1) < empty(2) < live(6)
+            assert states == ["dead", "empty", "live"]
+
+    @pytest.mark.asyncio
     async def test_scheduled_state(self):
         """All products in draft/scheduled → state='scheduled'."""
         acc = _make_account(id=1, name="Parker")

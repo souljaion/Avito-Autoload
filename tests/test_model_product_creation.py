@@ -298,9 +298,9 @@ class TestPackIdPersistence:
                 assert detail_resp.status_code == 200
                 html = detail_resp.text
 
-                # The pack option should be selected
-                assert f'value="{pack.id}" selected' in html, (
-                    "Pack dropdown does not show saved pack as selected"
+                # The pack name should appear in the product card
+                assert "VisiblePack" in html, (
+                    "Pack name not visible in product card after page reload"
                 )
         finally:
             real_app.dependency_overrides.pop(get_db, None)

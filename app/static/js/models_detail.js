@@ -61,34 +61,9 @@ async function deleteModel() {
     if ((await resp.json()).ok) location.href = '/models';
 }
 
-// ── Status pills ──
+// ── Status pills (header meta is server-rendered in new layout) ──
 function updateStatusPills() {
-    const el = document.getElementById('status-pills');
-    const rows = document.querySelectorAll('#listings-body tr[data-product-id]');
-    const pills = [];
-
-    if (!HAS_CATEGORY) {
-        pills.push('<span class="m-pill m-pill-red">&#x2717; Нет категории</span>');
-    }
-
-    const hasPrice = [...rows].some(r => { const v = r.querySelector('[data-field="price"]'); return v && parseInt(v.value) > 0; });
-    if (hasPrice) {
-        const firstPrice = [...rows].map(r => parseInt(r.querySelector('[data-field="price"]')?.value)).find(v => v > 0);
-        pills.push(`<span class="m-pill m-pill-gray">Цена: ${firstPrice ? firstPrice.toLocaleString('ru-RU') + ' ₽' : '—'}</span>`);
-    }
-
-    const totalPhotos = PACKS.reduce((s, p) => s + (document.getElementById('pack-' + p.id)?.querySelectorAll('.pack-thumbs img').length || 0), 0);
-    pills.push(`<span class="m-pill m-pill-gray">Фото: ${totalPhotos}</span>`);
-
-    if (HAS_CATEGORY && hasPrice) {
-        pills.unshift('<span class="m-pill m-pill-green">&#x2713; Готово</span>');
-    } else if (!HAS_CATEGORY) {
-        // already added red pill
-    } else {
-        pills.unshift('<span class="m-pill m-pill-yellow">&#x26A0; Частично готово</span>');
-    }
-
-    el.innerHTML = pills.join('');
+    // No-op: inline meta is rendered server-side in the compressed header
 }
 
 // ── Auto-save ──
@@ -165,13 +140,13 @@ function _getScheduleTime() {
 async function scheduleAllDrafts() {
     const time = _getScheduleTime();
     if (!time) { showToast('Укажите время', true); return; }
-    const rows = document.querySelectorAll('#listings-body tr[data-product-id]');
+    const cards = document.querySelectorAll('[data-product-id]');
     let ok = 0, total = 0, lastProblems = [];
-    for (const row of rows) {
-        const badge = row.querySelector('.status-badge');
-        if (!badge || !badge.classList.contains('status-draft')) continue;
-        const pid = row.dataset.productId;
-        const accId = row.querySelector('[data-field="account_id"]')?.value;
+    for (const card of cards) {
+        if (card.dataset.status !== 'draft') continue;
+        const pid = card.dataset.productId;
+        const group = card.closest('.account-group');
+        const accId = group ? group.dataset.accountId : null;
         if (!accId) continue;
         total++;
         try {
@@ -196,7 +171,7 @@ function getSelectedDraftIds() {
     const ids = [];
     const nonDraft = [];
     checked.forEach(cb => {
-        const row = cb.closest('tr');
+        const row = cb.closest('[data-product-id]');
         const status = row.dataset.status;
         if (status === 'draft') {
             ids.push(parseInt(cb.dataset.productId));
@@ -631,7 +606,7 @@ function closeDeleteModal() {
 }
 
 // ── Add row ──
-async function addNewRow() {
+async function addNewRow(accountId) {
     // Warn if model is incomplete
     if (!window.modelIsComplete) {
         const missing = window.modelMissingFields.join(", ");
@@ -643,14 +618,14 @@ async function addNewRow() {
         if (!ok) return;
     }
 
-    // Pick first account (backend requires account_id NOT NULL)
-    const firstAcc = ACCOUNTS.length ? ACCOUNTS[0].id : null;
+    // Use provided accountId or pick first account (backend requires account_id NOT NULL)
+    const accId = accountId || (ACCOUNTS.length ? ACCOUNTS[0].id : null);
 
     try {
         const resp = await fetch('/models/' + MODEL_ID + '/products', {
             method: 'POST', headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
-                account_id: firstAcc,
+                account_id: accId,
             }),
         });
         const data = await resp.json();
@@ -997,9 +972,10 @@ async function linkSelected() {
     } catch(e) { showToast('Ошибка сети', true); }
 }
 
-// ── Analytics ──
+// ── Analytics (legacy — element removed in new layout) ──
 async function loadAnalytics() {
     const body = document.getElementById('analyticsBody');
+    if (!body) return;
     try {
         const resp = await fetch('/models/' + MODEL_ID + '/analytics');
         const data = await resp.json();
