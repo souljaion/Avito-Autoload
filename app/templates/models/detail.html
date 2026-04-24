@@ -128,6 +128,20 @@
 .product-card-stats { font-size:11px; color:#9ca3af; margin-top:2px; }
 .marker-broken { background:#EF9F27; }
 
+/* Pack usage matrix */
+.usage-matrix { display:flex; gap:6px; padding:8px 0 4px 0; margin-top:8px; border-top:0.5px solid #f0f0f5; align-items:center; flex-wrap:wrap; }
+.usage-label { font-size:10px; color:#888780; letter-spacing:0.3px; text-transform:uppercase; margin-right:4px; }
+.usage-chip { display:inline-flex; align-items:center; gap:4px; padding:3px 10px; border-radius:12px; font-size:11px; white-space:nowrap; }
+.usage-chip--fresh { background:#EAF3DE; color:#3B6D11; }
+.usage-chip--used { background:#FAEEDA; color:#633806; }
+.usage-chip .usage-date { opacity:0.7; font-size:10px; margin-left:2px; }
+
+/* Pack hint in product card */
+.pack-hint { font-size:11px; margin-top:4px; padding:3px 8px; border-radius:4px; display:inline-block; }
+.pack-hint--fresh { background:#EAF3DE; color:#3B6D11; }
+.pack-hint--will-uniquify { background:#FAEEDA; color:#633806; }
+.pack-hint--no-pack { background:#f3f4f6; color:#6b7280; }
+
 .empty-placeholder { padding:20px 14px; text-align:center; color:#9ca3af; font-size:13px; }
 
 .groups-header { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:12px; flex-wrap:wrap; }
@@ -227,6 +241,21 @@
                             <div class="pack-drop-zone" ondragover="event.preventDefault();this.classList.add('dragover')" ondragleave="this.classList.remove('dragover')" ondrop="event.preventDefault();this.classList.remove('dragover');uploadToPack({{ pack.id }},event.dataTransfer.files)">Перетащите фото сюда</div>
                         </div>
                     </details>
+                    <!-- Usage matrix -->
+                    {% set usage_row = pack_usage.by_pack.get(pack.id, {}) %}
+                    {% if usage_row %}
+                    <div class="usage-matrix">
+                        <span class="usage-label">Использование:</span>
+                        {% for acc in accounts %}
+                        {% set entry = usage_row.get(acc.id, {}) %}
+                        {% if entry.get('used') %}
+                        <span class="usage-chip usage-chip--used">&#x25CF; {{ acc.name }}<span class="usage-date">{{ entry.published_at.strftime('%d.%m') }}</span></span>
+                        {% else %}
+                        <span class="usage-chip usage-chip--fresh">&#x25CF; {{ acc.name }}</span>
+                        {% endif %}
+                        {% endfor %}
+                    </div>
+                    {% endif %}
                 </div>
             </details>
             {% endfor %}
@@ -288,6 +317,18 @@
                 {% if p.size %}{% if meta_parts.append(p.size) %}{% endif %}{% endif %}
                 {% if p.price %}{% if meta_parts.append(p.price|int|string ~ ' \u20bd') %}{% endif %}{% endif %}
                 {% if meta_parts %}<div class="product-card-meta">{{ meta_parts|join(' \u00b7 ') }}</div>{% endif %}
+                {% if p.id in pack_usage.by_product %}
+                {% set pu = pack_usage.by_product[p.id] %}
+                {% if pu.state == 'no_pack' %}
+                <div class="pack-hint pack-hint--no-pack">&#x26A0; Пак не выбран — при публикации фото не будет</div>
+                {% elif pu.state == 'used' %}
+                {% set ns = namespace(pname='') %}{% for pk in model.photo_packs if pk.id == p.pack_id %}{% set ns.pname = pk.name %}{% endfor %}
+                <div class="pack-hint pack-hint--will-uniquify">&#x26A0; Пак &laquo;{{ ns.pname }}&raquo; уже использован на этом аккаунте {{ pu.published_at.strftime('%d.%m') }} — фото будут уникализированы</div>
+                {% elif pu.state == 'fresh' %}
+                {% set ns = namespace(pname='') %}{% for pk in model.photo_packs if pk.id == p.pack_id %}{% set ns.pname = pk.name %}{% endfor %}
+                <div class="pack-hint pack-hint--fresh">&#x2713; Пак &laquo;{{ ns.pname }}&raquo; ещё не публиковался на этом аккаунте — пойдёт в оригинале</div>
+                {% endif %}
+                {% endif %}
                 {% if is_broken %}
                 <div class="product-card-stats" style="color:#92400e;">&#x26A0; нет avito_id — запись требует проверки</div>
                 {% elif p.views_5d is not none or p.contacts_5d is not none or p.favorites_5d is not none %}
