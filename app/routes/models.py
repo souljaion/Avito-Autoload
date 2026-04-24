@@ -40,7 +40,7 @@ MARKER_WEAK_THRESHOLD = 30
 def _marker_from_views_5d(views_5d: int | None) -> str:
     """Compute marker string from 5-day views delta.
 
-    Returns 'dead', 'weak', 'alive', or 'waiting' (when views_5d is None).
+    Returns 'dead', 'weak', 'live', or 'waiting' (when views_5d is None).
     """
     if views_5d is None:
         return "waiting"
@@ -48,84 +48,95 @@ def _marker_from_views_5d(views_5d: int | None) -> str:
         return "dead"
     if views_5d <= MARKER_WEAK_THRESHOLD:
         return "weak"
-    return "alive"
+    return "live"
+
+
+def _compute_5d_delta(
+    window_map: dict, baseline_map: dict, pid: int, field_idx: int,
+) -> int | None:
+    """Compute 5-day delta for a given field index in the window tuple."""
+    w = window_map.get(pid)
+    if w is None:
+        return None
+    max_v, min_v, cnt = w[field_idx * 2], w[field_idx * 2 + 1], w[6]
+    bv = baseline_map.get(pid, (None, None, None))[field_idx]
+    if bv is not None:
+        return max(0, max_v - bv)
+    elif cnt >= 2:
+        return max(0, max_v - min_v)
+    return None
 
 
 async def _compute_product_stats(
     db: AsyncSession, product_ids: list[int],
 ) -> dict[int, dict]:
-    """Batch-compute marker, views_5d, delta_day for a list of product IDs.
+    """Batch-compute marker, views_5d, contacts_5d, favorites_5d for product IDs.
 
-    Returns {product_id: {'marker': str, 'views_5d': int|None, 'delta_day': int|None}}.
+    Returns {product_id: {'marker', 'views_5d', 'contacts_5d', 'favorites_5d'}}.
+    Uses 2 SQL queries (window + baseline).
     """
     if not product_ids:
         return {}
 
     cutoff_5d = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=5)
-    today = datetime.now(timezone.utc).replace(tzinfo=None).date()
-    yesterday = today - timedelta(days=1)
 
-    # 5-day window
+    # 5-day window — views, contacts, favorites in one query
     window_result = await db.execute(
         select(
             ItemStats.product_id,
             func.max(ItemStats.views).label("max_views"),
             func.min(ItemStats.views).label("min_views"),
+            func.max(ItemStats.contacts).label("max_contacts"),
+            func.min(ItemStats.contacts).label("min_contacts"),
+            func.max(ItemStats.favorites).label("max_favorites"),
+            func.min(ItemStats.favorites).label("min_favorites"),
             func.count().label("cnt"),
         )
         .where(ItemStats.captured_at >= cutoff_5d, ItemStats.product_id.in_(product_ids))
         .group_by(ItemStats.product_id)
     )
-    window_map = {r.product_id: (r.max_views or 0, r.min_views or 0, r.cnt) for r in window_result.all()}
+    # Tuple: (max_views, min_views, max_contacts, min_contacts, max_fav, min_fav, cnt)
+    window_map = {}
+    for r in window_result.all():
+        window_map[r.product_id] = (
+            r.max_views or 0, r.min_views or 0,
+            r.max_contacts or 0, r.min_contacts or 0,
+            r.max_favorites or 0, r.min_favorites or 0,
+            r.cnt,
+        )
 
-    # Baseline before window
+    # Baseline before window — all three metrics in one query
     baseline_result = await db.execute(
-        select(ItemStats.product_id, func.max(ItemStats.views).label("bv"))
+        select(
+            ItemStats.product_id,
+            func.max(ItemStats.views).label("bv"),
+            func.max(ItemStats.contacts).label("bc"),
+            func.max(ItemStats.favorites).label("bf"),
+        )
         .where(ItemStats.captured_at < cutoff_5d, ItemStats.product_id.in_(product_ids))
         .group_by(ItemStats.product_id)
     )
-    baseline_map = {r.product_id: r.bv or 0 for r in baseline_result.all()}
-
-    # Today / yesterday for delta_day
-    today_result = await db.execute(
-        select(ItemStats.product_id, func.max(ItemStats.views).label("v"))
-        .where(cast(ItemStats.captured_at, Date) == today, ItemStats.product_id.in_(product_ids))
-        .group_by(ItemStats.product_id)
-    )
-    today_map = {r.product_id: r.v or 0 for r in today_result.all()}
-
-    yesterday_result = await db.execute(
-        select(ItemStats.product_id, func.max(ItemStats.views).label("v"))
-        .where(cast(ItemStats.captured_at, Date) == yesterday, ItemStats.product_id.in_(product_ids))
-        .group_by(ItemStats.product_id)
-    )
-    yesterday_map = {r.product_id: r.v or 0 for r in yesterday_result.all()}
+    # Tuple: (baseline_views, baseline_contacts, baseline_favorites)
+    baseline_map = {}
+    for r in baseline_result.all():
+        baseline_map[r.product_id] = (
+            r.bv if r.bv is not None else None,
+            r.bc if r.bc is not None else None,
+            r.bf if r.bf is not None else None,
+        )
 
     out: dict[int, dict] = {}
     for pid in product_ids:
-        # views_5d
-        w = window_map.get(pid)
-        if w is None:
-            views_5d = None
-        else:
-            max_v, min_v, cnt = w
-            bv = baseline_map.get(pid)
-            if bv is not None:
-                views_5d = max(0, max_v - bv)
-            elif cnt >= 2:
-                views_5d = max(0, max_v - min_v)
-            else:
-                views_5d = None
-
-        # delta_day
-        delta_day = None
-        if pid in today_map and pid in yesterday_map:
-            delta_day = max(0, today_map[pid] - yesterday_map[pid])
-
-        # marker
+        views_5d = _compute_5d_delta(window_map, baseline_map, pid, 0)
+        contacts_5d = _compute_5d_delta(window_map, baseline_map, pid, 1)
+        favorites_5d = _compute_5d_delta(window_map, baseline_map, pid, 2)
         marker = _marker_from_views_5d(views_5d)
-
-        out[pid] = {"marker": marker, "views_5d": views_5d, "delta_day": delta_day}
+        out[pid] = {
+            "marker": marker,
+            "views_5d": views_5d,
+            "contacts_5d": contacts_5d,
+            "favorites_5d": favorites_5d,
+        }
     return out
 
 
@@ -152,7 +163,7 @@ def _group_state(products_with_stats: list) -> str:
         return "dead"
     if "weak" in markers:
         return "weak"
-    if "alive" in markers or "live" in markers:
+    if "live" in markers:
         return "live"
     # Check if all are unpublished (draft/scheduled)
     statuses = {p.status for p in products_with_stats}
@@ -402,7 +413,8 @@ async def model_detail(request: Request, model_id: int, db: AsyncSession = Depen
         s = stats_map.get(p.id, {})
         p.marker = s.get("marker") if p.avito_id else None
         p.views_5d = s.get("views_5d")
-        p.delta_day = s.get("delta_day")
+        p.contacts_5d = s.get("contacts_5d")
+        p.favorites_5d = s.get("favorites_5d")
 
     account_groups: list[dict] = []
     for acc in accounts:

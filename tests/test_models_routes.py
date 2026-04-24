@@ -618,15 +618,15 @@ class TestAccountGroups:
                 result.scalars.return_value.all.return_value = [acc1, acc2, acc3, acc4]
             elif call_count == 5:
                 # window query: pid 10 → dead (5 views), pid 30 → weak (25), pid 40 → live (50)
-                r10 = MagicMock(product_id=10, max_views=105, min_views=100, cnt=3)
-                r30 = MagicMock(product_id=30, max_views=125, min_views=100, cnt=3)
-                r40 = MagicMock(product_id=40, max_views=150, min_views=100, cnt=3)
+                r10 = MagicMock(product_id=10, max_views=105, min_views=100, max_contacts=0, min_contacts=0, max_favorites=0, min_favorites=0, cnt=3)
+                r30 = MagicMock(product_id=30, max_views=125, min_views=100, max_contacts=0, min_contacts=0, max_favorites=0, min_favorites=0, cnt=3)
+                r40 = MagicMock(product_id=40, max_views=150, min_views=100, max_contacts=0, min_contacts=0, max_favorites=0, min_favorites=0, cnt=3)
                 result.all.return_value = [r10, r30, r40]
             elif call_count == 6:
                 # baseline query
-                b10 = MagicMock(product_id=10, bv=100)
-                b30 = MagicMock(product_id=30, bv=100)
-                b40 = MagicMock(product_id=40, bv=100)
+                b10 = MagicMock(product_id=10, bv=100, bc=0, bf=0)
+                b30 = MagicMock(product_id=30, bv=100, bc=0, bf=0)
+                b40 = MagicMock(product_id=40, bv=100, bc=0, bf=0)
                 result.all.return_value = [b10, b30, b40]
             else:
                 # get_catalog, desc_templates, today/yesterday
@@ -701,13 +701,13 @@ class TestAccountGroups:
                 result.scalars.return_value.all.return_value = [acc]
             elif call_count == 5:
                 # window: both products have < 20 views_5d → dead
-                r1 = MagicMock(product_id=10, max_views=110, min_views=100, cnt=3)
-                r2 = MagicMock(product_id=11, max_views=108, min_views=100, cnt=3)
+                r1 = MagicMock(product_id=10, max_views=110, min_views=100, max_contacts=0, min_contacts=0, max_favorites=0, min_favorites=0, cnt=3)
+                r2 = MagicMock(product_id=11, max_views=108, min_views=100, max_contacts=0, min_contacts=0, max_favorites=0, min_favorites=0, cnt=3)
                 result.all.return_value = [r1, r2]
             elif call_count == 6:
                 # baseline
-                b1 = MagicMock(product_id=10, bv=100)
-                b2 = MagicMock(product_id=11, bv=100)
+                b1 = MagicMock(product_id=10, bv=100, bc=0, bf=0)
+                b2 = MagicMock(product_id=11, bv=100, bc=0, bf=0)
                 result.all.return_value = [b1, b2]
             else:
                 # get_catalog, desc_templates, today/yesterday
@@ -754,10 +754,10 @@ class TestAccountGroups:
                 result.scalars.return_value.all.return_value = [acc1, acc2]
             elif call_count == 5:
                 # window: pid 10 → live (50 views)
-                r = MagicMock(product_id=10, max_views=150, min_views=100, cnt=3)
+                r = MagicMock(product_id=10, max_views=150, min_views=100, max_contacts=0, min_contacts=0, max_favorites=0, min_favorites=0, cnt=3)
                 result.all.return_value = [r]
             elif call_count == 6:
-                b = MagicMock(product_id=10, bv=100)
+                b = MagicMock(product_id=10, bv=100, bc=0, bf=0)
                 result.all.return_value = [b]
             else:
                 # get_catalog, desc_templates, today/yesterday
@@ -805,12 +805,12 @@ class TestAccountGroups:
                 result.scalars.return_value.all.return_value = [acc1, acc2]
             elif call_count == 5:
                 # window: both dead (< 20 views)
-                r1 = MagicMock(product_id=10, max_views=105, min_views=100, cnt=3)
-                r2 = MagicMock(product_id=20, max_views=108, min_views=100, cnt=3)
+                r1 = MagicMock(product_id=10, max_views=105, min_views=100, max_contacts=0, min_contacts=0, max_favorites=0, min_favorites=0, cnt=3)
+                r2 = MagicMock(product_id=20, max_views=108, min_views=100, max_contacts=0, min_contacts=0, max_favorites=0, min_favorites=0, cnt=3)
                 result.all.return_value = [r1, r2]
             elif call_count == 6:
-                b1 = MagicMock(product_id=10, bv=100)
-                b2 = MagicMock(product_id=20, bv=100)
+                b1 = MagicMock(product_id=10, bv=100, bc=0, bf=0)
+                b2 = MagicMock(product_id=20, bv=100, bc=0, bf=0)
                 result.all.return_value = [b1, b2]
             else:
                 # get_catalog, desc_templates, today/yesterday
@@ -841,7 +841,7 @@ class TestAccountGroups:
 
     @pytest.mark.asyncio
     async def test_product_stats_fields_attached(self):
-        """Products in account_groups have .marker, .views_5d, .delta_day."""
+        """Products in account_groups have .marker, .views_5d, .contacts_5d, .favorites_5d."""
         acc = _make_account(id=1, name="Parker")
         p = _make_product(id=10, account_id=1, avito_id=100, status="active")
         model = _make_model(id=1, products=[p])
@@ -857,22 +857,20 @@ class TestAccountGroups:
             elif call_count == 2:
                 result.scalars.return_value.all.return_value = [acc]
             elif call_count == 5:
-                # window: 35 views → alive
-                r = MagicMock(product_id=10, max_views=135, min_views=100, cnt=3)
+                # window: views=35, contacts=5, favorites=3 delta
+                r = MagicMock(
+                    product_id=10,
+                    max_views=135, min_views=100,
+                    max_contacts=15, min_contacts=10,
+                    max_favorites=8, min_favorites=5,
+                    cnt=3,
+                )
                 result.all.return_value = [r]
             elif call_count == 6:
-                b = MagicMock(product_id=10, bv=100)
+                # baseline
+                b = MagicMock(product_id=10, bv=100, bc=10, bf=5)
                 result.all.return_value = [b]
-            elif call_count == 7:
-                # today
-                t = MagicMock(product_id=10, v=140)
-                result.all.return_value = [t]
-            elif call_count == 8:
-                # yesterday
-                y = MagicMock(product_id=10, v=130)
-                result.all.return_value = [y]
             else:
-                # get_catalog, desc_templates
                 result.scalar_one_or_none.return_value = None
                 result.scalars.return_value.all.return_value = []
                 result.all.return_value = []
@@ -891,9 +889,60 @@ class TestAccountGroups:
 
             ctx = mock_templates.TemplateResponse.call_args[0][1]
             product = ctx["account_groups"][0]["products"][0]
-            assert product.marker == "alive"
+            assert product.marker == "live"
             assert product.views_5d == 35
-            assert product.delta_day == 10
+            assert product.contacts_5d == 5
+            assert product.favorites_5d == 3
+
+    @pytest.mark.asyncio
+    async def test_stats_none_when_no_item_stats(self):
+        """Products with avito_id but no ItemStats get None for all stats fields."""
+        acc = _make_account(id=1, name="Parker")
+        p = _make_product(id=10, account_id=1, avito_id=100, status="active")
+        model = _make_model(id=1, products=[p])
+
+        mock_db = AsyncMock()
+        mock_db.execute = self._mock_execute_for_detail(model, [acc])
+        app = _make_app(mock_db)
+
+        with patch("app.routes.models.templates") as mock_templates:
+            mock_templates.TemplateResponse.return_value = HTMLResponse("<html></html>")
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                await client.get("/models/1")
+
+            ctx = mock_templates.TemplateResponse.call_args[0][1]
+            product = ctx["account_groups"][0]["products"][0]
+            assert product.marker == "waiting"
+            assert product.views_5d is None
+            assert product.contacts_5d is None
+            assert product.favorites_5d is None
+
+    @pytest.mark.asyncio
+    async def test_active_without_avito_id_marker_is_none(self):
+        """Active product without avito_id gets marker=None (broken record)."""
+        acc = _make_account(id=1, name="Parker")
+        p = _make_product(id=10, account_id=1, avito_id=None, status="active")
+        model = _make_model(id=1, products=[p])
+
+        mock_db = AsyncMock()
+        mock_db.execute = self._mock_execute_for_detail(model, [acc])
+        app = _make_app(mock_db)
+
+        with patch("app.routes.models.templates") as mock_templates:
+            mock_templates.TemplateResponse.return_value = HTMLResponse("<html></html>")
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                await client.get("/models/1")
+
+            ctx = mock_templates.TemplateResponse.call_args[0][1]
+            product = ctx["account_groups"][0]["products"][0]
+            assert product.marker is None
+            assert product.views_5d is None
+            assert product.contacts_5d is None
+            assert product.favorites_5d is None
 
     @pytest.mark.asyncio
     async def test_detail_context_has_groups_and_recommendations(self):
@@ -944,12 +993,12 @@ class TestAccountGroups:
                 result.scalars.return_value.all.return_value = [acc1, acc2, acc3]
             elif call_count == 5:
                 # window: pid 10 → live (50 views), pid 30 → dead (5 views)
-                r1 = MagicMock(product_id=10, max_views=150, min_views=100, cnt=3)
-                r3 = MagicMock(product_id=30, max_views=105, min_views=100, cnt=3)
+                r1 = MagicMock(product_id=10, max_views=150, min_views=100, max_contacts=0, min_contacts=0, max_favorites=0, min_favorites=0, cnt=3)
+                r3 = MagicMock(product_id=30, max_views=105, min_views=100, max_contacts=0, min_contacts=0, max_favorites=0, min_favorites=0, cnt=3)
                 result.all.return_value = [r1, r3]
             elif call_count == 6:
-                b1 = MagicMock(product_id=10, bv=100)
-                b3 = MagicMock(product_id=30, bv=100)
+                b1 = MagicMock(product_id=10, bv=100, bc=0, bf=0)
+                b3 = MagicMock(product_id=30, bv=100, bc=0, bf=0)
                 result.all.return_value = [b1, b3]
             else:
                 result.scalar_one_or_none.return_value = None
