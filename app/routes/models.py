@@ -31,6 +31,170 @@ router = APIRouter(prefix="/models", tags=["models"])
 templates = Jinja2Templates(directory="app/templates")
 
 
+# ── Marker / stats helpers (single source of truth for thresholds) ──
+
+MARKER_DEAD_THRESHOLD = 20
+MARKER_WEAK_THRESHOLD = 30
+
+
+def _marker_from_views_5d(views_5d: int | None) -> str:
+    """Compute marker string from 5-day views delta.
+
+    Returns 'dead', 'weak', 'alive', or 'waiting' (when views_5d is None).
+    """
+    if views_5d is None:
+        return "waiting"
+    if views_5d < MARKER_DEAD_THRESHOLD:
+        return "dead"
+    if views_5d <= MARKER_WEAK_THRESHOLD:
+        return "weak"
+    return "alive"
+
+
+async def _compute_product_stats(
+    db: AsyncSession, product_ids: list[int],
+) -> dict[int, dict]:
+    """Batch-compute marker, views_5d, delta_day for a list of product IDs.
+
+    Returns {product_id: {'marker': str, 'views_5d': int|None, 'delta_day': int|None}}.
+    """
+    if not product_ids:
+        return {}
+
+    cutoff_5d = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=5)
+    today = datetime.now(timezone.utc).replace(tzinfo=None).date()
+    yesterday = today - timedelta(days=1)
+
+    # 5-day window
+    window_result = await db.execute(
+        select(
+            ItemStats.product_id,
+            func.max(ItemStats.views).label("max_views"),
+            func.min(ItemStats.views).label("min_views"),
+            func.count().label("cnt"),
+        )
+        .where(ItemStats.captured_at >= cutoff_5d, ItemStats.product_id.in_(product_ids))
+        .group_by(ItemStats.product_id)
+    )
+    window_map = {r.product_id: (r.max_views or 0, r.min_views or 0, r.cnt) for r in window_result.all()}
+
+    # Baseline before window
+    baseline_result = await db.execute(
+        select(ItemStats.product_id, func.max(ItemStats.views).label("bv"))
+        .where(ItemStats.captured_at < cutoff_5d, ItemStats.product_id.in_(product_ids))
+        .group_by(ItemStats.product_id)
+    )
+    baseline_map = {r.product_id: r.bv or 0 for r in baseline_result.all()}
+
+    # Today / yesterday for delta_day
+    today_result = await db.execute(
+        select(ItemStats.product_id, func.max(ItemStats.views).label("v"))
+        .where(cast(ItemStats.captured_at, Date) == today, ItemStats.product_id.in_(product_ids))
+        .group_by(ItemStats.product_id)
+    )
+    today_map = {r.product_id: r.v or 0 for r in today_result.all()}
+
+    yesterday_result = await db.execute(
+        select(ItemStats.product_id, func.max(ItemStats.views).label("v"))
+        .where(cast(ItemStats.captured_at, Date) == yesterday, ItemStats.product_id.in_(product_ids))
+        .group_by(ItemStats.product_id)
+    )
+    yesterday_map = {r.product_id: r.v or 0 for r in yesterday_result.all()}
+
+    out: dict[int, dict] = {}
+    for pid in product_ids:
+        # views_5d
+        w = window_map.get(pid)
+        if w is None:
+            views_5d = None
+        else:
+            max_v, min_v, cnt = w
+            bv = baseline_map.get(pid)
+            if bv is not None:
+                views_5d = max(0, max_v - bv)
+            elif cnt >= 2:
+                views_5d = max(0, max_v - min_v)
+            else:
+                views_5d = None
+
+        # delta_day
+        delta_day = None
+        if pid in today_map and pid in yesterday_map:
+            delta_day = max(0, today_map[pid] - yesterday_map[pid])
+
+        # marker
+        marker = _marker_from_views_5d(views_5d)
+
+        out[pid] = {"marker": marker, "views_5d": views_5d, "delta_day": delta_day}
+    return out
+
+
+_STATE_PRIORITY = {"dead": 1, "empty": 2, "weak": 3, "waiting": 4, "scheduled": 5, "live": 6}
+_STATE_LABELS = {
+    "dead": "мёртвое",
+    "empty": "нет объявлений",
+    "weak": "слабое",
+    "waiting": "ждём данных",
+    "scheduled": "в расписании",
+    "live": "живое",
+}
+
+
+def _group_state(products_with_stats: list) -> str:
+    """Determine aggregate state for a group of products.
+
+    Each product must have a .marker attribute set.
+    """
+    if not products_with_stats:
+        return "empty"
+    markers = [p.marker for p in products_with_stats]
+    if "dead" in markers:
+        return "dead"
+    if "weak" in markers:
+        return "weak"
+    if "alive" in markers or "live" in markers:
+        return "live"
+    # Check if all are unpublished (draft/scheduled)
+    statuses = {p.status for p in products_with_stats}
+    if statuses <= {"draft", "scheduled"}:
+        return "scheduled"
+    return "waiting"
+
+
+def _build_recommendations(account_groups: list[dict], model_id: int) -> list[dict]:
+    """Build recommendation list from account_groups."""
+    recs: list[dict] = []
+
+    # missing_listing for empty accounts
+    for g in account_groups:
+        if g["state"] == "empty":
+            recs.append({
+                "kind": "missing_listing",
+                "severity": "info",
+                "title": f"Нет объявления на {g['account'].name}",
+                "description": "Создать черновик для этого аккаунта",
+                "action_url": f"/models/{model_id}#account-{g['account'].id}",
+                "account_id": g["account"].id,
+            })
+
+    # revive_dead — one summary recommendation
+    dead_groups = [g for g in account_groups if g["state"] == "dead"]
+    if dead_groups:
+        dead_names = ", ".join(g["account"].name for g in dead_groups)
+        total_dead = sum(
+            1 for g in dead_groups for p in g["products"] if getattr(p, "marker", None) == "dead"
+        )
+        recs.append({
+            "kind": "revive_dead",
+            "severity": "warning",
+            "title": f"Перевыложить на {dead_names}",
+            "description": f"{total_dead} объявлений показывают мёртвую статистику",
+            "account_ids": [g["account"].id for g in dead_groups],
+        })
+
+    return recs
+
+
 def _default_ad_title(model) -> str:
     """Build default ad title from model. Don't duplicate brand if already in name."""
     name = (model.name or "").strip()
@@ -229,6 +393,32 @@ async def model_detail(request: Request, model_id: int, db: AsyncSession = Depen
         missing_fields.append("Подтип")
     model_is_complete = not missing_fields
 
+    # ── account_groups + recommendations ──
+    all_product_ids = [p.id for p in model.products if p.avito_id is not None]
+    stats_map = await _compute_product_stats(db, all_product_ids)
+
+    # Attach computed fields to product objects
+    for p in model.products:
+        s = stats_map.get(p.id, {})
+        p.marker = s.get("marker") if p.avito_id else None
+        p.views_5d = s.get("views_5d")
+        p.delta_day = s.get("delta_day")
+
+    account_groups: list[dict] = []
+    for acc in accounts:
+        acc_products = [p for p in model.products if p.account_id == acc.id]
+        state = _group_state(acc_products)
+        account_groups.append({
+            "account": acc,
+            "products": acc_products,
+            "state": state,
+            "state_label": _STATE_LABELS.get(state, state),
+            "product_count": len(acc_products),
+        })
+
+    account_groups.sort(key=lambda g: _STATE_PRIORITY.get(g["state"], 99))
+    recommendations = _build_recommendations(account_groups, model.id)
+
     return templates.TemplateResponse("models/detail.html", {
         "request": request,
         "model": model,
@@ -237,6 +427,8 @@ async def model_detail(request: Request, model_id: int, db: AsyncSession = Depen
         "description_templates": description_templates,
         "model_is_complete": model_is_complete,
         "missing_fields": missing_fields,
+        "account_groups": account_groups,
+        "recommendations": recommendations,
         **catalog,
     })
 
