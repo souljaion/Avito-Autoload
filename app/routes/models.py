@@ -24,6 +24,7 @@ from app.models.listing import Listing
 from app.models.product import Product
 from app.models.product_image import ProductImage
 from app.models.pack_usage_history import PackUsageHistory
+from app.models.photo_pack_publish_history import PhotoPackPublishHistory
 from app.models.description_template import DescriptionTemplate
 from app.models.variant import ModelVariant
 
@@ -204,6 +205,61 @@ def _build_recommendations(account_groups: list[dict], model_id: int) -> list[di
         })
 
     return recs
+
+
+async def _compute_pack_usage(
+    db: AsyncSession, model, accounts: list,
+) -> dict:
+    """Compute pack publish history for all packs of a model across all accounts.
+
+    Returns {'by_pack': {pack_id: {account_id: {'used', 'published_at'}}},
+             'by_product': {product_id: {'state', 'published_at'}}}.
+    One SQL query (GROUP BY photo_pack_id, account_id).
+    """
+    pack_ids = [p.id for p in model.photo_packs]
+    account_ids = [a.id for a in accounts]
+
+    # by_pack: initialize all pairs as unused
+    by_pack: dict[int, dict[int, dict]] = {}
+    for pid in pack_ids:
+        by_pack[pid] = {aid: {"used": False, "published_at": None} for aid in account_ids}
+
+    # Single query: last publication date per (pack, account)
+    if pack_ids and account_ids:
+        result = await db.execute(
+            select(
+                PhotoPackPublishHistory.photo_pack_id,
+                PhotoPackPublishHistory.account_id,
+                func.max(PhotoPackPublishHistory.published_at).label("last_pub"),
+            )
+            .where(
+                PhotoPackPublishHistory.photo_pack_id.in_(pack_ids),
+                PhotoPackPublishHistory.account_id.in_(account_ids),
+            )
+            .group_by(PhotoPackPublishHistory.photo_pack_id, PhotoPackPublishHistory.account_id)
+        )
+        for r in result.all():
+            if r.photo_pack_id in by_pack and r.account_id in by_pack[r.photo_pack_id]:
+                by_pack[r.photo_pack_id][r.account_id] = {
+                    "used": True,
+                    "published_at": r.last_pub,
+                }
+
+    # by_product: only draft/scheduled products
+    by_product: dict[int, dict] = {}
+    for p in model.products:
+        if p.status not in ("draft", "scheduled"):
+            continue
+        if not p.pack_id:
+            by_product[p.id] = {"state": "no_pack", "published_at": None}
+        else:
+            pack_entry = by_pack.get(p.pack_id, {}).get(p.account_id, {})
+            if pack_entry.get("used"):
+                by_product[p.id] = {"state": "used", "published_at": pack_entry["published_at"]}
+            else:
+                by_product[p.id] = {"state": "fresh", "published_at": None}
+
+    return {"by_pack": by_pack, "by_product": by_product}
 
 
 def _default_ad_title(model) -> str:
@@ -431,6 +487,9 @@ async def model_detail(request: Request, model_id: int, db: AsyncSession = Depen
     account_groups.sort(key=lambda g: _STATE_PRIORITY.get(g["state"], 99))
     recommendations = _build_recommendations(account_groups, model.id)
 
+    # ── pack usage history ──
+    pack_usage = await _compute_pack_usage(db, model, accounts)
+
     return templates.TemplateResponse("models/detail.html", {
         "request": request,
         "model": model,
@@ -441,6 +500,7 @@ async def model_detail(request: Request, model_id: int, db: AsyncSession = Depen
         "missing_fields": missing_fields,
         "account_groups": account_groups,
         "recommendations": recommendations,
+        "pack_usage": pack_usage,
         **catalog,
     })
 

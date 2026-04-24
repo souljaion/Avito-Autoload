@@ -1096,6 +1096,153 @@ class TestAccountGroups:
             assert products[0].status == "imported"
 
 
+# ── pack_usage in model_detail ───────────────────────────────────────
+
+class TestPackUsage:
+    """Tests for _compute_pack_usage data in model_detail context."""
+
+    def _mock_with_pack_history(self, model, accounts, history_rows=None):
+        """Build mock_execute for model_detail with pack publish history.
+
+        history_rows: list of MagicMock rows with .photo_pack_id, .account_id, .last_pub.
+        Returns these rows for the _compute_pack_usage query (the last query).
+        """
+        call_count = 0
+        # Total queries before pack_usage depends on whether products have avito_id
+        # and whether photo_packs is non-empty. We detect pack_usage query by
+        # returning history_rows on the last query that gets empty results.
+        # Simpler: just return history_rows for ALL .all() calls after the first few.
+        # The window/baseline queries will also get these rows but they won't match
+        # any product_ids (empty list), so no harm.
+
+        async def mock_execute(stmt, *args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = model
+            elif call_count == 2:
+                result.scalars.return_value.all.return_value = accounts
+            else:
+                result.scalar_one_or_none.return_value = None
+                result.scalars.return_value.all.return_value = []
+                result.all.return_value = history_rows if history_rows else []
+            return result
+
+        return mock_execute
+
+    @pytest.mark.asyncio
+    async def test_pack_no_history_fresh(self):
+        """Pack × account with no publish history → used=False, product state='fresh'."""
+        acc = _make_account(id=1, name="Parker")
+        pack = _make_photo_pack(id=10, name="Pack A")
+        p = _make_product(id=100, account_id=1, status="draft")
+        p.pack_id = 10
+        model = _make_model(id=1, products=[p], photo_packs=[pack])
+
+        mock_db = AsyncMock()
+        mock_db.execute = self._mock_with_pack_history(model, [acc], history_rows=[])
+        app = _make_app(mock_db)
+
+        with patch("app.routes.models.templates") as mock_templates:
+            mock_templates.TemplateResponse.return_value = HTMLResponse("<html></html>")
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                await client.get("/models/1")
+
+            ctx = mock_templates.TemplateResponse.call_args[0][1]
+            pu = ctx["pack_usage"]
+            assert pu["by_pack"][10][1]["used"] is False
+            assert pu["by_pack"][10][1]["published_at"] is None
+            assert pu["by_product"][100]["state"] == "fresh"
+
+    @pytest.mark.asyncio
+    async def test_pack_with_history_used(self):
+        """Pack × account with publish history → used=True, product state='used'."""
+        from datetime import datetime
+        acc = _make_account(id=1, name="Parker")
+        pack = _make_photo_pack(id=10, name="Pack A")
+        p = _make_product(id=100, account_id=1, status="draft")
+        p.pack_id = 10
+        model = _make_model(id=1, products=[p], photo_packs=[pack])
+
+        pub_date = datetime(2026, 4, 22, 10, 0, 0)
+        history = [MagicMock(photo_pack_id=10, account_id=1, last_pub=pub_date)]
+
+        mock_db = AsyncMock()
+        mock_db.execute = self._mock_with_pack_history(model, [acc], history_rows=history)
+        app = _make_app(mock_db)
+
+        with patch("app.routes.models.templates") as mock_templates:
+            mock_templates.TemplateResponse.return_value = HTMLResponse("<html></html>")
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                await client.get("/models/1")
+
+            ctx = mock_templates.TemplateResponse.call_args[0][1]
+            pu = ctx["pack_usage"]
+            assert pu["by_pack"][10][1]["used"] is True
+            assert pu["by_pack"][10][1]["published_at"] == pub_date
+            assert pu["by_product"][100]["state"] == "used"
+            assert pu["by_product"][100]["published_at"] == pub_date
+
+    @pytest.mark.asyncio
+    async def test_draft_no_pack_state(self):
+        """Draft without pack_id → by_product state='no_pack'."""
+        acc = _make_account(id=1, name="Parker")
+        p = _make_product(id=100, account_id=1, status="draft")
+        p.pack_id = None
+        model = _make_model(id=1, products=[p])
+
+        mock_db = AsyncMock()
+        mock_db.execute = self._mock_with_pack_history(model, [acc])
+        app = _make_app(mock_db)
+
+        with patch("app.routes.models.templates") as mock_templates:
+            mock_templates.TemplateResponse.return_value = HTMLResponse("<html></html>")
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                await client.get("/models/1")
+
+            ctx = mock_templates.TemplateResponse.call_args[0][1]
+            pu = ctx["pack_usage"]
+            assert pu["by_product"][100]["state"] == "no_pack"
+
+    @pytest.mark.asyncio
+    async def test_active_not_in_by_product(self):
+        """Active/imported products are excluded from by_product."""
+        acc = _make_account(id=1, name="Parker")
+        p_active = _make_product(id=100, account_id=1, avito_id=999, status="active")
+        p_active.pack_id = 10
+        p_imported = _make_product(id=101, account_id=1, avito_id=998, status="imported")
+        p_imported.pack_id = 10
+        p_draft = _make_product(id=102, account_id=1, status="draft")
+        p_draft.pack_id = 10
+        pack = _make_photo_pack(id=10, name="Pack A")
+        model = _make_model(id=1, products=[p_active, p_imported, p_draft], photo_packs=[pack])
+
+        mock_db = AsyncMock()
+        mock_db.execute = self._mock_with_pack_history(model, [acc])
+        app = _make_app(mock_db)
+
+        with patch("app.routes.models.templates") as mock_templates:
+            mock_templates.TemplateResponse.return_value = HTMLResponse("<html></html>")
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                await client.get("/models/1")
+
+            ctx = mock_templates.TemplateResponse.call_args[0][1]
+            by_product = ctx["pack_usage"]["by_product"]
+            assert 100 not in by_product  # active
+            assert 101 not in by_product  # imported
+            assert 102 in by_product      # draft
+            assert by_product[102]["state"] == "fresh"
+
+
 # ── POST /models/{id}/add-variant ────────────────────────────────────
 
 class TestAddVariant:
