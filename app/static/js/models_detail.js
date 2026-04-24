@@ -927,8 +927,8 @@ async function searchUnlinked() {
             const statusCls = {active:'status-active',published:'status-active',imported:'status-imported',draft:'status-draft'}[p.status] || 'status-draft';
             const meta = [p.size, p.price ? p.price.toLocaleString('ru-RU') + ' ₽' : null].filter(Boolean).join(' · ');
             const thumbHtml = p.image_url
-                ? `<img src="${p.image_url}" style="width:36px;height:36px;object-fit:cover;border-radius:4px;flex-shrink:0;">`
-                : `<div style="width:36px;height:36px;border-radius:4px;background:#f3f4f6;flex-shrink:0;"></div>`;
+                ? `<img src="${p.image_url}" style="width:64px;height:64px;object-fit:cover;border-radius:6px;flex-shrink:0;">`
+                : `<div style="width:64px;height:64px;border-radius:6px;background:#f3f4f6;flex-shrink:0;"></div>`;
             html += `<label style="display:flex;align-items:center;gap:10px;padding:8px 4px;border-bottom:0.5px solid #f3f4f6;cursor:pointer;" onmouseenter="this.style.background='#f9fafb'" onmouseleave="this.style.background=''">
                 <input type="checkbox" value="${p.id}" ${checked} onchange="toggleLinkItem(${p.id},this.checked)" style="width:auto;flex-shrink:0;">
                 ${thumbHtml}
