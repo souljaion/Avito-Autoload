@@ -865,37 +865,43 @@ async def patch_product_pack(product_id: int, request: Request, db: AsyncSession
         return JSONResponse({"ok": False, "error": "Товар не найден"}, status_code=404)
 
     body = await request.json()
-    pack_id = body.get("pack_id")
-    if not pack_id:
+    if "pack_id" not in body:
         return JSONResponse({"ok": False, "error": "Не указан pack_id"}, status_code=400)
 
-    product.pack_id = int(pack_id)
-    count = await _apply_pack_to_product(db, product_id, int(pack_id), False)
+    pack_id = body["pack_id"]
+    count = 0
 
-    # Update pack usage history so accounts-status reflects the current pack
-    if product.account_id and product.model_id:
-        from app.models.photo_pack import PhotoPack
-        # Get all pack IDs for this model
-        model_packs = await db.execute(
-            select(PhotoPack.id).where(PhotoPack.model_id == product.model_id)
-        )
-        model_pack_ids = [r[0] for r in model_packs.all()]
-        if model_pack_ids:
-            # Remove old usage records for this account + this model's packs
-            old_usage = await db.execute(
-                select(PackUsageHistory).where(
-                    PackUsageHistory.account_id == product.account_id,
-                    PackUsageHistory.pack_id.in_(model_pack_ids),
-                )
+    if pack_id is None:
+        # Clear pack assignment
+        product.pack_id = None
+    else:
+        product.pack_id = int(pack_id)
+        count = await _apply_pack_to_product(db, product_id, int(pack_id), False)
+
+        # Update pack usage history so accounts-status reflects the current pack
+        if product.account_id and product.model_id:
+            from app.models.photo_pack import PhotoPack
+            # Get all pack IDs for this model
+            model_packs = await db.execute(
+                select(PhotoPack.id).where(PhotoPack.model_id == product.model_id)
             )
-            for old in old_usage.scalars().all():
-                await db.delete(old)
-        # Record new usage
-        db.add(PackUsageHistory(
-            pack_id=int(pack_id),
-            account_id=product.account_id,
-            uniquified=False,
-        ))
+            model_pack_ids = [r[0] for r in model_packs.all()]
+            if model_pack_ids:
+                # Remove old usage records for this account + this model's packs
+                old_usage = await db.execute(
+                    select(PackUsageHistory).where(
+                        PackUsageHistory.account_id == product.account_id,
+                        PackUsageHistory.pack_id.in_(model_pack_ids),
+                    )
+                )
+                for old in old_usage.scalars().all():
+                    await db.delete(old)
+            # Record new usage
+            db.add(PackUsageHistory(
+                pack_id=int(pack_id),
+                account_id=product.account_id,
+                uniquified=False,
+            ))
 
     await db.commit()
     return JSONResponse({"ok": True, "images_added": count})

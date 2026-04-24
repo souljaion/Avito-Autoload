@@ -123,11 +123,15 @@ async function updateDescriptionTemplate(selectEl) {
 
 // ── Pack change ──
 async function changePack(pid, packId) {
-    if (!packId) return;
+    var body = packId ? { pack_id: parseInt(packId) } : { pack_id: null };
     try {
-        const resp = await fetch('/products/' + pid + '/pack', { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ pack_id: parseInt(packId) }) });
-        const data = await resp.json();
-        if (data.ok) showToast('Пак применён', false); else showToast(data.error, true);
+        var resp = await fetch('/products/' + pid + '/pack', {
+            method: 'PATCH', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body),
+        });
+        var data = await resp.json();
+        if (data.ok) { showToast('Пак применён', false); setTimeout(function() { location.reload(); }, 400); }
+        else showToast(data.error || 'Ошибка', true);
     } catch(e) { showToast('Ошибка сети', true); }
 }
 

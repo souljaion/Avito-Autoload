@@ -1242,6 +1242,35 @@ class TestPackUsage:
             assert 102 in by_product      # draft
             assert by_product[102]["state"] == "fresh"
 
+    @pytest.mark.asyncio
+    async def test_draft_with_packs_gets_dropdown_data(self):
+        """Draft product with model.photo_packs gets pack_usage + packs in context for dropdown."""
+        acc = _make_account(id=1, name="Parker")
+        pack = _make_photo_pack(id=10, name="Pack A")
+        p = _make_product(id=100, account_id=1, status="draft")
+        p.pack_id = 10
+        model = _make_model(id=1, products=[p], photo_packs=[pack])
+
+        mock_db = AsyncMock()
+        mock_db.execute = self._mock_with_pack_history(model, [acc])
+        app = _make_app(mock_db)
+
+        with patch("app.routes.models.templates") as mock_templates:
+            mock_templates.TemplateResponse.return_value = HTMLResponse("<html></html>")
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                await client.get("/models/1")
+
+            ctx = mock_templates.TemplateResponse.call_args[0][1]
+            # Photo packs available for dropdown
+            assert len(ctx["model"].photo_packs) == 1
+            assert ctx["model"].photo_packs[0].id == 10
+            # Draft product in context with pack_id set
+            products = ctx["account_groups"][0]["products"]
+            assert products[0].status == "draft"
+            assert products[0].pack_id == 10
+
 
 # ── POST /models/{id}/add-variant ────────────────────────────────────
 

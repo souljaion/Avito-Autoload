@@ -142,6 +142,10 @@
 .pack-hint--will-uniquify { background:#FAEEDA; color:#633806; }
 .pack-hint--no-pack { background:#f3f4f6; color:#6b7280; }
 
+/* Pack selector dropdown */
+.pack-select { font-size:11px; padding:3px 22px 3px 8px; border:0.5px solid #d1d5db; border-radius:4px; background:white; cursor:pointer; max-width:180px; font-family:inherit; }
+.pack-select:focus { outline:none; border-color:#534AB7; box-shadow:0 0 0 2px rgba(83,74,183,0.1); }
+
 .empty-placeholder { padding:20px 14px; text-align:center; color:#9ca3af; font-size:13px; }
 
 .groups-header { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:12px; flex-wrap:wrap; }
@@ -313,10 +317,23 @@
             <div class="product-card-info">
                 <div class="product-card-title" title="{{ p.title }}">{{ p.title }}</div>
                 {% set meta_parts = [] %}
+                {% if p.status not in ('draft', 'scheduled') %}
                 {% for pk in model.photo_packs if pk.id == p.pack_id %}{% if meta_parts.append(pk.name) %}{% endif %}{% endfor %}
+                {% endif %}
                 {% if p.size %}{% if meta_parts.append(p.size) %}{% endif %}{% endif %}
                 {% if p.price %}{% if meta_parts.append(p.price|int|string ~ ' \u20bd') %}{% endif %}{% endif %}
                 {% if meta_parts %}<div class="product-card-meta">{{ meta_parts|join(' \u00b7 ') }}</div>{% endif %}
+                {% if p.status in ('draft', 'scheduled') and model.photo_packs %}
+                <div style="margin-top:4px;">
+                    <label style="font-size:10px;color:#888780;margin-right:4px;">Пак:</label>
+                    <select class="pack-select" onchange="changePack({{ p.id }}, this.value)">
+                        <option value="">— без пака —</option>
+                        {% for pk in model.photo_packs %}
+                        <option value="{{ pk.id }}" {% if p.pack_id == pk.id %}selected{% endif %}>{{ pk.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% endif %}
                 {% if p.id in pack_usage.by_product %}
                 {% set pu = pack_usage.by_product[p.id] %}
                 {% if pu.state == 'no_pack' %}
