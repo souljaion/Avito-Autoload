@@ -1047,6 +1047,54 @@ class TestAccountGroups:
             assert groups[0]["state"] == "scheduled"
             assert groups[0]["state_label"] == "в расписании"
 
+    @pytest.mark.asyncio
+    async def test_draft_and_scheduled_get_edit_button(self):
+        """Draft and scheduled products are in context with correct status for edit button."""
+        acc = _make_account(id=1, name="Parker")
+        p1 = _make_product(id=10, account_id=1, status="draft")
+        p2 = _make_product(id=11, account_id=1, status="scheduled")
+        model = _make_model(id=1, products=[p1, p2])
+
+        mock_db = AsyncMock()
+        mock_db.execute = self._mock_execute_for_detail(model, [acc])
+        app = _make_app(mock_db)
+
+        with patch("app.routes.models.templates") as mock_templates:
+            mock_templates.TemplateResponse.return_value = HTMLResponse("<html></html>")
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                await client.get("/models/1")
+
+            ctx = mock_templates.TemplateResponse.call_args[0][1]
+            products = ctx["account_groups"][0]["products"]
+            statuses = {p.status for p in products}
+            assert "draft" in statuses
+            assert "scheduled" in statuses
+
+    @pytest.mark.asyncio
+    async def test_imported_does_not_get_edit_button(self):
+        """Imported products are in context — template should not render edit button."""
+        acc = _make_account(id=1, name="Parker")
+        p = _make_product(id=10, account_id=1, avito_id=100, status="imported")
+        model = _make_model(id=1, products=[p])
+
+        mock_db = AsyncMock()
+        mock_db.execute = self._mock_execute_for_detail(model, [acc])
+        app = _make_app(mock_db)
+
+        with patch("app.routes.models.templates") as mock_templates:
+            mock_templates.TemplateResponse.return_value = HTMLResponse("<html></html>")
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                await client.get("/models/1")
+
+            ctx = mock_templates.TemplateResponse.call_args[0][1]
+            products = ctx["account_groups"][0]["products"]
+            assert len(products) == 1
+            assert products[0].status == "imported"
+
 
 # ── POST /models/{id}/add-variant ────────────────────────────────────
 

@@ -302,10 +302,12 @@
                 {% endif %}
                 <span style="white-space:nowrap;">
                     {% if p.status == 'draft' %}
+                        <button class="btn btn-sm btn-outline" title="Редактировать" onclick="openInlineEdit({{ p.id }})">&#x270E; Редактировать</button>
                         <button class="btn btn-sm btn-outline" onclick="scheduleOneNow({{ p.id }})">В расписание</button>
                         <button class="btn btn-sm btn-purple" onclick="publishOneNow({{ p.id }})">Выложить сразу</button>
                         <button class="btn btn-sm btn-outline-danger" title="Удалить" onclick="softDelete({{ p.id }},'{{ p.title[:30]|e }}','draft')">&#x2715;</button>
                     {% elif p.status == 'scheduled' %}
+                        <button class="btn btn-sm btn-outline" title="Редактировать" onclick="openInlineEdit({{ p.id }})">&#x270E; Редактировать</button>
                         <button class="btn btn-sm btn-outline-danger" title="Удалить" onclick="softDelete({{ p.id }},'{{ p.title[:30]|e }}','scheduled')">&#x2715;</button>
                     {% elif p.status in ('active','published','imported') %}
                         {% if p.avito_id %}<a href="https://www.avito.ru/items/{{ p.avito_id }}" target="_blank" class="btn btn-sm btn-outline">На Авито</a>{% endif %}
