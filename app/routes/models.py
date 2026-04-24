@@ -481,7 +481,7 @@ async def model_detail(request: Request, model_id: int, db: AsyncSession = Depen
             "products": acc_products,
             "state": state,
             "state_label": _STATE_LABELS.get(state, state),
-            "product_count": len(acc_products),
+            "product_count": sum(1 for p in acc_products if p.status != "removed"),
         })
 
     account_groups.sort(key=lambda g: _STATE_PRIORITY.get(g["state"], 99))
