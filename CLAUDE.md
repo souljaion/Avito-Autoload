@@ -152,7 +152,7 @@ avito-autoload/
 │   ├── env.py                  # Async migration runner
 │   └── versions/               # 27+ миграций
 ��
-├── tests/                      # 61 тест-файл, 922 теста
+├── tests/                      # 61 тест-файл, 939 тестов
 │   ├── conftest.py             # Hard guard от запуска на prod DB
 │   ├── test_models_routes.py   # 89K — самый большой тест
 │   ├── test_products_routes.py # 79K
@@ -288,7 +288,7 @@ sudo systemctl restart avito-autoload
 
 - Формат: Avito Autoload XML v3 (`feed_generator.py`, lxml)
 - URL: `GET /feeds/{feed_token}.xml` — публичный, без авторизации
-- Генерация: автоматически каждую минуту (за 5 мин до avito_sync_minute аккаунта)
+- Генерация: раз в час для каждого аккаунта (за 5 мин до avito_sync_minute). Задержка до ~1ч от создания scheduled до видимости в фиде
 - Содержимое: active + scheduled + imported (если ready) + removed (< 48ч)
 - Removed товары: минимальный `<Ad>` с Id + AvitoId + `<Status>Removed</Status>`
 - **Avito не имеет API для удаления** — только через фид Status=Removed
@@ -366,7 +366,7 @@ Category → GoodsType → Subcategory (ApparelType) → GoodsSubType
 - Fixtures: `db` (transactional rollback), `isolated_db` (для commit-тестов), `auth_headers`, `client`
 - Hard guard против prod DB в conftest.py
 - Session-scoped seed fixture для account id=1
-- Тесты: 922 passed, 1 skipped. Отдельная БД `avito_autoload_test`
+- Тесты: 939 passed, 1 skipped. Отдельная БД `avito_autoload_test`
 
 ### Логиров��ние
 
@@ -415,7 +415,7 @@ Category → GoodsType → Subcategory (ApparelType) → GoodsSubType
 
 - **CI:** GitHub Actions → PostgreSQL 14 service, `alembic upgrade head`, `pytest`
 - **CD:** GitHub Actions → SSH deploy (pull + pip install + migrate + restart)
-- Тесты: 922 passed, Python 3.12
+- Тесты: 939 passed, Python 3.12
 
 ### Деплой
 
